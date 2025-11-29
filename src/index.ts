@@ -1,0 +1,133 @@
+import express, { Express, Request, Response, NextFunction } from 'express';
+import cors from 'cors';
+import { appConfig } from './config/app.config';
+import { databaseService } from './services/database.service';
+import { cacheService } from './services/cache.service';
+import { logger } from './services/logger.service';
+import { AppError } from './utils/errors';
+
+// Import routes
+import ocpiRoutes from './api/ocpi/routes';
+import adminAuthRoutes from './api/admin/auth.routes';
+import adminOCPISetupRoutes from './api/admin/ocpi-setup.routes';
+import adminLocationsRoutes from './api/admin/locations.routes';
+import adminTariffsRoutes from './api/admin/tariffs.routes';
+import healthRoutes from './api/health/routes';
+
+const app: Express = express();
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+import { v4 as uuidv4 } from 'uuid';
+
+// Request logging middleware
+app.use((req: Request, res: Response, next: NextFunction) => {
+    const correlationId = uuidv4();
+    logger.setCorrelationId(correlationId);
+    req.headers['x-correlation-id'] = correlationId;
+
+    logger.info('Incoming request', {
+        method: req.method,
+        path: req.path,
+        correlationId,
+    });
+
+    next();
+});
+
+// Routes
+app.use('/api/ocpi/2.2.1', ocpiRoutes);
+app.use('/api/admin/auth', adminAuthRoutes);
+app.use('/api/admin/ocpi', adminOCPISetupRoutes);
+app.use('/api/admin/locations', adminLocationsRoutes);
+app.use('/api/admin/tariffs', adminTariffsRoutes);
+app.use('/api/health', healthRoutes);
+
+// Root endpoint
+app.get('/', (req: Request, res: Response) => {
+    res.json({
+        name: 'UBC OCPI Adaptor',
+        version: '1.0.0',
+        status: 'running',
+    });
+});
+
+// Error handling middleware
+app.use((error: Error, req: Request, res: Response, next: NextFunction) => {
+    logger.error('Unhandled error', error, {
+        path: req.path,
+        method: req.method,
+    });
+
+    if (error instanceof AppError) {
+        return res.status(error.statusCode).json({
+            success: false,
+            error: error.message,
+            ...(error instanceof Error && 'details' in error
+                ? { details: (error as any).details }
+                : {}),
+        });
+    }
+
+    res.status(500).json({
+        success: false,
+        error: 'Internal server error',
+        message: appConfig.nodeEnv === 'development' ? error.message : undefined,
+    });
+});
+
+// 404 handler
+app.use((req: Request, res: Response) => {
+    res.status(404).json({
+        success: false,
+        error: 'Not found',
+        path: req.path,
+    });
+});
+
+// Graceful shutdown
+const shutdown = async () => {
+    logger.info('Shutting down gracefully...');
+
+    try {
+        await databaseService.disconnect();
+        await cacheService.disconnect();
+        process.exit(0);
+    }
+    catch (error) {
+        logger.error('Error during shutdown', error as Error);
+        process.exit(1);
+    }
+};
+
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
+
+// Start server
+const startServer = async () => {
+    try {
+        // Connect to database
+        await databaseService.connect();
+
+        // Test cache connection
+        await cacheService.set('health-check', { status: 'ok' }, 60);
+
+        app.listen(appConfig.port, () => {
+            logger.info(`Server started on port ${appConfig.port}`, {
+                environment: appConfig.nodeEnv,
+                port: appConfig.port,
+            });
+        });
+    }
+    catch (error) {
+        logger.error('Failed to start server', error as Error);
+        process.exit(1);
+    }
+};
+
+startServer();
+
+export default app;

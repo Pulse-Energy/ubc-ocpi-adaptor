@@ -1,0 +1,137 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model CpoConnection {
+  id            String    @id @default(uuid())
+  cpo_id        String    @unique
+  token         String
+  party_id      String
+  country_code  String
+  endpoints     Json // Store OCPI endpoints as JSON
+  status        String    @default("pending") // pending, registered, active, inactive
+  registered_at DateTime?
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+
+  @@map("cpo_connections")
+}
+
+model Location {
+  id           String   @id @default(uuid())
+  location_id  String   @unique
+  cpo_id       String
+  name         String?
+  address      Json? // Store address as JSON
+  coordinates  Json? // Store coordinates as JSON
+  evses        Json // Store EVSEs as JSON array
+  last_updated DateTime
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  sessions Session[]
+  cdrs     Cdr[]
+
+  @@index([cpo_id])
+  @@index([location_id])
+  @@map("locations")
+}
+
+model Tariff {
+  id           String   @id @default(uuid())
+  tariff_id    String   @unique
+  cpo_id       String
+  currency     String
+  elements     Json // Store tariff elements as JSON array
+  last_updated DateTime
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  @@index([cpo_id])
+  @@index([tariff_id])
+  @@map("tariffs")
+}
+
+model Session {
+  id              String    @id @default(uuid())
+  session_id      String    @unique
+  location_id     String
+  location        Location  @relation(fields: [location_id], references: [location_id])
+  evse_uid        String?
+  connector_id    String?
+  token           String
+  start_date_time DateTime
+  end_date_time   DateTime?
+  kwh             Float?
+  status          String    @default("ACTIVE") // ACTIVE, COMPLETED, INVALID
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+  cdrs            Cdr[]
+
+  @@index([session_id])
+  @@index([location_id])
+  @@map("sessions")
+}
+
+model Cdr {
+  id              String   @id @default(uuid())
+  cdr_id          String   @unique
+  session_id      String?
+  session         Session? @relation(fields: [session_id], references: [session_id])
+  location_id     String
+  location        Location @relation(fields: [location_id], references: [location_id])
+  evse_uid        String?
+  connector_id    String?
+  start_date_time DateTime
+  end_date_time   DateTime
+  total_cost      Float
+  currency        String
+  kwh             Float
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  @@index([cdr_id])
+  @@index([session_id])
+  @@index([location_id])
+  @@map("cdrs")
+}
+
+model SyncLog {
+  id            String    @id @default(uuid())
+  sync_type     String // locations, tariffs
+  status        String // success, failed, in_progress
+  records_count Int       @default(0)
+  started_at    DateTime  @default(now())
+  completed_at  DateTime?
+  error_message String?
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+
+  @@index([sync_type])
+  @@index([status])
+  @@map("sync_logs")
+}
+
+model ApiLog {
+  id            String   @id @default(uuid())
+  method        String
+  path          String
+  status_code   Int
+  request_body  Json?
+  response_body Json?
+  duration      Int? // Duration in milliseconds
+  created_at    DateTime @default(now())
+
+  @@index([path])
+  @@index([status_code])
+  @@index([created_at])
+  @@map("api_logs")
+}
