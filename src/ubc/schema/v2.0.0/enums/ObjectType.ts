@@ -1,0 +1,17 @@
+export enum ObjectType {
+    descriptor = "beckn:Descriptor",
+    buyer = "beckn:Buyer",
+    seller = "beckn:Seller",
+    order = "beckn:Order",
+    item = "beckn:Item",
+    payment = "beckn:Payment",
+    fulfillment = "beckn:Fulfillment",
+    offer = "beckn:Offer",
+    price = "beckn:Price",
+    validity = "beckn:Validity",
+    acceptedPaymentMethod = "beckn:AcceptedPaymentMethod",
+    offerAttributes = "beckn:OfferAttributes",
+    chargingOffer = "ChargingOffer",
+    chargingSession = "ChargingSession",
+    timePeriod = "beckn:TimePeriod",
+};
