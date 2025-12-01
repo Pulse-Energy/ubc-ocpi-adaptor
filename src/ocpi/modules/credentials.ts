@@ -1,11 +1,39 @@
 import axios from 'axios';
+import { Request } from 'express';
 import { databaseService } from '../../services/database.service';
 import { logger } from '../../services/logger.service';
+import { HttpResponse } from '../../types/responses';
 import { ValidationError } from '../../utils/errors';
+import { OCPIResponsePayload } from '../schema/general/types/responses';
 import { OCPICredentials, OCPIResponse } from '../types';
 import { credentialsSchema } from '../validators';
 
 export class CredentialsModule {
+
+    public static async handleGetCredentials(req: Request): Promise<HttpResponse<OCPIResponsePayload<OCPICredentials>>> {
+        const registrationToken = req.headers.authorization?.replace('Token ', '') || '';
+        const cpoUrl = req.body.url || '';
+
+        const credentials = {
+            token: '1234567890',
+            url: 'https://example.com',
+            business_details: {
+                name: 'Example',
+            },
+            party_id: '1234567890',
+            country_code: 'US',
+        } as OCPICredentials;
+
+        return {
+            httpStatus: 200,
+            payload: {
+                status_code: 1000,
+                data: credentials,
+                timestamp: new Date().toISOString(),
+            },
+        };
+    }
+
     async register(
         registrationToken: string,
         cpoUrl: string

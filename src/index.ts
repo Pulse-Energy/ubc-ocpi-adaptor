@@ -7,11 +7,11 @@ import { logger } from './services/logger.service';
 import { AppError } from './utils/errors';
 
 // Import routes
-import ocpiRoutes from './api/ocpi/routes';
-import adminAuthRoutes from './api/admin/auth.routes';
-import adminOCPISetupRoutes from './api/admin/ocpi-setup.routes';
-import adminLocationsRoutes from './api/admin/locations.routes';
-import adminTariffsRoutes from './api/admin/tariffs.routes';
+import ocpiRoutes from './ocpi/ocpi-router';
+import adminAuthRoutes from './admin/routes/admin/auth.routes';
+import adminOCPISetupRoutes from './admin/routes/ocpi/ocpi-setup.routes';
+import adminLocationsRoutes from './admin/routes/ocpi/locations.routes';
+import adminTariffsRoutes from './admin/routes/ocpi/tariffs.routes';
 import healthRoutes from './api/health/routes';
 
 const app: Express = express();
@@ -39,7 +39,8 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 });
 
 // Routes
-app.use('/api/ocpi/2.2.1', ocpiRoutes);
+app.use('/ocpi', ocpiRoutes);
+
 app.use('/api/admin/auth', adminAuthRoutes);
 app.use('/api/admin/ocpi', adminOCPISetupRoutes);
 app.use('/api/admin/locations', adminLocationsRoutes);

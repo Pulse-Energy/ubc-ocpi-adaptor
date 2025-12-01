@@ -3,8 +3,8 @@ import { OCPILocation } from "../../modules/locations/types";
 import { OCPITariff } from "../../modules/tariffs/types";
 import { OCPIResponseStatusCode, OCPIResponseStatusMessage } from "../enum";
 
-export type OCPIResponsePayload = {
-    data?: any
+export type OCPIResponsePayload<T = any> = {
+    data?: T
     status_code: OCPIResponseStatusCode | number
     status_message?: string
     timestamp: ISODateTime

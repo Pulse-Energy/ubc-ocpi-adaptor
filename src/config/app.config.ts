@@ -4,7 +4,7 @@ dotenv.config();
 
 export const appConfig = {
     nodeEnv: process.env.NODE_ENV || 'development',
-    port: parseInt(process.env.PORT || '3000', 10),
+    port: parseInt(process.env.PORT || '6001', 10),
     jwtSecret: process.env.JWT_SECRET || 'change-me-in-production',
     jwtExpiresIn: process.env.JWT_EXPIRES_IN || '24h',
     ocpi: {

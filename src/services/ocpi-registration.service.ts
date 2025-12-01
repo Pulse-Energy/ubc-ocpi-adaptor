@@ -3,8 +3,8 @@ import { databaseService } from './database.service';
 import { logger } from './logger.service';
 import { ExternalServiceError } from '../utils/errors';
 
-export class OCPIRegistrationService {
-    async registerWithCPO(registrationToken: string, cpoUrl: string): Promise<void> {
+export default class OCPIRegistrationService {
+    public static async registerWithCPO(registrationToken: string, cpoUrl: string): Promise<void> {
         try {
             logger.info('Initiating OCPI registration', { cpoUrl });
 
@@ -29,7 +29,7 @@ export class OCPIRegistrationService {
         }
     }
 
-    async getRegistrationStatus(cpoId: string): Promise<{ status: string; registeredAt?: Date }> {
+    public static async getRegistrationStatus(cpoId: string): Promise<{ status: string; registeredAt?: Date }> {
         try {
             const credentials = await credentialsModule.getCredentials(cpoId);
 
