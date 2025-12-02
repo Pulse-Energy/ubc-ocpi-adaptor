@@ -10,101 +10,88 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model CpoConnection {
-  id            String    @id @default(uuid())
-  cpo_id        String    @unique
-  token         String
-  party_id      String
-  country_code  String
-  endpoints     Json // Store OCPI endpoints as JSON
-  status        String    @default("pending") // pending, registered, active, inactive
-  registered_at DateTime?
-  created_at    DateTime  @default(now())
-  updated_at    DateTime  @updatedAt
-
-  @@map("cpo_connections")
-}
 
 // OCPI 2.2.1 Location Model
-model OCPILocation {
-  id                   String   @id @default(uuid())
+model Location {
+  id                   String    @id @default(uuid())
+  ocpi_location_id     String
+  name                 String?
+  latitude             String // From coordinates
+  longitude            String // From coordinates
   country_code         String
   party_id             String
-  ocpi_location_id     String // OCPI id field
-  publish              Boolean  @default(false)
-  publish_allowed_to   Json? // OCPIPublishTokenType[]
-  name                 String?
-  address              String
   city                 String
   postal_code          String?
   state                String?
   country              String
-  latitude             String // From coordinates
-  longitude            String // From coordinates
-  related_locations    Json? // OCPIAdditionalGeoLocation[]
+  address              String
+  time_zone            String
   parking_type         String? // OCPIParkingType enum
+  related_locations    Json? // OCPIAdditionalGeoLocation[]
   directions           Json? // OCPIDisplayText[]
   operator             Json? // OCPIBusinessDetailsClass
   suboperator          Json? // OCPIBusinessDetailsClass
   owner                Json? // OCPIBusinessDetailsClass
-  facilities           Json? // OCPIFacility[]
-  time_zone            String
+  facilities           String[] // OCPIFacility[]
   opening_times        Json? // OCPIHours
-  charging_when_closed Boolean?
   images               Json? // OCPIImageClass[]
   energy_mix           Json? // OCPIEnergyMix
+  charging_when_closed Boolean?
+  publish              Boolean   @default(false)
+  publish_allowed_to   Json? // OCPIPublishTokenType[]
   last_updated         DateTime
-  created_at           DateTime @default(now())
-  updated_at           DateTime @updatedAt
+  deleted              Boolean   @default(false)
+  deleted_at           DateTime?
+  created_at           DateTime  @default(now())
+  updated_at           DateTime  @updatedAt
 
   // Relations
-  ocpi_evse    OCPIEVSE[]
-  ocpi_session Session[]
-  ocpi_cdr     Cdr[]
+  evses EVSE[]
 
-  @@unique([country_code, party_id, ocpi_location_id])
+  @@unique([country_code, party_id])
   @@index([country_code, party_id])
-  @@index([ocpi_location_id])
-  @@map("ocpi_location")
+  @@map("location")
 }
 
 // OCPI 2.2.1 EVSE Model
-model OCPIEVSE {
-  id                      String       @id @default(uuid())
+model EVSE {
+  id                      String    @id @default(uuid())
   location_id             String
-  location                OCPILocation @relation(fields: [location_id], references: [id], onDelete: Cascade)
+  location                Location  @relation(fields: [location_id], references: [id], onDelete: Cascade)
   uid                     String
   evse_id                 String?
   status                  String // OCPIStatus enum
   status_schedule         Json? // OCPIStatusSchedule[]
-  capabilities            Json? // OCPICapability[]
+  capabilities            String[] // OCPICapability[]
   floor_level             String?
   latitude                String? // From coordinates
   longitude               String? // From coordinates
   physical_reference      String?
   directions              Json? // OCPIDisplayText[]
-  parking_restrictions    Json? // OCPIParkingRestriction[]
+  parking_restrictions    String[] // OCPIParkingRestriction[]
   images                  Json? // OCPIImageClass[]
   status_errorcode        String?
   status_errordescription String?
   last_updated            DateTime
-  created_at              DateTime     @default(now())
-  updated_at              DateTime     @updatedAt
+  deleted                 Boolean   @default(false)
+  deleted_at              DateTime?
+  created_at              DateTime  @default(now())
+  updated_at              DateTime  @updatedAt
 
   // Relations
-  ocpi_connector OCPIConnector[]
+  evse_connectors EVSEConnector[]
 
   @@unique([location_id, uid])
   @@index([uid])
   @@index([location_id])
-  @@map("ocpi_evse")
+  @@map("evse")
 }
 
 // OCPI 2.2.1 Connector Model
-model OCPIConnector {
-  id                   String   @id @default(uuid())
+model EVSEConnector {
+  id                   String    @id @default(uuid())
   evse_id              String
-  evse                 OCPIEVSE @relation(fields: [evse_id], references: [id], onDelete: Cascade)
+  evse                 EVSE      @relation(fields: [evse_id], references: [id], onDelete: Cascade)
   connector_id         String // OCPI id field
   standard             String // OCPIConnectorType enum
   format               String // OCPIConnectorFormat enum
@@ -116,189 +103,86 @@ model OCPIConnector {
   tariff_ids           String[] // Array of tariff IDs
   terms_and_conditions String? // URL
   last_updated         DateTime
-  created_at           DateTime @default(now())
-  updated_at           DateTime @updatedAt
+  deleted              Boolean   @default(false)
+  deleted_at           DateTime?
+  created_at           DateTime  @default(now())
+  updated_at           DateTime  @updatedAt
 
   @@unique([evse_id, connector_id])
   @@index([evse_id])
-  @@map("ocpi_connectors")
+  @@map("evse_connector")
 }
 
 // OCPI 2.2.1 Tariff Model
-model OCPITariff {
-  id              String    @id @default(uuid())
-  country_code    String
-  party_id        String
-  ocpi_tariff_id  String // OCPI id field
-  currency        String
-  type            String? // OCPITariffType enum
-  tariff_alt_text Json? // OCPIDisplayText[]
-  tariff_alt_url  String? // URL
-  min_price       Json? // OCPIPrice
-  max_price       Json? // OCPIPrice
-  start_date_time DateTime?
-  end_date_time   DateTime?
-  energy_mix      Json? // OCPIEnergyMix
-  last_updated    DateTime
-  created_at      DateTime  @default(now())
-  updated_at      DateTime  @updatedAt
-
-  // Relations
-  ocpi_tariff_element OCPITariffElement[]
+model Tariff {
+  id                  String    @id @default(uuid())
+  country_code        String
+  party_id            String
+  ocpi_tariff_id      String // OCPI id field
+  currency            String
+  type                String? // OCPITariffType enum
+  tariff_alt_text     Json? // OCPIDisplayText[]
+  tariff_alt_url      String? // URL
+  min_price           Json? // OCPIPrice
+  max_price           Json? // OCPIPrice
+  start_date_time     DateTime?
+  end_date_time       DateTime?
+  energy_mix          Json? // OCPIEnergyMix
+  last_updated        DateTime
+  created_at          DateTime  @default(now())
+  updated_at          DateTime  @updatedAt
+  ocpi_tariff_element Json?
 
   @@unique([country_code, party_id, ocpi_tariff_id])
   @@index([country_code, party_id])
   @@index([ocpi_tariff_id])
-  @@map("ocpi_tariffs")
+  @@map("tariff")
 }
 
-// OCPI 2.2.1 Tariff Element Model
-model OCPITariffElement {
-  id           String     @id @default(uuid())
-  tariff_id    String
-  tariff       OCPITariff @relation(fields: [tariff_id], references: [id], onDelete: Cascade)
-  restrictions Json? // OCPITariffRestrictions
-  created_at   DateTime   @default(now())
-  updated_at   DateTime   @updatedAt
+// model CpoConnection {
+//   id            String    @id @default(uuid())
+//   cpo_id        String    @unique
+//   token         String
+//   party_id      String
+//   country_code  String
+//   endpoints     Json // Store OCPI endpoints as JSON
+//   status        String    @default("pending") // pending, registered, active, inactive
+//   registered_at DateTime?
+//   created_at    DateTime  @default(now())
+//   updated_at    DateTime  @updatedAt
 
-  // Relations
-  ocpi_price_component OCPIPriceComponent[]
+//   @@map("cpo_connections")
+// }
 
-  @@index([tariff_id])
-  @@map("ocpi_tariff_elements")
-}
 
-// OCPI 2.2.1 Price Component Model
-model OCPIPriceComponent {
-  id         String            @id @default(uuid())
-  element_id String
-  element    OCPITariffElement @relation(fields: [element_id], references: [id], onDelete: Cascade)
-  type       String // OCPITariffDimensionType enum
-  price      Float
-  vat        Float?
-  step_size  BigInt
-  created_at DateTime          @default(now())
-  updated_at DateTime          @updatedAt
+// model SyncLog {
+//   id            String    @id @default(uuid())
+//   sync_type     String // locations, tariffs
+//   status        String // success, failed, in_progress
+//   records_count Int       @default(0)
+//   started_at    DateTime  @default(now())
+//   completed_at  DateTime?
+//   error_message String?
+//   created_at    DateTime  @default(now())
+//   updated_at    DateTime  @updatedAt
 
-  @@index([element_id])
-  @@map("ocpi_price_components")
-}
+//   @@index([sync_type])
+//   @@index([status])
+//   @@map("sync_logs")
+// }
 
-// Legacy Location model (keeping for backward compatibility)
-model Location {
-  id           String   @id @default(uuid())
-  location_id  String   @unique
-  cpo_id       String
-  name         String?
-  address      Json? // Store address as JSON
-  coordinates  Json? // Store coordinates as JSON
-  evses        Json // Store EVSEs as JSON array
-  last_updated DateTime
-  created_at   DateTime @default(now())
-  updated_at   DateTime @updatedAt
+// model ApiLog {
+//   id            String   @id @default(uuid())
+//   method        String
+//   path          String
+//   status_code   Int
+//   request_body  Json?
+//   response_body Json?
+//   duration      Int? // Duration in milliseconds
+//   created_at    DateTime @default(now())
 
-  sessions Session[]
-  cdrs     Cdr[]
-
-  @@index([cpo_id])
-  @@index([location_id])
-  @@map("locations")
-}
-
-// Legacy Tariff model (keeping for backward compatibility)
-model Tariff {
-  id           String   @id @default(uuid())
-  tariff_id    String   @unique
-  cpo_id       String
-  currency     String
-  elements     Json // Store tariff elements as JSON array
-  last_updated DateTime
-  created_at   DateTime @default(now())
-  updated_at   DateTime @updatedAt
-
-  @@index([cpo_id])
-  @@index([tariff_id])
-  @@map("tariffs")
-}
-
-model Session {
-  id               String        @id @default(uuid())
-  session_id       String        @unique
-  location_id      String?
-  location         Location?     @relation(fields: [location_id], references: [location_id])
-  ocpi_location_id String?
-  ocpi_location    OCPILocation? @relation(fields: [ocpi_location_id], references: [id])
-  evse_uid         String?
-  connector_id     String?
-  token            String
-  start_date_time  DateTime
-  end_date_time    DateTime?
-  kwh              Float?
-  status           String        @default("ACTIVE") // ACTIVE, COMPLETED, INVALID
-  created_at       DateTime      @default(now())
-  updated_at       DateTime      @updatedAt
-  cdrs             Cdr[]
-
-  @@index([session_id])
-  @@index([location_id])
-  @@index([ocpi_location_id])
-  @@map("sessions")
-}
-
-model Cdr {
-  id               String        @id @default(uuid())
-  cdr_id           String        @unique
-  session_id       String?
-  session          Session?      @relation(fields: [session_id], references: [session_id])
-  location_id      String?
-  location         Location?     @relation(fields: [location_id], references: [location_id])
-  ocpi_location_id String?
-  ocpi_location    OCPILocation? @relation(fields: [ocpi_location_id], references: [id])
-  evse_uid         String?
-  connector_id     String?
-  start_date_time  DateTime
-  end_date_time    DateTime
-  total_cost       Float
-  currency         String
-  kwh              Float
-  created_at       DateTime      @default(now())
-  updated_at       DateTime      @updatedAt
-
-  @@index([cdr_id])
-  @@index([session_id])
-  @@index([location_id])
-  @@index([ocpi_location_id])
-  @@map("cdrs")
-}
-
-model SyncLog {
-  id            String    @id @default(uuid())
-  sync_type     String // locations, tariffs
-  status        String // success, failed, in_progress
-  records_count Int       @default(0)
-  started_at    DateTime  @default(now())
-  completed_at  DateTime?
-  error_message String?
-  created_at    DateTime  @default(now())
-  updated_at    DateTime  @updatedAt
-
-  @@index([sync_type])
-  @@index([status])
-  @@map("sync_logs")
-}
-
-model ApiLog {
-  id            String   @id @default(uuid())
-  method        String
-  path          String
-  status_code   Int
-  request_body  Json?
-  response_body Json?
-  duration      Int? // Duration in milliseconds
-  created_at    DateTime @default(now())
-
-  @@index([path])
-  @@index([status_code])
-  @@index([created_at])
-  @@map("api_logs")
-}
+//   @@index([path])
+//   @@index([status_code])
+//   @@index([created_at])
+//   @@map("api_logs")
+// }

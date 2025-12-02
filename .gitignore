@@ -30,8 +30,6 @@ yarn-error.log*
 coverage/
 .nyc_output/
 
-# Prisma
-prisma/migrations/
 
 # OS
 .DS_Store
