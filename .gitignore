@@ -38,3 +38,6 @@ Thumbs.db
 # Docker
 .dockerignore
 
+
+tariff-reference/
+ocpiDOC/

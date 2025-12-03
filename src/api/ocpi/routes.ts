@@ -3,6 +3,8 @@ import { HttpResponse } from '../../types/responses';
 import { logger } from '../../services/logger.service';
 import { AppError } from '../../utils/errors';
 import OCPIv221LocationsModuleOutgoingRequestService from '../../ocpi/modules/v2.2.1/emsp/locations/OCPIv221LocationsModuleOutgoingRequestService';
+import OCPIv221TariffsModuleOutgoingRequestService from '../../ocpi/modules/v2.2.1/emsp/tariffs/OCPIv221TariffsModuleOutgoingRequestService';
+import OCPIv221TariffsModuleIncomingRequestService from '../../ocpi/modules/v2.2.1/emsp/tariffs/OCPIv221TariffsModuleIncomingRequestService';
 
 const router = Router();
 
@@ -48,6 +50,40 @@ router.get(
     ocpiApiAuth,
     async (req: Request, res: Response, next: NextFunction) =>
         handleRequest(req, res, next, OCPIv221LocationsModuleOutgoingRequestService.sendGetLocation),
+);
+
+// Get tariffs from database (incoming - returns stored tariffs)
+router.get(
+    '/tariffs',
+    ocpiApiAuth,
+    async (req: Request, res: Response, next: NextFunction) =>
+        handleRequest(req, res, next, OCPIv221TariffsModuleIncomingRequestService.handleGetTariffs),
+);
+
+// OCPI 2.2.1 compliant route with country_code and party_id (incoming)
+// IMPORTANT: This route must come before /tariffs/:tariff_id to avoid routing conflicts
+router.get(
+    '/tariffs/:country_code/:party_id/:tariff_id',
+    ocpiApiAuth,
+    async (req: Request, res: Response, next: NextFunction) =>
+        handleRequest(req, res, next, OCPIv221TariffsModuleIncomingRequestService.handleGetTariff),
+);
+
+
+// Trigger a GET Tariffs towards CPO, store results in DB, and return OCPI payload (outgoing)
+router.post(
+    '/tariffs/fetch',
+    ocpiApiAuth,
+    async (req: Request, res: Response, next: NextFunction) =>
+        handleRequest(req, res, next, OCPIv221TariffsModuleOutgoingRequestService.sendGetTariffs),
+);
+
+// Get a single tariff from DB; if missing, fetch from CPO, store, then return (outgoing)
+router.post(
+    '/tariffs/:tariff_id/fetch',
+    ocpiApiAuth,
+    async (req: Request, res: Response, next: NextFunction) =>
+        handleRequest(req, res, next, OCPIv221TariffsModuleOutgoingRequestService.sendGetTariff),
 );
 
 // Error handling for this router

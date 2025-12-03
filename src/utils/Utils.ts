@@ -66,7 +66,7 @@ export default class Utils {
                     {
                         identifier: 'tariffs',
                         role: 'SENDER',
-                        url: 'https://ubc-local-cpo-ocpi.pulseenergy.io/ocpi/cpo/2.2.1/tariffs'
+                        url: 'https://dev-api.chargecloud.net/ocpi/cpo/2.2.1/tariffs'
                     },
                     {
                         identifier: 'tokens',
