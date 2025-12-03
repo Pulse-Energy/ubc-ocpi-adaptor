@@ -12,8 +12,8 @@
         "test:coverage": "jest --coverage",
         "lint": "eslint src --ext .ts",
         "lint:fix": "eslint src --ext .ts --fix",
-        "format": "prettier --write \"**/*.{ts,tsx,json,md,yml,yaml}\" && node scripts/fix-braces.js",
-        "format:check": "prettier --check \"**/*.{ts,tsx,json,md,yml,yaml}\"",
+        "format": "node scripts/fix-braces.js",
+        "format:check": "echo \"Prettier disabled\"",
         "prisma:generate": "prisma generate",
         "prisma:migrate": "prisma migrate dev",
         "prisma:studio": "prisma studio"

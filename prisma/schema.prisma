@@ -47,7 +47,7 @@ model Location {
   // Relations
   evses EVSE[]
 
-  @@unique([country_code, party_id])
+  @@unique([country_code, party_id, ocpi_location_id])
   @@index([country_code, party_id])
   @@map("location")
 }
