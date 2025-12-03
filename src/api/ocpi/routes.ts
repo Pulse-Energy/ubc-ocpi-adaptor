@@ -6,7 +6,7 @@ import OCPIv221LocationsModuleOutgoingRequestService from '../../ocpi/modules/v2
 
 const router = Router();
 
-type AnyHttpResponse = HttpResponse<any, Record<string, string>>;
+type AnyHttpResponse = HttpResponse<unknown, Record<string, string>>;
 
 async function handleRequest(
     req: Request,
@@ -16,7 +16,16 @@ async function handleRequest(
 ) {
     try {
         const response = await controller(req);
-        res.status(response.httpStatus || 200).json(response.payload);
+
+        // Strip BigInt from payload so JSON.stringify does not fail
+        const safePayload = JSON.parse(
+            JSON.stringify(
+                response.payload,
+                (_key, value) => (typeof value === 'bigint' ? Number(value) : value),
+            ),
+        );
+
+        res.status(response.httpStatus || 200).json(safePayload);
         if (response.headers) {
             Object.entries(response.headers).forEach(([key, value]) => {
                 res.setHeader(key, value);
@@ -51,17 +60,18 @@ router.get(
 );
 
 // Error handling for this router
-router.use((error: Error, req: Request, res: Response, _next: NextFunction) => {
+router.use((error: Error, req: Request, res: Response) => {
     logger.error('OCPI API (internal) error', error, {
         path: req.path,
         method: req.method,
     });
 
     if (error instanceof AppError) {
-        return res.status(error.statusCode).json({
+        res.status(error.statusCode).json({
             success: false,
             error: error.message,
         });
+        return;
     }
 
     res.status(500).json({
