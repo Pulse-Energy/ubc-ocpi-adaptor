@@ -8,6 +8,7 @@ import { AppError } from './utils/errors';
 
 // Import routes
 import ocpiRoutes from './ocpi/ocpi-router';
+import ubcRoutes from './ubc/ubc-router';
 import adminAuthRoutes from './admin/routes/admin/auth.routes';
 import adminOCPISetupRoutes from './admin/routes/ocpi/ocpi-setup.routes';
 import adminLocationsRoutes from './admin/routes/ocpi/locations.routes';
@@ -40,6 +41,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
 // Routes
 app.use('/ocpi', ocpiRoutes);
+app.use('/ubc', ubcRoutes);
 
 app.use('/api/admin/auth', adminAuthRoutes);
 app.use('/api/admin/ocpi', adminOCPISetupRoutes);
