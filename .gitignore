@@ -39,5 +39,6 @@ Thumbs.db
 .dockerignore
 
 
+# Gagan Personal, will remove later
 tariff-reference/
 ocpiDOC/
