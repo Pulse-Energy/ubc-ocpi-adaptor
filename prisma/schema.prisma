@@ -295,3 +295,55 @@ model Token {
   @@index([valid])
   @@map("token")
 }
+
+// OCPI Partner (CPO) integration metadata
+model OCPIPartner {
+  id           String   @id @default(uuid())
+  name         String?
+  country_code String
+  party_id     String
+  versions_url String
+  status       String   @default("INIT") // INIT | VERSIONS_OK | TOKEN_EXCHANGED | ACTIVE | ERROR
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  credentials OCPICredentials?
+  endpoints   OCPIPartnerEndpoint[]
+
+  @@index([country_code, party_id])
+  @@map("ocpi_partners")
+}
+
+// OCPI credentials exchanged during handshake for a given partner
+model OCPICredentials {
+  id                  String      @id @default(uuid())
+  partner_id          String      @unique
+  partner             OCPIPartner @relation(fields: [partner_id], references: [id], onDelete: Cascade)
+
+  cpo_auth_token      String?     // for initial GET /versions, if applicable
+  emsp_auth_token     String?     // token the CPO uses to call this EMSP
+
+  cpo_url String?     // CPO credentials URL
+  emsp_url String?    // EMSP credentials URL exposed to CPO
+
+  created_at          DateTime    @default(now())
+  updated_at          DateTime    @updatedAt
+
+  @@map("ocpi_credentials")
+}
+
+// OCPI endpoints advertised by a partner for a specific version
+model OCPIPartnerEndpoint {
+  id         String      @id @default(uuid())
+  partner_id String
+  partner    OCPIPartner @relation(fields: [partner_id], references: [id], onDelete: Cascade)
+  version    String      // e.g. "2.2.1"
+  module     String      // e.g. "locations", "tariffs"
+  role       String      // "SENDER" | "RECEIVER"
+  url        String
+
+  created_at DateTime    @default(now())
+
+  @@index([partner_id])
+  @@map("ocpi_endpoints")
+}
