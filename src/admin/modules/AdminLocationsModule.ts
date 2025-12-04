@@ -1,121 +1,161 @@
-import { Request } from "express";
-import { HttpResponse } from "../../types/responses";
-import { AdminResponsePayload } from "../types/responses";
-import { ValidationError } from "../../utils/errors";
-import { LocationsClient } from "../../ocpi/client/locations-client";
-import { locationsModule } from "../../ocpi/modules/locations";
-import { logger } from "../../services/logger.service";
-import { syncService } from "../../services/sync.service";
+import { Request } from 'express';
+import { HttpResponse } from '../../types/responses';
+import { OCPILocation } from '../../ocpi/schema/modules/locations/types';
+import {
+    OCPILocationResponse,
+    OCPILocationsResponse,
+} from '../../ocpi/schema/modules/locations/types/responses';
+import OCPIResponseService from '../../ocpi/services/OCPIResponseService';
+import OCPIOutgoingRequestService from '../../ocpi/services/OCPIOutgoingRequestService';
+import { getOcpiCpoAuthToken } from '../../ocpi/utils/ocpi-auth-token';
+import Utils from '../../utils/Utils';
+import { LocationDbService, LocationWithRelations } from '../../services/location-db.service';
 
 export default class AdminLocationsModule {
-    public static async fetchLocations(req: Request): Promise<HttpResponse<AdminResponsePayload<any>>> {
-        const { cpoId, cpoUrl } = req.body;
+    public static async sendGetLocations(
+        req: Request
+    ): Promise<HttpResponse<OCPILocationsResponse>> {
+        try {
+            const baseUrl = AdminLocationsModule.getLocationsEndpointUrl('SENDER');
 
-        if (!cpoId || !cpoUrl) {
-            throw new ValidationError('CPO ID and CPO URL are required');
-        }
+            const limit = req.query.limit ? Number(req.query.limit) : undefined;
+            const offset = req.query.offset ? Number(req.query.offset) : undefined;
 
-        const client = new LocationsClient(cpoId, cpoUrl);
-        const locations = await client.fetchLocations();
+            const url = AdminLocationsModule.appendQueryParams(baseUrl, { limit, offset });
 
-        // Store locations in database
-        let stored = 0;
-        for (const location of locations) {
-            try {
-                await locationsModule.putLocation(location.id, location, cpoId);
-                stored++;
+            const authToken = getOcpiCpoAuthToken();
+            const response = await OCPIOutgoingRequestService.sendGetRequest({
+                url,
+                headers: {
+                    Authorization: OCPIOutgoingRequestService.getAuthorizationHeader(
+                        url,
+                        authToken,
+                    ),
+                },
+            });
+
+            const payload = response.data as OCPILocationsResponse;
+
+            if (!payload || !payload.data || !Array.isArray(payload.data)) {
+                return OCPIResponseService.clientError<unknown>({
+                    message: 'Invalid response format from CPO locations endpoint',
+                }) as HttpResponse<OCPILocationsResponse>;            
             }
-            catch (error) {
-                const err = error instanceof Error ? error : new Error(String(error));
-                logger.error('Error storing location', err, { locationId: location.id });
+
+            // Persist all locations (including EVSEs and connectors) into DB
+            for (const ocpiLocation of payload.data) {
+                await LocationDbService.upsertFromOcpiLocation(ocpiLocation);
             }
-        }
 
-        return {
-            payload: {
-                data: {
-                    success: true,
-                    fetched: locations.length,
-                    stored,
-                    message: `Fetched ${locations.length} locations, stored ${stored}`,
-                },
-            },
-        };
-    }
-
-    public static async syncToCDS(req: Request): Promise<HttpResponse<AdminResponsePayload<any>>> {
-        const { locationId } = req.body;
-
-        if (locationId) {
-            // Sync single location
-            await syncService.syncLocationToCDS(locationId);
             return {
-                payload: {
-                    data: {
-                        success: true,
-                        message: `Location ${locationId} synced to CDS`,
-                    },
-                },
-            };
+                httpStatus: 200,
+                payload,
+            };        
         }
-        else {
-            // Sync all locations
-            const result = await syncService.syncAllLocationsToCDS();
-            const { success: successCount, failed } = result;
-            return {
-                payload: {
-                    data: {
-                        success: true,
-                        message: `Synced ${successCount} locations to CDS, ${failed} failed`,
-                        successCount,
-                        failed,
-                    },
-                },
-            };
+        catch (error) {
+            return OCPIResponseService.serverError<unknown>({
+                message: 'Failed to fetch locations from CPO',
+                error,
+            }) as HttpResponse<OCPILocationsResponse>;        
         }
     }
 
-    public static async getLocations(req: Request): Promise<HttpResponse<AdminResponsePayload<any>>> {
-        const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
-        const offset = req.query.offset ? parseInt(req.query.offset as string) : undefined;
-
-        const locations = await locationsModule.getLocations(limit, offset);
-
-        return {
-            payload: {
-                data: {
-                    success: true,
-                    data: locations,
-                    count: locations.length,
-                },
-            },
-        };
-    }
-
-    public static async getLocation(req: Request): Promise<HttpResponse<AdminResponsePayload<any>>> {
+    public static async sendGetLocation(
+        req: Request
+    ): Promise<HttpResponse<OCPILocationResponse>> {
         const locationId = req.params.location_id;
-        const location = await locationsModule.getLocation(locationId);
 
-        if (!location) {
-            return {
-                httpStatus: 404,
-                payload: {
-                    data: {
-                        success: false,
-                        message: 'Location not found',
-                    },
-                },
-            };
+        if (!locationId) {
+            return OCPIResponseService.clientError<unknown>({
+                message: 'location_id path parameter is required',
+            }) as HttpResponse<OCPILocationResponse>;
         }
 
-        return {
-            payload: {
-                data: {
-                    success: true,
-                    data: location,
+        try {
+            // First, try to fetch from DB cache
+            const cachedLocation: LocationWithRelations | null = await LocationDbService.findByOcpiLocationId(
+                locationId
+            );
+
+            if (cachedLocation) {
+                const ocpiLocation: OCPILocation = LocationDbService.mapPrismaLocationToOcpi(
+                    cachedLocation
+                );
+                return OCPIResponseService.success(ocpiLocation) as HttpResponse<OCPILocationResponse>;
+            }
+
+            // Not in DB, fetch from CPO
+            const baseUrl = AdminLocationsModule.getLocationsEndpointUrl('SENDER');
+            const url = `${baseUrl}/${encodeURIComponent(locationId)}`;
+            const authToken = getOcpiCpoAuthToken();
+
+            const response = await OCPIOutgoingRequestService.sendGetRequest({
+                url,
+                headers: {
+                    Authorization: OCPIOutgoingRequestService.getAuthorizationHeader(
+                        url,
+                        authToken,
+                    ),
                 },
-            },
-        };
+            });
+
+            const payload = response.data as OCPILocationResponse;
+
+            if (!payload || !payload.data) {
+                return OCPIResponseService.clientError<unknown>({
+                    message: 'Invalid response format from CPO location endpoint',
+                }) as HttpResponse<OCPILocationResponse>;
+            }
+
+            const stored = await LocationDbService.upsertFromOcpiLocation(payload.data);
+            const ocpiLocation = LocationDbService.mapPrismaLocationToOcpi(stored);
+
+            return OCPIResponseService.success(ocpiLocation) as HttpResponse<OCPILocationResponse>;
+        }
+        catch (error) {
+            return OCPIResponseService.serverError<unknown>({
+                message: 'Failed to fetch location from CPO',
+                error,
+            }) as HttpResponse<OCPILocationResponse>;
+        }
+    }
+
+    private static getLocationsEndpointUrl(role: 'SENDER' | 'RECEIVER'): string {
+        const endpoints = Utils.getAllEndpoints().data.endpoints;
+        const endpoint = endpoints.find(
+            (e: { identifier: string; role: string; url: string }) =>
+                e.identifier === 'locations' && e.role === role,
+        );
+
+        if (!endpoint || !endpoint.url) {
+            throw new Error(
+                `OCPI locations endpoint with role ${role} not configured in Utils.getAllEndpoints`,
+            );
+        }
+
+        return endpoint.url.replace(/\/+$/, '');
+    }
+
+    private static appendQueryParams(
+        baseUrl: string,
+        params: { limit?: number; offset?: number }
+    ): string {
+        const searchParams = new globalThis.URLSearchParams();
+
+        if (typeof params.limit === 'number' && !Number.isNaN(params.limit)) {
+            searchParams.append('limit', params.limit.toString());
+        }
+
+        if (typeof params.offset === 'number' && !Number.isNaN(params.offset)) {
+            searchParams.append('offset', params.offset.toString());
+        }
+
+        const queryString = searchParams.toString();
+        if (!queryString) {
+            return baseUrl;
+        }
+
+        return `${baseUrl}?${queryString}`;
     }
 }
 

@@ -11,32 +11,34 @@ import { OCPIResponsePayload } from './schema/general/types/responses';
 const router = Router();
 
 // OCPI Authentication Middleware
-const ocpiAuth = (req: Request, res: Response, next: NextFunction) => {
+const ocpiAuth = (req: Request, res: Response, next: NextFunction): void => {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Token ')) {
-        return res.status(401).json({
+        res.status(401).json({
             status_code: 2001,
             status_message: 'Unauthorized',
             timestamp: new Date().toISOString(),
         });
+        return;
     }
     // In a real implementation, validate the token
     next();
 };
 
 // Error handling middleware
-const errorHandler = (error: Error, req: Request, res: Response, next: NextFunction) => {
+const errorHandler = (error: Error, req: Request, res: Response): void => {
     logger.error('OCPI API error', error, {
         path: req.path,
         method: req.method,
     });
 
     if (error instanceof AppError) {
-        return res.status(error.statusCode).json({
+        res.status(error.statusCode).json({
             status_code: error.statusCode === 400 ? 2000 : error.statusCode === 404 ? 2001 : 3000,
             status_message: error.message,
             timestamp: new Date().toISOString(),
         });
+        return;
     }
 
     res.status(500).json({
@@ -46,10 +48,24 @@ const errorHandler = (error: Error, req: Request, res: Response, next: NextFunct
     });
 };
 
-async function handleRequest(req: Request, res: Response, next: NextFunction, controller: (req: Request) => Promise<HttpResponse<OCPIResponsePayload<any>>>) {
+async function handleRequest<T>(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+    controller: (req: Request) => Promise<HttpResponse<OCPIResponsePayload<T>>>,
+) {
     try {
         const response = await controller(req);
-        res.status(response.httpStatus || 200).json(response.payload);
+
+        // Strip BigInt from payload so JSON.stringify does not fail
+        const safePayload = JSON.parse(
+            JSON.stringify(
+                response.payload,
+                (_key, value) => (typeof value === 'bigint' ? Number(value) : value),
+            ),
+        );
+
+        res.status(response.httpStatus || 200).json(safePayload);
         if (response.headers) {
             Object.entries(response.headers).forEach(([key, value]) => {
                 res.setHeader(key, value);
