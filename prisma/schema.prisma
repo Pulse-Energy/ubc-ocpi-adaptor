@@ -221,42 +221,42 @@ model Session {
 
 // OCPI 2.2.1 CDR Model
 model CDR {
-  id                         String    @id @default(uuid())
-  country_code               String
-  party_id                   String
-  ocpi_cdr_id                String // OCPI id field
-  start_date_time            DateTime
-  end_date_time              DateTime
-  session_id                 String?
-  cdr_token                  Json // OCPICdrToken
-  auth_method                String // OCPIAuthMethod enum
-  authorization_reference    String?
-  cdr_location               Json // OCPICdrLocation
-  meter_id                   String?
-  currency                   String
-  tariffs                    Json? // OCPITariff[]
-  charging_periods           Json // OCPIChargingPeriod[]
-  signed_data                Json? // OCPISignedData
-  total_cost                 Json // OCPIPrice
-  total_fixed_cost           Json? // OCPIPrice
-  total_energy               Decimal   @db.Decimal(10, 3)
-  total_energy_cost          Json? // OCPIPrice
-  total_time                 BigInt
-  total_time_cost            Json? // OCPIPrice
-  total_parking_time         BigInt?
-  total_parking_cost         Json? // OCPIPrice
-  total_reservation_cost     Json? // OCPIPrice
-  remark                     String?
-  invoice_reference_id       String?
-  credit                     Boolean?
-  credit_reference_id        String?
+  id                      String    @id @default(uuid())
+  country_code            String
+  party_id                String
+  ocpi_cdr_id             String // OCPI id field
+  start_date_time         DateTime
+  end_date_time           DateTime
+  session_id              String?
+  cdr_token               Json // OCPICdrToken
+  auth_method             String // OCPIAuthMethod enum
+  authorization_reference String?
+  cdr_location            Json // OCPICdrLocation
+  meter_id                String?
+  currency                String
+  tariffs                 Json? // OCPITariff[]
+  charging_periods        Json // OCPIChargingPeriod[]
+  signed_data             Json? // OCPISignedData
+  total_cost              Json // OCPIPrice
+  total_fixed_cost        Json? // OCPIPrice
+  total_energy            Decimal   @db.Decimal(10, 3)
+  total_energy_cost       Json? // OCPIPrice
+  total_time              BigInt
+  total_time_cost         Json? // OCPIPrice
+  total_parking_time      BigInt?
+  total_parking_cost      Json? // OCPIPrice
+  total_reservation_cost  Json? // OCPIPrice
+  remark                  String?
+  invoice_reference_id    String?
+  credit                  Boolean?
+  credit_reference_id     String?
   // home_charging_compensation Boolean?
-  remarks                    String?
-  last_updated               DateTime
-  deleted                    Boolean   @default(false)
-  deleted_at                 DateTime?
-  created_at                 DateTime  @default(now())
-  updated_at                 DateTime  @updatedAt
+  remarks                 String?
+  last_updated            DateTime
+  deleted                 Boolean   @default(false)
+  deleted_at              DateTime?
+  created_at              DateTime  @default(now())
+  updated_at              DateTime  @updatedAt
 
   @@unique([country_code, party_id, ocpi_cdr_id])
   @@index([country_code, party_id])
@@ -294,4 +294,58 @@ model Token {
   @@index([contract_id])
   @@index([valid])
   @@map("token")
+}
+
+// OCPI Partner (CPO) integration metadata
+model OCPIPartner {
+  id           String                  @id @default(uuid())
+  name         String?
+  country_code String
+  party_id     String
+  versions_url String
+  status       String                  @default("INIT") // INIT | VERSIONS_OK | TOKEN_EXCHANGED | ACTIVE | ERROR
+  credentials  OCPIPartnerCredentials?
+  endpoints    OCPIPartnerEndpoint[]
+  created_at   DateTime                @default(now())
+  updated_at   DateTime                @updatedAt
+  deleted      Boolean                 @default(false)
+  deleted_at   DateTime?
+
+  @@index([country_code, party_id])
+  @@map("partner")
+}
+
+// OCPI credentials exchanged during handshake for a given partner
+model OCPIPartnerCredentials {
+  id              String      @id @default(uuid())
+  partner_id      String      @unique
+  partner         OCPIPartner @relation(fields: [partner_id], references: [id], onDelete: Cascade)
+  cpo_auth_token  String? // for initial GET /versions, if applicable
+  emsp_auth_token String? // token the CPO uses to call this EMSP
+  cpo_url         String? // CPO credentials URL
+  emsp_url        String? // EMSP credentials URL exposed to CPO
+  deleted         Boolean     @default(false)
+  deleted_at      DateTime?
+  created_at      DateTime    @default(now())
+  updated_at      DateTime    @updatedAt
+
+  @@map("partner_credentials")
+}
+
+// OCPI endpoints advertised by a partner for a specific version
+model OCPIPartnerEndpoint {
+  id         String      @id @default(uuid())
+  partner_id String
+  partner    OCPIPartner @relation(fields: [partner_id], references: [id], onDelete: Cascade)
+  version    String // e.g. "2.2.1"
+  module     String // e.g. "locations", "tariffs"
+  role       String // "SENDER" | "RECEIVER"
+  url        String
+  deleted    Boolean     @default(false)
+  deleted_at DateTime?
+  created_at DateTime    @default(now())
+  updated_at DateTime    @updatedAt
+
+  @@index([partner_id])
+  @@map("partner_endpoint")
 }

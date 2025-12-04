@@ -5,21 +5,12 @@ import handleRequest from '../utils/requestHandler';
 
 const router = Router();
 
-
 router.get('/', adminAuth, async (req: Request, res: Response, next: NextFunction) =>
-    handleRequest(req, res, next, AdminLocationsModule.getLocations)
-);
-
-router.post('/fetch', adminAuth, async (req: Request, res: Response, next: NextFunction) =>
-    handleRequest(req, res, next, AdminLocationsModule.fetchLocations)
-);
-
-router.post('/sync-to-cds', adminAuth, async (req: Request, res: Response, next: NextFunction) =>
-    handleRequest(req, res, next, AdminLocationsModule.syncToCDS)
+    handleRequest(req, res, next, AdminLocationsModule.sendGetLocations)
 );
 
 router.get('/:location_id', adminAuth, async (req: Request, res: Response, next: NextFunction) =>
-    handleRequest(req, res, next, AdminLocationsModule.getLocation)
+    handleRequest(req, res, next, AdminLocationsModule.sendGetLocation)
 );
 
 export default router;

@@ -131,9 +131,11 @@ export class LocationDbService {
                     format: connector.format as OCPIConnectorFormat,
                     qr_code: connector.qr_code ?? undefined,
                     power_type: connector.power_type as OCPIPowerType,
-                    max_voltage: connector.max_voltage,
-                    max_amperage: connector.max_amperage,
-                    max_electric_power: connector.max_electric_power ?? undefined,
+                    max_voltage: BigInt(connector.max_voltage),
+                    max_amperage: BigInt(connector.max_amperage),
+                    max_electric_power: connector.max_electric_power != null
+                        ? BigInt(connector.max_electric_power)
+                        : undefined,
                     tariff_ids: connector.tariff_ids ?? undefined,
                     terms_and_conditions: connector.terms_and_conditions ?? undefined,
                     last_updated: connector.last_updated.toISOString(),
