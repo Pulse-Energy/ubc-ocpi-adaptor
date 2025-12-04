@@ -123,7 +123,7 @@ export default class SelectActionHandler {
         const { seller_id, charge_point_connector_id, charging_option_type, charging_option_unit, tariff, charge_point_connector_type, power_rating } = reqPayload;
         const evseConnector = await EvseConnectorDbService.getByConnectorId(charge_point_connector_id, {
             include: {
-                tariff: true,
+                tariffs: true,
             },
         });
         if (!evseConnector) {
