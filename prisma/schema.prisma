@@ -99,13 +99,15 @@ model EVSEConnector {
   max_voltage          BigInt
   max_amperage         BigInt
   max_electric_power   BigInt?
-  tariff_ids           Tariff[] // Array of tariff IDs
+  tariff_id            String?
+  tariff               Tariff?   @relation(fields: [tariff_id], references: [id])
   terms_and_conditions String? // URL
   last_updated         DateTime
   deleted              Boolean   @default(false)
   deleted_at           DateTime?
   created_at           DateTime  @default(now())
   updated_at           DateTime  @updatedAt
+  tariffId             String?
 
   @@unique([evse_id, connector_id])
   @@index([evse_id])
@@ -114,7 +116,7 @@ model EVSEConnector {
 
 // OCPI 2.2.1 Tariff Model
 model Tariff {
-  id                  String         @id @default(uuid())
+  id                  String          @id @default(uuid())
   country_code        String
   party_id            String
   ocpi_tariff_id      String // OCPI id field
@@ -128,11 +130,10 @@ model Tariff {
   end_date_time       DateTime?
   energy_mix          Json? // OCPIEnergyMix
   last_updated        DateTime
-  created_at          DateTime       @default(now())
-  updated_at          DateTime       @updatedAt
+  created_at          DateTime        @default(now())
+  updated_at          DateTime        @updatedAt
   ocpi_tariff_element Json?
-  evse_connector       EVSEConnector? @relation(fields: [evse_connector_id], references: [id])
-  evse_connector_id     String?
+  evse_connectors      EVSEConnector[]
 
   @@unique([country_code, party_id, ocpi_tariff_id])
   @@index([country_code, party_id])
