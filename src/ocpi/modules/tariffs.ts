@@ -1,10 +1,10 @@
 import { z } from 'zod';
-import { databaseService } from '../../services/database.service';
 import { logger } from '../../services/logger.service';
 import { syncService } from '../../services/sync.service';
 import { ValidationError } from '../../utils/errors';
 import { OCPIResponse, OCPITariff } from '../types';
 import { tariffSchema } from '../validators';
+import { TariffDbService } from '../../services/tariff-db.service';
 
 export class TariffsModule {
     async putTariff(
@@ -16,28 +16,14 @@ export class TariffsModule {
             // Validate tariff
             tariffSchema.parse(tariff);
 
-            // Store or update tariff in database
-            await databaseService.prisma.tariff.upsert({
-                where: { tariff_id: tariffId },
-                create: {
-                    tariff_id: tariff.id,
-                    cpo_id: cpoId,
-                    currency: tariff.currency,
-                    elements: tariff.elements as any,
-                    last_updated: new Date(tariff.last_updated),
-                },
-                update: {
-                    currency: tariff.currency,
-                    elements: tariff.elements as any,
-                    last_updated: new Date(tariff.last_updated),
-                },
-            });
+            // Store or update tariff in database using TariffDbService
+            await TariffDbService.upsertFromOcpiTariff(tariff);
 
-            logger.info('Tariff stored/updated', { tariffId, cpoId });
+            logger.info('Tariff stored/updated', { tariffId: tariff.id, countryCode: tariff.country_code, partyId: tariff.party_id });
 
             // Trigger CDS sync for this tariff
-            await syncService.syncTariffToCDS(tariffId).catch((error) => {
-                logger.error('Error syncing tariff to CDS', error, { tariffId });
+            await syncService.syncTariffToCDS(tariff.id).catch((error) => {
+                logger.error('Error syncing tariff to CDS', error, { tariffId: tariff.id });
                 // Don't fail the request if CDS sync fails
             });
 
@@ -58,16 +44,23 @@ export class TariffsModule {
 
     async getTariff(tariffId: string): Promise<OCPITariff | null> {
         try {
-            const tariff = await databaseService.prisma.tariff.findUnique({
-                where: { tariff_id: tariffId },
-            });
+            // First, try to find by database ID (UUID format)
+            const tariff = await TariffDbService.getById(tariffId);
 
-            if (!tariff) {
-                return null;
+            if (tariff) {
+                return TariffDbService.mapPrismaTariffToOcpi(tariff);
             }
 
-            // Convert database format to OCPI format
-            return this.mapToOCPITariff(tariff);
+            // If not found by database ID, try to find by OCPI tariff ID
+            // Search all tariffs and find one matching the OCPI tariff ID
+            const allTariffs = await TariffDbService.findAll(undefined, undefined, undefined, undefined);
+            const matchingTariff = allTariffs.find(t => t.ocpi_tariff_id === tariffId);
+
+            if (matchingTariff) {
+                return TariffDbService.mapPrismaTariffToOcpi(matchingTariff);
+            }
+
+            return null;
         }
         catch (error: any) {
             logger.error('Error getting tariff', error, { tariffId });
@@ -77,30 +70,13 @@ export class TariffsModule {
 
     async getTariffs(limit?: number, offset?: number): Promise<OCPITariff[]> {
         try {
-            const tariffs = await databaseService.prisma.tariff.findMany({
-                take: limit,
-                skip: offset,
-                orderBy: { last_updated: 'desc' },
-            });
-
-            return tariffs.map((tariff) => this.mapToOCPITariff(tariff));
+            const tariffs = await TariffDbService.findAll(undefined, undefined, limit, offset);
+            return tariffs.map((tariff) => TariffDbService.mapPrismaTariffToOcpi(tariff));
         }
         catch (error: any) {
             logger.error('Error getting tariffs', error);
             throw error;
         }
-    }
-
-    private mapToOCPITariff(tariff: any): OCPITariff {
-        return {
-            country_code: 'IN', // Should be stored in DB
-            party_id: '', // Should be stored in DB
-            id: tariff.tariff_id,
-            currency: tariff.currency,
-            type: 'REGULAR', // Default type
-            elements: tariff.elements as any,
-            last_updated: tariff.last_updated.toISOString(),
-        };
     }
 }
 

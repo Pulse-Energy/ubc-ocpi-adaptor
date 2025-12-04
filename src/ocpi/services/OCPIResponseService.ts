@@ -15,8 +15,26 @@ export default class OCPIResponseService {
     }
 
     static clientError<T>(data: T, statusCode: OCPIResponseStatusCode = OCPIResponseStatusCode.status_2000): HttpResponse<OCPIResponsePayload<T>> {
+        // Map OCPI status codes to HTTP status codes per OCPI 2.2.1 spec
+        let httpStatus = 400; // Default for client errors
+        if (statusCode === OCPIResponseStatusCode.status_2001) {
+            httpStatus = 401; // Unauthorized
+        }
+        else if (statusCode === OCPIResponseStatusCode.status_2003) {
+            httpStatus = 404; // Not found
+        }
+        else if (statusCode === OCPIResponseStatusCode.status_2000) {
+            httpStatus = 400; // Bad request
+        }
+        else if (statusCode === OCPIResponseStatusCode.status_2002) {
+            httpStatus = 400; // Bad request
+        }
+        else if (statusCode === OCPIResponseStatusCode.status_2004) {
+            httpStatus = 400; // Bad request
+        }
+        
         return {
-            httpStatus: 500,
+            httpStatus,
             payload: {
                 data: data,
                 status_code: statusCode,
