@@ -57,7 +57,7 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
             const headers: Record<string, string> = {};
             if (limit && limit > 0) {
                 const baseUrl = `${req.protocol}://${req.get('host')}${req.path}`;
-                const queryParams = new URLSearchParams();
+                const queryParams = new globalThis.URLSearchParams();
                 if (countryCode) queryParams.append('country_code', countryCode);
                 if (partyId) queryParams.append('party_id', partyId);
                 if (dateFrom) queryParams.append('date_from', dateFrom);
@@ -85,7 +85,8 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
                 payload: OCPIResponseService.success(ocpiTariffs).payload,
                 headers,
             };
-        } catch (error) {
+        } 
+        catch (error) {
             logger.error('Error fetching tariffs', error as Error, {
                 query: req.query,
             });
@@ -145,7 +146,8 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
 
             const ocpiTariff = TariffDbService.mapPrismaTariffToOcpi(matchingTariffs[0]);
             return OCPIResponseService.success(ocpiTariff);
-        } catch (error) {
+        } 
+        catch (error) {
             logger.error('Error fetching tariff', error as Error, {
                 params: req.params,
                 query: req.query,
@@ -228,7 +230,8 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
                 httpStatus: existingTariff ? 200 : 201,
                 payload: OCPIResponseService.success(responseTariff).payload,
             };
-        } catch (error) {
+        } 
+        catch (error) {
             logger.error('Error storing tariff', error as Error, {
                 params: req.params,
                 body: req.body,
