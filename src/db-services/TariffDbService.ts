@@ -1,5 +1,5 @@
 import { Tariff, Prisma } from '@prisma/client';
-import { databaseService } from './database.service';
+import { databaseService } from '../services/database.service';
 import {
     OCPITariff,
     OCPITariffElement,

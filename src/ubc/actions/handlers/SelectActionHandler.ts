@@ -17,6 +17,8 @@ import { BecknDomain } from "../../schema/v2.0.0/enums/BecknDomain";
 import { UBCChargingMethod } from "../../schema/v2.0.0/enums/UBCChargingMethod";
 import BppOnixRequestService from "../../services/BppOnixRequestService";
 import { OrderValueComponentsType } from "../../schema/v2.0.0/enums/OrderValueComponentsType";
+import { BecknOrderValueComponents, BecknOrderValueResponse } from "../../schema/v2.0.0/types/OrderValue";
+import { EvseConnectorDbService } from "../../../db-services/EvseConnectorDbService";
 
 /**
  * Handler for select action
@@ -119,22 +121,20 @@ export default class SelectActionHandler {
         // return response.data as ExtractedOnSelectResponseBody;
         const reqPayload = payload.payload;
         const { seller_id, charge_point_connector_id, charging_option_type, charging_option_unit, tariff, charge_point_connector_type, power_rating } = reqPayload;
+        const evseConnector = await EvseConnectorDbService.getByConnectorId(charge_point_connector_id, {
+            include: {
+                tariff: true,
+            },
+        });
+        if (!evseConnector) {
+            throw new Error('EVSE Connector not found');
+        }
+        
         const response: ExtractedOnSelectResponseBody = {
             payload: {
                 connector_type: charge_point_connector_type,
                 power_rating: power_rating,
-                "beckn:orderValue": {
-                    currency: 'INR',
-                    value: 10,
-                    components: [
-                        {
-                            type: OrderValueComponentsType.UNIT,
-                            value: 10,
-                            currency: 'INR',
-                            description: 'Unit price', 
-                        },
-                    ],
-                },
+                "beckn:orderValue": this.buildOrderValue(tariff),
             },
             metadata: {
                 domain: BecknDomain.EVChargingUBC,
@@ -204,6 +204,45 @@ export default class SelectActionHandler {
             url: `${bppHost}/${BecknAction.on_select}`,
             data: payload,
         }, BecknDomain.EVChargingUBC);
+    }
+
+    private static buildOrderValueComponents(estimatedChargingCost: any): BecknOrderValueComponents[] {
+        const components: BecknOrderValueComponents[] = [
+            {
+                type: OrderValueComponentsType.UNIT,
+                value: estimatedChargingCost.charging_session_cost,
+                currency: 'INR',
+                description: 'Estimated charging cost',
+            },
+        ];
+
+        if (estimatedChargingCost.gst) {
+            components.push({
+                type: OrderValueComponentsType.FEE,
+                value: estimatedChargingCost.gst,
+                currency: 'INR',
+                description: 'GST',
+            });
+        }
+
+        if (estimatedChargingCost.service_charge) {
+            components.push({
+                type: OrderValueComponentsType.FEE,
+                value: estimatedChargingCost.service_charge,
+                currency: 'INR',
+                description: 'Service Charge',
+            });
+        }
+
+        return components;
+    }
+
+    private static buildOrderValue(estimatedChargingCost: any): BecknOrderValueResponse {
+        return {
+            currency: 'INR',
+            value: estimatedChargingCost.total,
+            components: this.buildOrderValueComponents(estimatedChargingCost),
+        };
     }
 }
 

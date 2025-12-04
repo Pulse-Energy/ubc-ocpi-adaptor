@@ -2,7 +2,7 @@ import { Request } from "express";
 import { HttpResponse } from "../../../../../types/responses";
 import { OCPITariffResponse, OCPITariffsResponse } from "../../../../schema/modules/tariffs/types/responses";
 import OCPIResponseService from "../../../../services/OCPIResponseService";
-import { TariffDbService } from "../../../../../services/tariff-db.service";
+import { TariffDbService } from "../../../../../db-services/TariffDbService";
 import { OCPITariff } from "../../../../schema/modules/tariffs/types";
 import { logger } from "../../../../../services/logger.service";
 import { OCPIResponseStatusCode } from "../../../../schema/general/enum";

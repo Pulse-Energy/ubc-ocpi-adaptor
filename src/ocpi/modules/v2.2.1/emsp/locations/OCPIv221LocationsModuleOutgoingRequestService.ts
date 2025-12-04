@@ -9,7 +9,7 @@ import OCPIResponseService from '../../../../services/OCPIResponseService';
 import OCPIOutgoingRequestService from '../../../../services/OCPIOutgoingRequestService';
 import { getOcpiCpoAuthToken } from '../../../../utils/ocpi-auth-token';
 import Utils from '../../../../../utils/Utils';
-import { LocationDbService, LocationWithRelations } from '../../../../../services/location-db.service';
+import { LocationDbService, LocationWithRelations } from '../../../../../db-services/LocationDbService';
 
 /**
  * Handle all outgoing requests for the Locations module to the CPO.

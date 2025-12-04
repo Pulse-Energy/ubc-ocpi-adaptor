@@ -11,7 +11,7 @@ import {
 import OCPIResponseService from '../../../../services/OCPIResponseService';
 import { OCPIResponsePayload } from '../../../../schema/general/types/responses';
 import { databaseService } from '../../../../../services/database.service';
-import { LocationDbService, LocationWithRelations } from '../../../../../services/location-db.service';
+import { LocationDbService, LocationWithRelations } from '../../../../../db-services/LocationDbService';
 
 /**
  * Handle all incoming requests for the Locations module from the CPO
