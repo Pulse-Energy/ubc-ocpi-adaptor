@@ -18,12 +18,16 @@ async function handleRequest(
 ) {
     try {
         const response = await controller(req);
-        res.status(response.httpStatus || 200).json(response.payload);
+        
+        // Set headers BEFORE sending the response
         if (response.headers) {
             Object.entries(response.headers).forEach(([key, value]) => {
                 res.setHeader(key, value);
             });
         }
+        
+        // Send the response after headers are set
+        res.status(response.httpStatus || 200).json(response.payload);
     }
     catch (error) {
         next(error);
@@ -88,6 +92,11 @@ router.post(
 
 // Error handling for this router
 router.use((error: Error, req: Request, res: Response, _next: NextFunction) => {
+    // Check if response has already been sent
+    if (res.headersSent) {
+        return _next(error);
+    }
+
     logger.error('OCPI API (internal) error', error, {
         path: req.path,
         method: req.method,

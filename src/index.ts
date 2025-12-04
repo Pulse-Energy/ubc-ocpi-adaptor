@@ -62,6 +62,11 @@ app.get('/', (req: Request, res: Response) => {
 
 // Error handling middleware
 app.use((error: Error, req: Request, res: Response, next: NextFunction) => {
+    // Check if response has already been sent
+    if (res.headersSent) {
+        return next(error);
+    }
+
     logger.error('Unhandled error', error, {
         path: req.path,
         method: req.method,
