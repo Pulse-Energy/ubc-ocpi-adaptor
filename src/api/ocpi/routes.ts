@@ -91,22 +91,18 @@ router.post(
 );
 
 // Error handling for this router
-router.use((error: Error, req: Request, res: Response, _next: NextFunction) => {
-    // Check if response has already been sent
-    if (res.headersSent) {
-        return _next(error);
-    }
-
+router.use((error: Error, req: Request, res: Response, _next: NextFunction): void => {
     logger.error('OCPI API (internal) error', error, {
         path: req.path,
         method: req.method,
     });
 
     if (error instanceof AppError) {
-        return res.status(error.statusCode).json({
+        res.status(error.statusCode).json({
             success: false,
             error: error.message,
         });
+        return;
     }
 
     res.status(500).json({

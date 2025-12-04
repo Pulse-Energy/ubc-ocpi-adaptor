@@ -175,7 +175,12 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
 
     public static async handlePatchLocation(req: Request): Promise<HttpResponse<OCPIResponsePayload<unknown>>> {
         const { location_id } = req.params;
-        const patch = req.body as OCPIPatchLocation;
+
+        type PatchConnectorWithId = OCPIPatchConnector & { id?: string };
+        type PatchEVSEWithUid = OCPIPatchEVSE & { uid?: string; connectors?: PatchConnectorWithId[] };
+        type LocationPatchWithNested = OCPIPatchLocation & { evses?: PatchEVSEWithUid[] };
+
+        const patch = req.body as LocationPatchWithNested;
 
         const prismaLocation = await LocationDbService.findByOcpiLocationId(location_id);
         if (!prismaLocation) {
@@ -183,13 +188,62 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
         }
 
         const current = LocationDbService.mapPrismaLocationToOcpi(prismaLocation);
-        const patched: OCPILocation = {
+
+        // Split top-level fields and nested EVSE patches
+        const { evses: patchEvses, ...topLevelPatch } = patch;
+
+        // Apply top-level partial update (never drop fields that are not present)
+        const mergedLocation: OCPILocation = {
             ...current,
-            ...patch,
-            coordinates: patch.coordinates ?? current.coordinates,
+            ...topLevelPatch,
+            coordinates: topLevelPatch.coordinates ?? current.coordinates,
         };
 
-        const stored = await LocationDbService.upsertFromOcpiLocation(patched);
+        // If evses array is present, treat it as partial merge instructions.
+        if (patchEvses && patchEvses.length > 0 && current.evses && current.evses.length > 0) {
+            const updatedEvses: OCPIEVSE[] = current.evses.map((evse) => {
+                const evsePatch = patchEvses.find((p) => p.uid === evse.uid);
+                if (!evsePatch) {
+                    return evse;
+                }
+
+                const { connectors: connectorPatches, ...evseFieldsPatch } = evsePatch;
+
+                // Merge EVSE-level fields
+                const mergedEvse: OCPIEVSE = {
+                    ...evse,
+                    ...evseFieldsPatch,
+                    coordinates: evseFieldsPatch.coordinates ?? evse.coordinates,
+                };
+
+                // Merge connector-level patches, by id
+                if (connectorPatches && connectorPatches.length > 0 && evse.connectors) {
+                    const mergedConnectors: OCPIConnector[] = evse.connectors.map((connector) => {
+                        const connectorPatch = connectorPatches.find((cp) => cp.id === connector.id);
+                        if (!connectorPatch) {
+                            return connector;
+                        }
+
+                        // ignore connectorPatch.id, we already matched on it
+                        const connectorFieldsPatch = { ...connectorPatch };
+                        delete (connectorFieldsPatch as { id?: string }).id;
+
+                        return {
+                            ...connector,
+                            ...connectorFieldsPatch,
+                        };
+                    });
+
+                    mergedEvse.connectors = mergedConnectors;
+                }
+
+                return mergedEvse;
+            });
+
+            mergedLocation.evses = updatedEvses;
+        }
+
+        const stored = await LocationDbService.upsertFromOcpiLocation(mergedLocation);
         const ocpiLocation = LocationDbService.mapPrismaLocationToOcpi(stored);
 
         return OCPIResponseService.success<OCPILocation>(ocpiLocation);
@@ -197,7 +251,10 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
 
     public static async handlePatchEVSE(req: Request): Promise<HttpResponse<OCPIResponsePayload<unknown>>> {
         const { location_id, evse_uid } = req.params as { location_id: string; evse_uid: string };
-        const patch = req.body as OCPIPatchEVSE;
+        type PatchConnectorWithId = OCPIPatchConnector & { id?: string };
+        type EVSEPatchWithConnectors = OCPIPatchEVSE & { connectors?: PatchConnectorWithId[] };
+
+        const patch = req.body as EVSEPatchWithConnectors;
 
         const prismaLocation = await LocationDbService.findByOcpiLocationId(location_id);
         if (!prismaLocation) {
@@ -211,11 +268,35 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
             if (evse.uid !== evse_uid) {
                 return evse;
             }
-            return {
+            const { connectors: connectorPatches, ...evseFieldsPatch } = patch;
+
+            const mergedEvse: OCPIEVSE = {
                 ...evse,
-                ...patch,
-                coordinates: patch.coordinates ?? evse.coordinates,
+                ...evseFieldsPatch,
+                coordinates: evseFieldsPatch.coordinates ?? evse.coordinates,
             };
+
+            // If connector patches are present, merge them by connector id
+            if (connectorPatches && connectorPatches.length > 0 && evse.connectors) {
+                const mergedConnectors: OCPIConnector[] = evse.connectors.map((connector) => {
+                    const connectorPatch = connectorPatches.find((cp) => cp.id === connector.id);
+                    if (!connectorPatch) {
+                        return connector;
+                    }
+
+                    const connectorFieldsPatch = { ...connectorPatch };
+                    delete (connectorFieldsPatch as { id?: string }).id;
+
+                    return {
+                        ...connector,
+                        ...connectorFieldsPatch,
+                    };
+                });
+
+                mergedEvse.connectors = mergedConnectors;
+            }
+
+            return mergedEvse;
         });
 
         const updatedLocation: OCPILocation = {

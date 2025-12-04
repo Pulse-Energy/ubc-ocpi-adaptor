@@ -1,6 +1,6 @@
 import { Request } from 'express';
 import process from 'process';
-import { OCPICredentials as PrismaOCPICredentials, OCPIPartner } from '@prisma/client';
+import { OCPIPartner, OCPIPartnerCredentials } from '@prisma/client';
 import { HttpResponse } from '../../../types/responses';
 import { OCPIResponseStatusCode, OCPIRole } from '../../schema/general/enum';
 import CountryCode from '../../schema/general/enum/country-codes';
@@ -76,12 +76,12 @@ export default class OCPIv221CredentialsModuleIncomingRequestService {
         const emspCredentials = OCPIv221CredentialsModuleIncomingRequestService.buildEmspCredentials();
 
         // Upsert OCPICredentials row for this partner
-        let existingCreds: PrismaOCPICredentials | null = await prisma.oCPICredentials.findUnique({
+        let existingCreds: OCPIPartnerCredentials | null = await prisma.oCPIPartnerCredentials.findUnique({
             where: { partner_id: partner.id },
         });
 
         if (!existingCreds) {
-            await prisma.oCPICredentials.create({
+            await prisma.oCPIPartnerCredentials.create({
                 data: {
                     partner_id: partner.id,
                     cpo_auth_token: incoming.token,
@@ -92,7 +92,7 @@ export default class OCPIv221CredentialsModuleIncomingRequestService {
             });
         }
         else {
-            await prisma.oCPICredentials.update({
+            await prisma.oCPIPartnerCredentials.update({
                 where: { partner_id: partner.id },
                 data: {
                     cpo_auth_token: incoming.token,

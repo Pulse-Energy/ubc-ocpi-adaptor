@@ -73,13 +73,14 @@ app.use((error: Error, req: Request, res: Response, next: NextFunction) => {
     });
 
     if (error instanceof AppError) {
-        return res.status(error.statusCode).json({
+        res.status(error.statusCode).json({
             success: false,
             error: error.message,
             ...(error instanceof Error && 'details' in error
                 ? { details: (error as any).details }
                 : {}),
         });
+        return;
     }
 
     res.status(500).json({

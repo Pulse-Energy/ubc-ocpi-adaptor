@@ -2,7 +2,7 @@ import { Request } from "express";
 import { HttpResponse } from "../../types/responses";
 import { AdminResponsePayload } from "../types/responses";
 import { ValidationError } from "../../utils/errors";
-import OCPIRegistrationService from "../../services/ocpi-registration.service";
+// import OCPIRegistrationService from "../../services/ocpi-registration.service";
 
 export default class AdminOCPISetupModule {
     public static async registerWithCPO(req: Request): Promise<HttpResponse<AdminResponsePayload<any>>> {
@@ -12,7 +12,7 @@ export default class AdminOCPISetupModule {
             throw new ValidationError('Registration token and CPO URL are required');
         }
 
-        await OCPIRegistrationService.registerWithCPO(registrationToken, cpoUrl);
+        // await OCPIRegistrationService.registerWithCPO(registrationToken, cpoUrl);
 
         return {
             payload: {
@@ -31,12 +31,12 @@ export default class AdminOCPISetupModule {
             throw new ValidationError('CPO ID is required');
         }
 
-        const status = await OCPIRegistrationService.getRegistrationStatus(cpoId);
+        // const status = await OCPIRegistrationService.getRegistrationStatus(cpoId);
 
 
         return {
             payload: {
-                data: status,
+                data: 'not_registered',
             },
         };
     }
