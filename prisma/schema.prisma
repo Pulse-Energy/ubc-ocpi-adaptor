@@ -301,22 +301,43 @@ model Token {
 
 // OCPI Partner (CPO) integration metadata
 model OCPIPartner {
-  id           String                  @id @default(uuid())
+  id           String             @id @default(uuid())
   name         String?
   country_code String
   party_id     String
+
+  roles        OCPIPartnerRole[]  // ← one partner, many roles
+
   versions_url String
-  status       String                  @default("INIT") // INIT | VERSIONS_OK | TOKEN_EXCHANGED | ACTIVE | ERROR
+  status       String             @default("INIT")
   credentials  OCPIPartnerCredentials?
   endpoints    OCPIPartnerEndpoint[]
-  created_at   DateTime                @default(now())
-  updated_at   DateTime                @updatedAt
-  deleted      Boolean                 @default(false)
+  versions     OCPIVersion[]
+
+  created_at   DateTime           @default(now())
+  updated_at   DateTime           @updatedAt
+  deleted      Boolean            @default(false)
   deleted_at   DateTime?
 
-  @@index([country_code, party_id])
-  @@map("partner")
+  @@unique([country_code, party_id])
+  @@map("ocpi_partner")
 }
+
+model OCPIPartnerRole {
+  id           String       @id @default(uuid())
+  partner_id   String
+  partner      OCPIPartner  @relation(fields: [partner_id], references: [id], onDelete: Cascade)
+
+  role         String       // CPO | EMSP | NSP | SCSP | OTHER
+  country_code String
+  party_id     String
+
+  created_at   DateTime     @default(now())
+  updated_at   DateTime     @updatedAt
+
+  @@map("ocpi_partner_role")
+}
+
 
 // OCPI credentials exchanged during handshake for a given partner
 model OCPIPartnerCredentials {
@@ -332,7 +353,7 @@ model OCPIPartnerCredentials {
   created_at      DateTime    @default(now())
   updated_at      DateTime    @updatedAt
 
-  @@map("partner_credentials")
+  @@map("ocpi_partner_credentials")
 }
 
 // OCPI endpoints advertised by a partner for a specific version
@@ -350,5 +371,20 @@ model OCPIPartnerEndpoint {
   updated_at DateTime    @updatedAt
 
   @@index([partner_id])
-  @@map("partner_endpoint")
+  @@map("ocpi_partner_endpoint")
+}
+
+model OCPIVersion {
+    id             String    @id @default(uuid())
+    partner_id     String
+    partner        OCPIPartner @relation(fields: [partner_id], references: [id], onDelete: Cascade)
+    version_id     String // e.g. "2.2.1"
+    version_url    String
+    created_at     DateTime    @default(now())
+    updated_at     DateTime    @updatedAt
+    deleted        Boolean     @default(false)
+    deleted_at     DateTime?
+
+    @@index([partner_id])
+    @@map("ocpi_version")
 }
