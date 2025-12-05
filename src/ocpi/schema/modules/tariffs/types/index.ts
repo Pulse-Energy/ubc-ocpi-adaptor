@@ -17,6 +17,7 @@ export type OCPIv211PriceComponent = {
     type: OCPITariffDimensionType,
     price: number,
     step_size: bigint,
+    vat?: number,
 }
 
 // 11.4.6

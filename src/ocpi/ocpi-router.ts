@@ -127,23 +127,20 @@ router.patch('/locations/:location_id/evses/:evse_uid/connectors/:connector_id',
 );
 
 
-// tariffs endpoints - OCPI 2.2.1 compliant with country_code and party_id in path
-// router.get('/tariffs', ocpiAuth, async (req: Request, res: Response, next: NextFunction) =>
-//     handleRequest(req, res, next, OCPIv221TariffsModuleIncomingRequestService.handleGetTariffs)
-// );
-// router.get('/tariffs/:country_code/:party_id/:tariff_id', ocpiAuth, async (req: Request, res: Response, next: NextFunction) =>
-//     handleRequest(req, res, next, OCPIv221TariffsModuleIncomingRequestService.handleGetTariff)
-// );
-// router.put('/tariffs/:country_code/:party_id/:tariff_id', ocpiAuth, async (req: Request, res: Response, next: NextFunction) =>
-//     handleRequest(req, res, next, OCPIv221TariffsModuleIncomingRequestService.handlePutTariff)
-// );
-// Backward compatibility - support tariff_id only (less ideal but works)
-// router.get('/tariffs/:tariff_id', ocpiAuth, async (req: Request, res: Response, next: NextFunction) =>
-//     handleRequest(req, res, next, OCPIv221TariffsModuleIncomingRequestService.handleGetTariff)
-// );
-// router.put('/tariffs/:tariff_id', ocpiAuth, async (req: Request, res: Response, next: NextFunction) =>
-//     handleRequest(req, res, next, OCPIv221TariffsModuleIncomingRequestService.handlePutTariff)
-// );
+router.get('/tariffs', ocpiAuth, async (req: Request, res: Response, next: NextFunction) =>
+    handleRequest(req, res, next, OCPIv221TariffsModuleIncomingRequestService.handleGetTariffs)
+);
+router.get('/tariffs/:country_code/:party_id/:tariff_id', ocpiAuth, async (req: Request, res: Response, next: NextFunction) =>
+    handleRequest(req, res, next, OCPIv221TariffsModuleIncomingRequestService.handleGetTariff)
+);
+router.put('/tariffs/:country_code/:party_id/:tariff_id', ocpiAuth, async (req: Request, res: Response, next: NextFunction) =>
+    handleRequest(req, res, next, OCPIv221TariffsModuleIncomingRequestService.handlePutTariff)
+);
+
+router.delete('/tariffs/:country_code/:party_id/:tariff_id', ocpiAuth, async (req: Request, res: Response, next: NextFunction) =>
+    handleRequest(req, res, next, OCPIv221TariffsModuleIncomingRequestService.handleDeleteTariff)
+);
+
 
 router.use(errorHandler);
 
