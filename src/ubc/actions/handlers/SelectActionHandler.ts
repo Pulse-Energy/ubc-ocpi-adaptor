@@ -22,6 +22,8 @@ import {
     BecknOrderValueResponse,
 } from '../../schema/v2.0.0/types/OrderValue';
 import { EvseConnectorDbService } from '../../../db-services/EvseConnectorDbService';
+import { OCPIv211PriceComponent, OCPIv211TariffElement } from '../../../ocpi/schema/modules/tariffs/types';
+import { Tariff } from '@prisma/client';
 
 /**
  * Handler for select action
@@ -155,6 +157,7 @@ export default class SelectActionHandler {
             charge_point_connector_type,
             power_rating,
         } = reqPayload;
+        const chargingOptionUnit = Number(charging_option_unit);
         const evseConnector = await EvseConnectorDbService.getByConnectorId(
             charge_point_connector_id,
             {
@@ -167,11 +170,18 @@ export default class SelectActionHandler {
             throw new Error('EVSE Connector not found');
         }
 
+        const ocpiTariff = evseConnector.tariffs[0];
+        if (!ocpiTariff) {
+            throw new Error('OCPI Tariff not found for EVSE Connector');
+        }
+
+        const orderValue = this.buildOrderValue(ocpiTariff, chargingOptionUnit);
+
         const response: ExtractedOnSelectResponseBody = {
             payload: {
                 connector_type: charge_point_connector_type,
                 power_rating: power_rating,
-                'beckn:orderValue': this.buildOrderValue(tariff),
+                'beckn:orderValue': orderValue,
             },
             metadata: {
                 domain: BecknDomain.EVChargingUBC,
@@ -264,7 +274,11 @@ export default class SelectActionHandler {
     }
 
     private static buildOrderValueComponents(
-        estimatedChargingCost: any
+        estimatedChargingCost: {
+            charging_session_cost: number,
+            gst: number,
+            service_charge: number,
+        },
     ): BecknOrderValueComponents[] {
         const components: BecknOrderValueComponents[] = [
             {
@@ -296,11 +310,28 @@ export default class SelectActionHandler {
         return components;
     }
 
-    private static buildOrderValue(estimatedChargingCost: any): BecknOrderValueResponse {
-        return {
-            currency: 'INR',
-            value: estimatedChargingCost.total,
-            components: this.buildOrderValueComponents(estimatedChargingCost),
+    private static buildOrderValue(tariff: Tariff, chargingOptionUnit: number): BecknOrderValueResponse {
+        const tariffElement = {
+            ocpi_tariff_element: tariff.ocpi_tariff_element as any as OCPIv211TariffElement[],
+            max_price: tariff.max_price,
+            currency: tariff.currency,
         };
-    }
+        const ocpiTariffElement = tariffElement.ocpi_tariff_element[0];
+        const priceComponents = ocpiTariffElement.price_components as OCPIv211PriceComponent[];
+
+        const total = priceComponents.reduce((acc: number, curr: OCPIv211PriceComponent) => acc + (curr.price * chargingOptionUnit) + (curr.vat ? (curr.price * chargingOptionUnit) * (curr.vat / 100) : 0), 0);
+
+        const gst = total * 0.18;
+        const serviceCharge = total * 0.05;
+        const orderValueComponents = this.buildOrderValueComponents({
+            charging_session_cost: total,
+            gst: gst, 
+            service_charge: serviceCharge,
+        });
+        return {
+            currency: tariffElement.currency,
+            value: total,
+            components: orderValueComponents,
+        };
+    }   
 }
