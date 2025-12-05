@@ -1,24 +1,27 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { Request } from "express";
-import { HttpResponse } from "../../../types/responses";
-import { logger } from "../../../services/logger.service";
-import { UBCSelectRequestPayload } from "../../schema/v2.0.0/actions/select/types/SelectPayload";
-import { BecknActionResponse } from "../../schema/v2.0.0/types/AckResponse";
-import { BecknAction } from "../../schema/v2.0.0/enums/BecknAction";
-import Utils from "../../../utils/Utils";
-import OnixBppController from "../../controller/OnixBppController";
-import { UBCOnSelectRequestPayload } from "../../schema/v2.0.0/actions/select/types/OnSelectPayload";
-import { ExtractedSelectRequestBody } from "../../schema/v2.0.0/actions/select/types/ExtractedSelectRequestBody";
-import { ExtractedOnSelectResponseBody } from "../../schema/v2.0.0/actions/select/types/AppOnSelectResponsePayload";
-import { OrderStatus } from "../../schema/v2.0.0/enums/OrderStatus";
-import { ObjectType } from "../../schema/v2.0.0/enums/ObjectType";
-import { ChargingSessionStatus } from "../../schema/v2.0.0/enums/ChargingSessionStatus";
-import { BecknDomain } from "../../schema/v2.0.0/enums/BecknDomain";
-import { UBCChargingMethod } from "../../schema/v2.0.0/enums/UBCChargingMethod";
-import BppOnixRequestService from "../../services/BppOnixRequestService";
-import { OrderValueComponentsType } from "../../schema/v2.0.0/enums/OrderValueComponentsType";
-import { BecknOrderValueComponents, BecknOrderValueResponse } from "../../schema/v2.0.0/types/OrderValue";
-import { EvseConnectorDbService } from "../../../db-services/EvseConnectorDbService";
+import { Request } from 'express';
+import { HttpResponse } from '../../../types/responses';
+import { logger } from '../../../services/logger.service';
+import { UBCSelectRequestPayload } from '../../schema/v2.0.0/actions/select/types/SelectPayload';
+import { BecknActionResponse } from '../../schema/v2.0.0/types/AckResponse';
+import { BecknAction } from '../../schema/v2.0.0/enums/BecknAction';
+import Utils from '../../../utils/Utils';
+import OnixBppController from '../../controller/OnixBppController';
+import { UBCOnSelectRequestPayload } from '../../schema/v2.0.0/actions/select/types/OnSelectPayload';
+import { ExtractedSelectRequestBody } from '../../schema/v2.0.0/actions/select/types/ExtractedSelectRequestBody';
+import { ExtractedOnSelectResponseBody } from '../../schema/v2.0.0/actions/select/types/AppOnSelectResponsePayload';
+import { OrderStatus } from '../../schema/v2.0.0/enums/OrderStatus';
+import { ObjectType } from '../../schema/v2.0.0/enums/ObjectType';
+import { ChargingSessionStatus } from '../../schema/v2.0.0/enums/ChargingSessionStatus';
+import { BecknDomain } from '../../schema/v2.0.0/enums/BecknDomain';
+import { UBCChargingMethod } from '../../schema/v2.0.0/enums/UBCChargingMethod';
+import BppOnixRequestService from '../../services/BppOnixRequestService';
+import { OrderValueComponentsType } from '../../schema/v2.0.0/enums/OrderValueComponentsType';
+import {
+    BecknOrderValueComponents,
+    BecknOrderValueResponse,
+} from '../../schema/v2.0.0/types/OrderValue';
+import { EvseConnectorDbService } from '../../../db-services/EvseConnectorDbService';
 
 /**
  * Handler for select action
@@ -27,7 +30,7 @@ export default class SelectActionHandler {
     // public static async handleSelect(req: Request): Promise<HttpResponse<BecknActionResponse>> {
     //     try {
     //         const payload = req.body as UBCSelectRequestPayload;
-            
+
     //         logger.info('Handling select action', {
     //             context: payload.context,
     //             messageId: payload.context.message_id,
@@ -36,20 +39,24 @@ export default class SelectActionHandler {
 
     //         // TODO: Implement select action logic
     //         return UBCResponseService.ack();
-    //     } 
+    //     }
     //     catch (error: any) {
     //         logger.error('Error handling select action', error);
     //         return UBCResponseService.nack();
     //     }
     // }
 
-    public static async handleBppSelectRequest(req:Request): Promise<HttpResponse<BecknActionResponse>> {
+    public static async handleBppSelectRequest(
+        req: Request
+    ): Promise<HttpResponse<BecknActionResponse>> {
         const payload = req.body as UBCSelectRequestPayload;
 
         return OnixBppController.requestWrapper(BecknAction.select, req, () => {
             this.handleEVChargingUBCBppSelectAction(payload)
                 .then((ubcOnSelectResponsePayload: UBCOnSelectRequestPayload) => {
-                    logger.debug(`🟢 Sending select response in handleBppSelectRequest`, { data: ubcOnSelectResponsePayload });
+                    logger.debug(`🟢 Sending select response in handleBppSelectRequest`, {
+                        data: ubcOnSelectResponsePayload,
+                    });
                 })
                 .catch((e: Error) => {
                     logger.error(`🔴 Error in handleBppSelectRequest: 'Something went wrong'`, e);
@@ -57,41 +64,72 @@ export default class SelectActionHandler {
         });
     }
 
-    public static async handleEVChargingUBCBppSelectAction(reqPayload: UBCSelectRequestPayload): Promise<UBCOnSelectRequestPayload> {
+    public static async handleEVChargingUBCBppSelectAction(
+        reqPayload: UBCSelectRequestPayload
+    ): Promise<UBCOnSelectRequestPayload> {
         const reqId = reqPayload.context?.message_id || 'unknown';
         const logData = { action: 'select', messageId: reqId };
 
         try {
             // translate BAP schema to CPO's BE server
-            logger.debug(`🟡 [${reqId}] Translating UBC to Backend payload in handleEVChargingUBCBppSelectAction`, { data: { logData, reqPayload } });
-            const backendSelectPayload: ExtractedSelectRequestBody = this.translateUBCToBackendPayload(reqPayload);
+            logger.debug(
+                `🟡 [${reqId}] Translating UBC to Backend payload in handleEVChargingUBCBppSelectAction`,
+                { data: { logData, reqPayload } }
+            );
+            const backendSelectPayload: ExtractedSelectRequestBody =
+                this.translateUBCToBackendPayload(reqPayload);
 
             // make a request to CPO BE server
-            logger.debug(`🟡 [${reqId}] Sending select call to backend in handleEVChargingUBCBppSelectAction`, { data: { backendSelectPayload } });
-            const ExtractedOnSelectResponseBody: ExtractedOnSelectResponseBody = await this.sendSelectCallToBackend(backendSelectPayload);
-            logger.debug(`🟢 [${reqId}] Received select response from backend in handleEVChargingUBCBppSelectAction`, { data: { ExtractedOnSelectResponseBody } });
+            logger.debug(
+                `🟡 [${reqId}] Sending select call to backend in handleEVChargingUBCBppSelectAction`,
+                { data: { backendSelectPayload } }
+            );
+            const ExtractedOnSelectResponseBody: ExtractedOnSelectResponseBody =
+                await this.sendSelectCallToBackend(backendSelectPayload);
+            logger.debug(
+                `🟢 [${reqId}] Received select response from backend in handleEVChargingUBCBppSelectAction`,
+                { data: { ExtractedOnSelectResponseBody } }
+            );
 
             // translate CPO's BE Server response to UBC Schema
-            logger.debug(`🟡 [${reqId}] Translating Backend to UBC payload in handleEVChargingUBCBppSelectAction`, { data: { reqPayload, ExtractedOnSelectResponseBody } });
-            const ubcOnSelectPayload: UBCOnSelectRequestPayload = this.translateBackendToUBC(reqPayload, ExtractedOnSelectResponseBody);
+            logger.debug(
+                `🟡 [${reqId}] Translating Backend to UBC payload in handleEVChargingUBCBppSelectAction`,
+                { data: { reqPayload, ExtractedOnSelectResponseBody } }
+            );
+            const ubcOnSelectPayload: UBCOnSelectRequestPayload = this.translateBackendToUBC(
+                reqPayload,
+                ExtractedOnSelectResponseBody
+            );
 
             // Call BAP on_select
-            logger.debug(`🟡 [${reqId}] Sending on_select call to Beckn ONIX in handleEVChargingUBCBppSelectAction`, { data: { ubcOnSelectPayload } });
+            logger.debug(
+                `🟡 [${reqId}] Sending on_select call to Beckn ONIX in handleEVChargingUBCBppSelectAction`,
+                { data: { ubcOnSelectPayload } }
+            );
             const response = await this.sendOnSelectCallToBecknONIX(ubcOnSelectPayload);
-            logger.debug(`🟢 [${reqId}] Sent on_select call to Beckn ONIX in handleEVChargingUBCBppSelectAction`, { data: { response } });
+            logger.debug(
+                `🟢 [${reqId}] Sent on_select call to Beckn ONIX in handleEVChargingUBCBppSelectAction`,
+                { data: { response } }
+            );
 
             // return the response
             return ubcOnSelectPayload;
-        }
+        } 
         catch (e: any) {
-            logger.error(`🔴 [${reqId}] Error in UBCBppActionService.handleEVChargingUBCBppSelectAction: ${e?.toString()}`, e, {
-                data: { logData },
-            });
+            logger.error(
+                `🔴 [${reqId}] Error in UBCBppActionService.handleEVChargingUBCBppSelectAction: ${e?.toString()}`,
+                e,
+                {
+                    data: { logData },
+                }
+            );
             throw e;
         }
     }
 
-    public static translateUBCToBackendPayload(payload: UBCSelectRequestPayload): ExtractedSelectRequestBody {
+    public static translateUBCToBackendPayload(
+        payload: UBCSelectRequestPayload
+    ): ExtractedSelectRequestBody {
         const backendSelectPayload: ExtractedSelectRequestBody = {
             metadata: {
                 domain: BecknDomain.EVChargingUBC,
@@ -103,15 +141,21 @@ export default class SelectActionHandler {
             },
             payload: {
                 seller_id: payload.message.order['beckn:seller'],
-                charge_point_connector_id: payload.message.order['beckn:orderItems'][0]['beckn:orderedItem'],
+                charge_point_connector_id:
+                    payload.message.order['beckn:orderItems'][0]['beckn:orderedItem'],
                 charging_option_type: UBCChargingMethod.Units,
-                charging_option_unit: (payload.message.order['beckn:orderItems'][0]['beckn:quantity']['unitQuantity'] * 1000).toString(),
+                charging_option_unit: (
+                    payload.message.order['beckn:orderItems'][0]['beckn:quantity']['unitQuantity'] *
+                    1000
+                ).toString(),
             },
         };
         return backendSelectPayload;
     }
 
-    public static async sendSelectCallToBackend(payload: ExtractedSelectRequestBody): Promise<ExtractedOnSelectResponseBody> {
+    public static async sendSelectCallToBackend(
+        payload: ExtractedSelectRequestBody
+    ): Promise<ExtractedOnSelectResponseBody> {
         // const backendHost = Utils.getCPOBackendHostBasePath();
         // const response = await CPOBackendRequestService.sendPostRequest({
         //     url: `${backendHost}/${BecknAction.select}`,
@@ -120,21 +164,32 @@ export default class SelectActionHandler {
         // });
         // return response.data as ExtractedOnSelectResponseBody;
         const reqPayload = payload.payload;
-        const { seller_id, charge_point_connector_id, charging_option_type, charging_option_unit, tariff, charge_point_connector_type, power_rating } = reqPayload;
-        const evseConnector = await EvseConnectorDbService.getByConnectorId(charge_point_connector_id, {
-            include: {
-                tariffs: true,
-            },
-        });
+        const {
+            seller_id,
+            charge_point_connector_id,
+            charging_option_type,
+            charging_option_unit,
+            tariff,
+            charge_point_connector_type,
+            power_rating,
+        } = reqPayload;
+        const evseConnector = await EvseConnectorDbService.getByConnectorId(
+            charge_point_connector_id,
+            {
+                include: {
+                    tariffs: true,
+                },
+            }
+        );
         if (!evseConnector) {
             throw new Error('EVSE Connector not found');
         }
-        
+
         const response: ExtractedOnSelectResponseBody = {
             payload: {
                 connector_type: charge_point_connector_type,
                 power_rating: power_rating,
-                "beckn:orderValue": this.buildOrderValue(tariff),
+                'beckn:orderValue': this.buildOrderValue(tariff),
             },
             metadata: {
                 domain: BecknDomain.EVChargingUBC,
@@ -143,7 +198,10 @@ export default class SelectActionHandler {
         return response;
     }
 
-    public static translateBackendToUBC(backendSelectPayload: UBCSelectRequestPayload, ExtractedOnSelectResponseBody: ExtractedOnSelectResponseBody): UBCOnSelectRequestPayload {
+    public static translateBackendToUBC(
+        backendSelectPayload: UBCSelectRequestPayload,
+        ExtractedOnSelectResponseBody: ExtractedOnSelectResponseBody
+    ): UBCOnSelectRequestPayload {
         const orderValue = ExtractedOnSelectResponseBody.payload['beckn:orderValue'];
         // const price = ExtractedOnSelectResponseBody.payload['beckn:price'];
 
@@ -161,32 +219,46 @@ export default class SelectActionHandler {
                     'beckn:orderValue': orderValue,
                     'beckn:orderItems': [
                         {
-                            'beckn:lineId': backendSelectPayload.message.order['beckn:orderItems'][0]['beckn:lineId'],
-                            'beckn:orderedItem': backendSelectPayload.message.order['beckn:orderItems'][0]['beckn:orderedItem'],
-                            'beckn:quantity': backendSelectPayload.message.order['beckn:orderItems'][0]['beckn:quantity'],
-                            'beckn:acceptedOffer': backendSelectPayload.message.order['beckn:orderItems'][0]['beckn:acceptedOffer'],
+                            'beckn:lineId':
+                                backendSelectPayload.message.order['beckn:orderItems'][0][
+                                    'beckn:lineId'
+                                ],
+                            'beckn:orderedItem':
+                                backendSelectPayload.message.order['beckn:orderItems'][0][
+                                    'beckn:orderedItem'
+                                ],
+                            'beckn:quantity':
+                                backendSelectPayload.message.order['beckn:orderItems'][0][
+                                    'beckn:quantity'
+                                ],
+                            'beckn:acceptedOffer':
+                                backendSelectPayload.message.order['beckn:orderItems'][0][
+                                    'beckn:acceptedOffer'
+                                ],
                             // 'beckn:price': price,
                         },
                     ],
-                    "beckn:fulfillment": {
-                        "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/draft/schema/core/v2/context.jsonld",
-                        "@type": ObjectType.fulfillment,
-                        "beckn:id": "fulfillment-charging-001",
-                        "beckn:mode": "RESERVATION",
-                        "beckn:deliveryAttributes": {
-                            "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/draft/schema/EvChargingSession/v1/context.jsonld",
-                            "@type": ObjectType.chargingSession,
-                            "sessionStatus": ChargingSessionStatus.PENDING,
-                            "authorizationMode": 'APP_QR',
-                            "authorizationOtpHint": "Scan QR code at charging station",
-                            "connectorType": ExtractedOnSelectResponseBody.payload.connector_type,
-                            "maxPowerKW": ExtractedOnSelectResponseBody.payload.power_rating,
-                            "reservationId": '',
-                            "gracePeriodMinutes": 10,
-                            "trackingId": '',
-                            "trackingUrl": '',
-                            "trackingStatus": '',
-                        }
+                    'beckn:fulfillment': {
+                        '@context':
+                            'https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/draft/schema/core/v2/context.jsonld',
+                        '@type': ObjectType.fulfillment,
+                        'beckn:id': 'fulfillment-charging-001',
+                        'beckn:mode': 'RESERVATION',
+                        'beckn:deliveryAttributes': {
+                            '@context':
+                                'https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/draft/schema/EvChargingSession/v1/context.jsonld',
+                            '@type': ObjectType.chargingSession,
+                            sessionStatus: ChargingSessionStatus.PENDING,
+                            authorizationMode: 'APP_QR',
+                            authorizationOtpHint: 'Scan QR code at charging station',
+                            connectorType: ExtractedOnSelectResponseBody.payload.connector_type,
+                            maxPowerKW: ExtractedOnSelectResponseBody.payload.power_rating,
+                            reservationId: '',
+                            gracePeriodMinutes: 10,
+                            trackingId: '',
+                            trackingUrl: '',
+                            trackingStatus: '',
+                        },
                     },
                 },
             },
@@ -200,13 +272,18 @@ export default class SelectActionHandler {
      */
     static async sendOnSelectCallToBecknONIX(payload: UBCOnSelectRequestPayload): Promise<any> {
         const bppHost = Utils.getBPPClientHost();
-        return await BppOnixRequestService.sendPostRequest({
-            url: `${bppHost}/${BecknAction.on_select}`,
-            data: payload,
-        }, BecknDomain.EVChargingUBC);
+        return await BppOnixRequestService.sendPostRequest(
+            {
+                url: `${bppHost}/${BecknAction.on_select}`,
+                data: payload,
+            },
+            BecknDomain.EVChargingUBC
+        );
     }
 
-    private static buildOrderValueComponents(estimatedChargingCost: any): BecknOrderValueComponents[] {
+    private static buildOrderValueComponents(
+        estimatedChargingCost: any
+    ): BecknOrderValueComponents[] {
         const components: BecknOrderValueComponents[] = [
             {
                 type: OrderValueComponentsType.UNIT,
@@ -245,4 +322,3 @@ export default class SelectActionHandler {
         };
     }
 }
-
