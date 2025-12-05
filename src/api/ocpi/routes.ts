@@ -56,23 +56,6 @@ router.get(
         handleRequest(req, res, next, OCPIv221LocationsModuleOutgoingRequestService.sendGetLocation),
 );
 
-// Get tariffs from database (incoming - returns stored tariffs)
-router.get(
-    '/tariffs',
-    ocpiApiAuth,
-    async (req: Request, res: Response, next: NextFunction) =>
-        handleRequest(req, res, next, OCPIv221TariffsModuleIncomingRequestService.handleGetTariffs),
-);
-
-// OCPI 2.2.1 compliant route with country_code and party_id (incoming)
-// IMPORTANT: This route must come before /tariffs/:tariff_id to avoid routing conflicts
-router.get(
-    '/tariffs/:country_code/:party_id/:tariff_id',
-    ocpiApiAuth,
-    async (req: Request, res: Response, next: NextFunction) =>
-        handleRequest(req, res, next, OCPIv221TariffsModuleIncomingRequestService.handleGetTariff),
-);
-
 
 // Trigger a GET Tariffs towards CPO, store results in DB, and return OCPI payload (outgoing)
 router.post(

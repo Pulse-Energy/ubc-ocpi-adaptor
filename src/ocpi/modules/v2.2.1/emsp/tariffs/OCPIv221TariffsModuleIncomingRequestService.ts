@@ -243,5 +243,64 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
         }
     }
 
+    // delete requests
+
+    public static async handleDeleteTariff(req: Request): Promise<HttpResponse<OCPITariffResponse>> {
+        try {
+            const tariffId = req.params.tariff_id;
+            const countryCode = req.params.country_code as string;
+            const partyId = req.params.party_id as string;
+
+            if (!tariffId) {
+                return OCPIResponseService.clientError<unknown>({
+                    message: 'tariff_id parameter is required',
+                }) as HttpResponse<OCPITariffResponse>;
+            }
+
+            if (!countryCode || !partyId) {
+                return OCPIResponseService.clientError<unknown>({
+                    message: 'country_code and party_id parameters are required',
+                }) as HttpResponse<OCPITariffResponse>;
+            }
+
+            // Find the tariff to get the database ID
+            const tariff = await TariffDbService.findByOcpiTariffId(
+                countryCode,
+                partyId,
+                tariffId
+            );
+
+            if (!tariff) {
+                return OCPIResponseService.clientError<unknown>({
+                    message: 'Tariff not found',
+                }, OCPIResponseStatusCode.status_2003) as HttpResponse<OCPITariffResponse>;
+            }
+
+            // Delete the tariff using the database ID
+            await TariffDbService.deleteTariff(tariff.id);
+
+            logger.info('Tariff deleted successfully', {
+                tariffId,
+                countryCode,
+                partyId,
+                databaseId: tariff.id,
+            });
+
+            // Return success response (OCPI 2.2.1 spec: DELETE returns 200 OK with empty or success message)
+            return OCPIResponseService.success<unknown>({
+                message: 'Tariff deleted successfully',
+            }) as HttpResponse<OCPITariffResponse>;
+        }
+        catch (error) {
+            logger.error('Error deleting tariff', error as Error, {
+                params: req.params,
+            });
+            return OCPIResponseService.serverError<unknown>({
+                message: 'Failed to delete tariff',
+                error: error instanceof Error ? error.message : String(error),
+            }) as HttpResponse<OCPITariffResponse>;
+        }
+    }
+
 }
 
