@@ -27,24 +27,6 @@ import { EvseConnectorDbService } from '../../../db-services/EvseConnectorDbServ
  * Handler for select action
  */
 export default class SelectActionHandler {
-    // public static async handleSelect(req: Request): Promise<HttpResponse<BecknActionResponse>> {
-    //     try {
-    //         const payload = req.body as UBCSelectRequestPayload;
-
-    //         logger.info('Handling select action', {
-    //             context: payload.context,
-    //             messageId: payload.context.message_id,
-    //             transactionId: payload.context.transaction_id,
-    //         });
-
-    //         // TODO: Implement select action logic
-    //         return UBCResponseService.ack();
-    //     }
-    //     catch (error: any) {
-    //         logger.error('Error handling select action', error);
-    //         return UBCResponseService.nack();
-    //     }
-    // }
 
     public static async handleBppSelectRequest(
         req: Request
