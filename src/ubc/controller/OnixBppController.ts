@@ -17,8 +17,13 @@ export default class OnixBppController {
             logger.debug(`🟡 Received request in requestWrapper for action ${action}`, { data: reqDetails });
 
             if (Utils.isUBCDomain(reqDetails)) {
-                Utils.executeAsync(() => fn(reqDetails));
-                return UBCResponseService.ack();
+                // Return ACK first, then execute the function asynchronously after response is sent
+                const ackResponse = UBCResponseService.ack();
+                // Use setImmediate to ensure response is sent first, then execute async function
+                setImmediate(() => {
+                    Utils.executeAsync(() => fn(reqDetails));
+                });
+                return ackResponse;
             }
 
             logger.error(`🔴 Error in requestWrapper for action ${action}: 'Unsupported domain'`);
