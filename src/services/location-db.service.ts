@@ -80,10 +80,16 @@ export class LocationDbService {
         // Recreate EVSE + Connector tree if present
         if (ocpiLocation.evses && ocpiLocation.evses.length > 0) {
             for (const evse of ocpiLocation.evses) {
-                const evseRecord = await this.createEvseForLocation(locationRecord.id, evse, ocpiLocation.coordinates);
+                const evseRecord = await this.createEvseForLocation(
+                    locationRecord.id,
+                    evse,
+                    ocpiLocation.coordinates,
+                );
 
-                for (const connector of evse.connectors) {
-                    await this.createConnectorForEvse(evseRecord.id, connector);
+                if (evse.connectors && evse.connectors.length > 0) {
+                    for (const connector of evse.connectors) {
+                        await this.createConnectorForEvse(evseRecord.id, connector);
+                    }
                 }
             }
         }
@@ -171,8 +177,9 @@ export class LocationDbService {
         return {
             ocpi_location_id: ocpiLocation.id,
             name: ocpiLocation.name ?? null,
-            latitude: ocpiLocation.coordinates.latitude,
-            longitude: ocpiLocation.coordinates.longitude,
+            // Coordinates are required by OCPI, but be defensive in case a CPO omits them.
+            latitude: ocpiLocation.coordinates?.latitude ?? '0',
+            longitude: ocpiLocation.coordinates?.longitude ?? '0',
             country_code: ocpiLocation.country_code,
             party_id: ocpiLocation.party_id,
             city: ocpiLocation.city,
@@ -182,41 +189,46 @@ export class LocationDbService {
             address: ocpiLocation.address,
             time_zone: ocpiLocation.time_zone,
             parking_type: ocpiLocation.parking_type ?? null,
+            // JSON/array fields: if missing, store empty array/object instead of JSON null
             related_locations: ocpiLocation.related_locations
                 ? ocpiLocation.related_locations as Prisma.InputJsonValue
-                : Prisma.JsonNull,
+                : [] as Prisma.InputJsonValue,
             directions: ocpiLocation.directions
                 ? ocpiLocation.directions as Prisma.InputJsonValue
-                : Prisma.JsonNull,
+                : [] as Prisma.InputJsonValue,
             operator: ocpiLocation.operator
                 ? ocpiLocation.operator as Prisma.InputJsonValue
-                : Prisma.JsonNull,
+                : {} as Prisma.InputJsonValue,
             suboperator: ocpiLocation.suboperator
                 ? ocpiLocation.suboperator as Prisma.InputJsonValue
-                : Prisma.JsonNull,
+                : {} as Prisma.InputJsonValue,
             owner: ocpiLocation.owner
                 ? ocpiLocation.owner as Prisma.InputJsonValue
-                : Prisma.JsonNull,
+                : {} as Prisma.InputJsonValue,
             facilities: ocpiLocation.facilities ?? [],
             opening_times: ocpiLocation.opening_times
                 ? JSON.parse(JSON.stringify(ocpiLocation.opening_times)) as Prisma.InputJsonValue
-                : Prisma.JsonNull,
+                : {} as Prisma.InputJsonValue,
             images: ocpiLocation.images
                 ? ocpiLocation.images as Prisma.InputJsonValue
-                : Prisma.JsonNull,
+                : [] as Prisma.InputJsonValue,
             energy_mix: ocpiLocation.energy_mix
                 ? ocpiLocation.energy_mix as Prisma.InputJsonValue
-                : Prisma.JsonNull,
+                : {} as Prisma.InputJsonValue,
             charging_when_closed: ocpiLocation.charging_when_closed ?? null,
             publish: ocpiLocation.publish,
             publish_allowed_to: ocpiLocation.publish_allowed_to
                 ? ocpiLocation.publish_allowed_to as Prisma.InputJsonValue
-                : Prisma.JsonNull,
-            last_updated: new Date(ocpiLocation.last_updated),
+                : [] as Prisma.InputJsonValue,
+            last_updated: new Date(ocpiLocation.last_updated ?? new Date().toISOString()),
         };
     }
 
-    private static async createEvseForLocation(locationId: string, evse: OCPIEVSE, fallbackCoordinates: { latitude: string; longitude: string }): Promise<EVSE> {
+    private static async createEvseForLocation(
+        locationId: string,
+        evse: OCPIEVSE,
+        fallbackCoordinates?: { latitude: string; longitude: string },
+    ): Promise<EVSE> {
         const prisma = databaseService.prisma;
 
         return prisma.eVSE.create({
@@ -227,22 +239,22 @@ export class LocationDbService {
                 status: evse.status as OCPIStatus,
                 status_schedule: evse.status_schedule
                     ? evse.status_schedule as Prisma.InputJsonValue
-                    : Prisma.JsonNull,
+                    : [] as Prisma.InputJsonValue,
                 capabilities: evse.capabilities ?? [],
                 floor_level: evse.floor_level ?? null,
-                latitude: evse.coordinates?.latitude ?? fallbackCoordinates.latitude,
-                longitude: evse.coordinates?.longitude ?? fallbackCoordinates.longitude,
+                latitude: evse.coordinates?.latitude ?? fallbackCoordinates?.latitude ?? '0',
+                longitude: evse.coordinates?.longitude ?? fallbackCoordinates?.longitude ?? '0',
                 physical_reference: evse.physical_reference ?? null,
                 directions: evse.directions
                     ? evse.directions as Prisma.InputJsonValue
-                    : Prisma.JsonNull,
+                    : [] as Prisma.InputJsonValue,
                 parking_restrictions: evse.parking_restrictions ?? [],
                 images: evse.images
                     ? evse.images as Prisma.InputJsonValue
-                    : Prisma.JsonNull,
+                    : [] as Prisma.InputJsonValue,
                 status_errorcode: evse.status_errorcode ? String(evse.status_errorcode) : null,
                 status_errordescription: evse.status_errordescription ?? null,
-                last_updated: new Date(evse.last_updated),
+                last_updated: new Date(evse.last_updated ?? new Date().toISOString()),
             },
         });
     }
@@ -258,12 +270,12 @@ export class LocationDbService {
                 format: String(connector.format),
                 qr_code: connector.qr_code ?? null,
                 power_type: connector.power_type as OCPIPowerType,
-                max_voltage: connector.max_voltage,
-                max_amperage: connector.max_amperage,
+                max_voltage: connector.max_voltage ?? BigInt(0),
+                max_amperage: connector.max_amperage ?? BigInt(0),
                 max_electric_power: connector.max_electric_power ?? null,
                 tariff_ids: connector.tariff_ids ?? [],
                 terms_and_conditions: connector.terms_and_conditions ?? null,
-                last_updated: new Date(connector.last_updated),
+                last_updated: new Date(connector.last_updated ?? new Date().toISOString()),
             },
         });
     }
