@@ -58,7 +58,7 @@ export class EvseConnectorDbService {
     public static async getByConnectorId(
         connectorId: string,
         args: Prisma.EVSEConnectorFindFirstArgs = {}
-    ): Promise<EVSEConnector & { tariffs: Tariff[] }> {
+    ): Promise<EVSEConnector | null> {
         const evseConnector = await databaseService.prisma.eVSEConnector.findFirst({
             where: {
                 connector_id: connectorId,
@@ -67,7 +67,7 @@ export class EvseConnectorDbService {
             ...args,
         });
 
-        return evseConnector as EVSEConnector & { tariffs: Tariff[] };
+        return evseConnector;
     }
 
 }
