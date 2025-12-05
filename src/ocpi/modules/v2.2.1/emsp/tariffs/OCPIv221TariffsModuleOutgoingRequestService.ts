@@ -5,7 +5,7 @@ import OCPIResponseService from '../../../../services/OCPIResponseService';
 import OCPIOutgoingRequestService from '../../../../services/OCPIOutgoingRequestService';
 import { getOcpiCpoAuthToken } from '../../../../utils/ocpi-auth-token';
 import Utils from '../../../../../utils/Utils';
-import { TariffDbService } from '../../../../../services/tariff-db.service';
+import { TariffDbService } from '../../../../../db-services/TariffDbService';
 import { OCPITariff } from '../../../../schema/modules/tariffs/types';
 import { logger } from '../../../../../services/logger.service';
 import { OCPIResponseStatusCode } from '../../../../schema/general/enum';

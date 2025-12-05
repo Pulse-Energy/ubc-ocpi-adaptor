@@ -1,5 +1,5 @@
 import { Location, EVSE, EVSEConnector, Prisma } from '@prisma/client';
-import { databaseService } from './database.service';
+import { databaseService } from '../services/database.service';
 import {
     OCPIConnector,
     OCPIEVSE,

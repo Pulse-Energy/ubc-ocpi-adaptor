@@ -39,7 +39,7 @@ const errorHandler = (error: Error, req: Request, res: Response, _next: NextFunc
                 message: error.message,
             },
         });
-        return;
+        return _next(error);
     }
 
     res.status(500).json({
@@ -71,7 +71,7 @@ async function handleRequest(req: Request, res: Response, next: NextFunction, co
 // Each action is registered as a POST endpoint since Beckn actions are typically POST requests
 
 router.post(`/${BecknAction.select}`, ubcAuth, async (req: Request, res: Response, next: NextFunction) =>
-    handleRequest(req, res, next, SelectActionHandler.handleSelect)
+    handleRequest(req, res, next, SelectActionHandler.handleBppSelectRequest)
 );
 
 router.post(`/${BecknAction.init}`, ubcAuth, async (req: Request, res: Response, next: NextFunction) =>

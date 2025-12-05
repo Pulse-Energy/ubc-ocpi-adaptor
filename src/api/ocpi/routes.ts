@@ -18,12 +18,16 @@ async function handleRequest(
 ) {
     try {
         const response = await controller(req);
-        res.status(response.httpStatus || 200).json(response.payload);
+        
+        // Set headers BEFORE sending the response
         if (response.headers) {
             Object.entries(response.headers).forEach(([key, value]) => {
                 res.setHeader(key, value);
             });
         }
+        
+        // Send the response after headers are set
+        res.status(response.httpStatus || 200).json(response.payload);
     }
     catch (error) {
         next(error);

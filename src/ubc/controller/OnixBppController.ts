@@ -1,0 +1,34 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { logger } from "../../services/logger.service";
+import { HttpResponse } from "../../types/responses";
+import Utils from "../../utils/Utils";
+import { BecknAction } from "../schema/v2.0.0/enums/BecknAction";
+import { BecknActionResponse } from "../schema/v2.0.0/types/AckResponse";
+import UBCResponseService from "../services/UBCResponseService";
+import { Request } from "express";
+
+/**
+ * This is a common controller for BPP requests from all domains.
+ * The routing of the domain has to be done within this
+ */
+export default class OnixBppController {
+    public static async requestWrapper(action: BecknAction, reqDetails: Request, fn: (req: Request) => void): Promise<HttpResponse<BecknActionResponse>> {
+        try {
+            logger.debug(`🟡 Received request in requestWrapper for action ${action}`, { data: reqDetails });
+
+            if (Utils.isUBCDomain(reqDetails)) {
+                Utils.executeAsync(() => fn(reqDetails));
+                return UBCResponseService.ack();
+            }
+
+            logger.error(`🔴 Error in requestWrapper for action ${action}: 'Unsupported domain'`);
+
+            return UBCResponseService.nack();
+        }
+        catch (e: any) {
+            logger.error(`🔴 Error in requestWrapper for action ${action}: 'Something went wrong'`, e);
+
+            return UBCResponseService.nack();
+        }
+    }
+}
