@@ -24,6 +24,7 @@ import {
 import { EvseConnectorDbService } from '../../../db-services/EvseConnectorDbService';
 import { OCPIv211PriceComponent, OCPIv211TariffElement } from '../../../ocpi/schema/modules/tariffs/types';
 import { Tariff } from '@prisma/client';
+import { TariffDbService } from '../../../db-services/TariffDbService';
 
 /**
  * Handler for select action
@@ -36,7 +37,7 @@ export default class SelectActionHandler {
         const payload = req.body as UBCSelectRequestPayload;
 
         return OnixBppController.requestWrapper(BecknAction.select, req, () => {
-            this.handleEVChargingUBCBppSelectAction(payload)
+            SelectActionHandler.handleEVChargingUBCBppSelectAction(payload)
                 .then((ubcOnSelectResponsePayload: UBCOnSelectRequestPayload) => {
                     logger.debug(`🟢 Sending select response in handleBppSelectRequest`, {
                         data: ubcOnSelectResponsePayload,
@@ -61,7 +62,7 @@ export default class SelectActionHandler {
                 { data: { logData, reqPayload } }
             );
             const backendSelectPayload: ExtractedSelectRequestBody =
-                this.translateUBCToBackendPayload(reqPayload);
+                SelectActionHandler.translateUBCToBackendPayload(reqPayload);
 
             // make a request to CPO BE server
             logger.debug(
@@ -69,7 +70,7 @@ export default class SelectActionHandler {
                 { data: { backendSelectPayload } }
             );
             const ExtractedOnSelectResponseBody: ExtractedOnSelectResponseBody =
-                await this.sendSelectCallToBackend(backendSelectPayload);
+                await SelectActionHandler.sendSelectCallToBackend(backendSelectPayload);
             logger.debug(
                 `🟢 [${reqId}] Received select response from backend in handleEVChargingUBCBppSelectAction`,
                 { data: { ExtractedOnSelectResponseBody } }
@@ -80,7 +81,7 @@ export default class SelectActionHandler {
                 `🟡 [${reqId}] Translating Backend to UBC payload in handleEVChargingUBCBppSelectAction`,
                 { data: { reqPayload, ExtractedOnSelectResponseBody } }
             );
-            const ubcOnSelectPayload: UBCOnSelectRequestPayload = this.translateBackendToUBC(
+            const ubcOnSelectPayload: UBCOnSelectRequestPayload = SelectActionHandler.translateBackendToUBC(
                 reqPayload,
                 ExtractedOnSelectResponseBody
             );
@@ -90,7 +91,7 @@ export default class SelectActionHandler {
                 `🟡 [${reqId}] Sending on_select call to Beckn ONIX in handleEVChargingUBCBppSelectAction`,
                 { data: { ubcOnSelectPayload } }
             );
-            const response = await this.sendOnSelectCallToBecknONIX(ubcOnSelectPayload);
+            const response = await SelectActionHandler.sendOnSelectCallToBecknONIX(ubcOnSelectPayload);
             logger.debug(
                 `🟢 [${reqId}] Sent on_select call to Beckn ONIX in handleEVChargingUBCBppSelectAction`,
                 { data: { response } }
@@ -159,23 +160,18 @@ export default class SelectActionHandler {
         } = reqPayload;
         const chargingOptionUnit = Number(charging_option_unit);
         const evseConnector = await EvseConnectorDbService.getByConnectorId(
-            charge_point_connector_id,
-            {
-                include: {
-                    tariffs: true,
-                },
-            }
+            charge_point_connector_id
         );
         if (!evseConnector) {
             throw new Error('EVSE Connector not found');
         }
 
-        const ocpiTariff = evseConnector.tariffs[0];
+        const ocpiTariff = await TariffDbService.getByOcpiTariffId(evseConnector.tariff_ids[0]);
         if (!ocpiTariff) {
-            throw new Error('OCPI Tariff not found for EVSE Connector');
+            throw new Error('Tariff not found for EVSE Connector');
         }
 
-        const orderValue = this.buildOrderValue(ocpiTariff, chargingOptionUnit);
+        const orderValue = SelectActionHandler.buildOrderValue(ocpiTariff, chargingOptionUnit);
 
         const response: ExtractedOnSelectResponseBody = {
             payload: {
@@ -323,7 +319,7 @@ export default class SelectActionHandler {
 
         const gst = total * 0.18;
         const serviceCharge = total * 0.05;
-        const orderValueComponents = this.buildOrderValueComponents({
+        const orderValueComponents = SelectActionHandler.buildOrderValueComponents({
             charging_session_cost: total,
             gst: gst, 
             service_charge: serviceCharge,

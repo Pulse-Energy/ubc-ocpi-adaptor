@@ -259,6 +259,21 @@ export class TariffDbService {
         return tariff as TariffWithRelations | null;
     }
 
+    public static async getByOcpiTariffId(
+        ocpiTariffId: string,
+        args: Omit<Prisma.TariffFindUniqueArgs, 'where'> = {}
+    ): Promise<TariffWithRelations | null> {
+        const tariff = await databaseService.prisma.tariff.findFirst({
+            where: {
+                ocpi_tariff_id: ocpiTariffId,
+            },
+            ...args,
+        });
+
+        return tariff as TariffWithRelations | null;
+    }
+
+
     public static async findAll(
         countryCode?: string,
         partyId?: string,
