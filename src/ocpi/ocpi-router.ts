@@ -13,7 +13,7 @@ const router = Router();
 // OCPI Authentication Middleware
 const ocpiAuth = (req: Request, res: Response, next: NextFunction): void => {
     const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Token ')) {
+    if (!authHeader) {
         res.status(401).json({
             status_code: 2001,
             status_message: 'Unauthorized',
@@ -26,7 +26,10 @@ const ocpiAuth = (req: Request, res: Response, next: NextFunction): void => {
 };
 
 // Error handling middleware
-const errorHandler = (error: Error, req: Request, res: Response): void => {
+// Must have 4 parameters so Express treats it as an error handler,
+// not as a regular middleware.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const errorHandler = (error: Error, req: Request, res: Response, _next: NextFunction): void => {
     logger.error('OCPI API error', error, {
         path: req.path,
         method: req.method,
@@ -87,9 +90,21 @@ router.get(`/versions/:ocpi_version/details`, ocpiAuth, async (req: Request, res
 );
 
 
-// Credentials endpoint
+// Credentials endpoints
 router.post('/credentials', ocpiAuth, async (req: Request, res: Response, next: NextFunction) =>
+    handleRequest(req, res, next, OCPIv221CredentialsModuleIncomingRequestService.handlePostCredentials)
+);
+
+router.get('/credentials', ocpiAuth, async (req: Request, res: Response, next: NextFunction) =>
     handleRequest(req, res, next, OCPIv221CredentialsModuleIncomingRequestService.handleGetCredentials)
+);
+
+router.put('/credentials', ocpiAuth, async (req: Request, res: Response, next: NextFunction) =>
+    handleRequest(req, res, next, OCPIv221CredentialsModuleIncomingRequestService.handlePutCredentials)
+);
+
+router.patch('/credentials', ocpiAuth, async (req: Request, res: Response, next: NextFunction) =>
+    handleRequest(req, res, next, OCPIv221CredentialsModuleIncomingRequestService.handlePatchCredentials)
 );
 
 

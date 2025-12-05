@@ -1,23 +1,27 @@
-import { Request } from "express";
-import { HttpResponse } from "../../../../../types/responses";
-import { AppError } from "../../../../../utils/errors";
-import { OCPIResponseStatusCode } from "../../../../schema/general/enum";
-import { OCPIResponsePayload } from "../../../../schema/general/types/responses";
-import { OCPIInterfaceRole, OCPIModuleID, OCPIVersionNumber } from "../../../../schema/modules/verisons/enums";
-import { OCPIEndpointClass, OCPIv211EndpointClass, OCPIVersionClass } from "../../../../schema/modules/verisons/types";
-import { OCPIv211VersionDetailResponse, OCPIVersionDetailResponse } from "../../../../schema/modules/verisons/types/responses";
+import { Request } from 'express';
+import { HttpResponse } from '../../../../../types/responses';
+import { AppError } from '../../../../../utils/errors';
+import { OCPIResponseStatusCode } from '../../../../schema/general/enum';
+import { OCPIResponsePayload } from '../../../../schema/general/types/responses';
+import { OCPIInterfaceRole, OCPIModuleID, OCPIVersionNumber } from '../../../../schema/modules/verisons/enums';
+import { OCPIEndpointClass, OCPIv211EndpointClass, OCPIVersionClass } from '../../../../schema/modules/verisons/types';
+import { OCPIv211VersionDetailResponse, OCPIVersionDetailResponse } from '../../../../schema/modules/verisons/types/responses';
 
+/**
+ * OCPI Versions module (incoming, EMSP side, v2.2.1).
+ *
+ * File name and path follow the existing convention:
+ *   src/ocpi/modules/v2.2.1/emsp/versions/VersionsModuleIncomingRequestService.ts
+ */
 export default class VersionsModuleIncomingRequestService {
 
-    public static async handleGetVersions(req: Request): Promise<HttpResponse<OCPIResponsePayload<OCPIVersionClass[]>>> {
+    public static async handleGetVersions(): Promise<HttpResponse<OCPIResponsePayload<OCPIVersionClass[]>>> {
+        const baseHost = process.env.OCPI_HOST || 'http://localhost:6001';
+
         const versions: OCPIVersionClass[] = [
             {
-                version: OCPIVersionNumber.v2_1_1,
-                url: `${process.env.OCPI_HOST}/ocpi/versions/${OCPIVersionNumber.v2_1_1}/details`,
-            },
-            {
                 version: OCPIVersionNumber.v2_2_1,
-                url: `${process.env.OCPI_HOST}/ocpi/versions/${OCPIVersionNumber.v2_2_1}/details`,
+                url: `${baseHost}/ocpi/versions/${OCPIVersionNumber.v2_2_1}/details`,
             },
         ];
 
@@ -31,19 +35,15 @@ export default class VersionsModuleIncomingRequestService {
         };
     }
 
-    public static async handleGetVersionDetails(req: Request): Promise<HttpResponse<OCPIResponsePayload<OCPIVersionDetailResponse | OCPIv211VersionDetailResponse>>> {
-        const version = req.params.ocpi_version;
+    public static async handleGetVersionDetails(
+        req: Request,
+    ): Promise<HttpResponse<OCPIResponsePayload<OCPIVersionDetailResponse | OCPIv211VersionDetailResponse>>> {
+        const version = req.params.ocpi_version as OCPIVersionNumber;
 
-        let versionDetails: OCPIVersionDetailResponse | OCPIv211VersionDetailResponse = {
-            version: version as OCPIVersionNumber,
-            endpoints: [],
-        };
+        let versionDetails: OCPIVersionDetailResponse | OCPIv211VersionDetailResponse;
 
         if (version === OCPIVersionNumber.v2_2_1) {
             versionDetails = VersionsModuleIncomingRequestService.handleGetVersionDetailsV221();
-        }
-        else if (version === OCPIVersionNumber.v2_1_1) {
-            versionDetails = VersionsModuleIncomingRequestService.handleGetVersionDetailsV211();
         }
         else {
             throw new AppError('Invalid version', 400);
@@ -60,7 +60,7 @@ export default class VersionsModuleIncomingRequestService {
     }
 
     private static handleGetVersionDetailsV221(): OCPIVersionDetailResponse {
-        const baseUrl = `${process.env.OCPI_HOST}/ocpi/${OCPIVersionNumber.v2_2_1}`;
+        const baseUrl = `${process.env.OCPI_HOST || 'http://localhost:6001'}/ocpi/${OCPIVersionNumber.v2_2_1}`;
 
         const endpoints: OCPIEndpointClass[] = [
             {
@@ -83,16 +83,16 @@ export default class VersionsModuleIncomingRequestService {
                 url: `${baseUrl}/${OCPIModuleID.Tariffs}`,
                 role: OCPIInterfaceRole.Receiver,
             },
-            {
-                identifier: OCPIModuleID.Sessions,
-                url: `${baseUrl}/${OCPIModuleID.Sessions}`,
-                role: OCPIInterfaceRole.Receiver,
-            },
-            {
-                identifier: OCPIModuleID.Commands,
-                url: `${baseUrl}/${OCPIModuleID.Tariffs}`,
-                role: OCPIInterfaceRole.Sender,
-            },
+            // {
+            //     identifier: OCPIModuleID.Sessions,
+            //     url: `${baseUrl}/${OCPIModuleID.Sessions}`,
+            //     role: OCPIInterfaceRole.Receiver,
+            // },
+            // {
+            //     identifier: OCPIModuleID.Commands,
+            //     url: `${baseUrl}/${OCPIModuleID.Commands}`,
+            //     role: OCPIInterfaceRole.Sender,
+            // },
             {
                 identifier: OCPIModuleID.Tokens,
                 url: `${baseUrl}/${OCPIModuleID.Tokens}`,
@@ -101,13 +101,13 @@ export default class VersionsModuleIncomingRequestService {
         ];
 
         return {
-            version: OCPIVersionNumber.v2_1_1,
-            endpoints: endpoints,
+            version: OCPIVersionNumber.v2_2_1,
+            endpoints,
         };
     }
 
     private static handleGetVersionDetailsV211(): OCPIv211VersionDetailResponse {
-        const baseUrl = `${process.env.OCPI_HOST}/ocpi/${OCPIVersionNumber.v2_1_1}`;
+        const baseUrl = `${process.env.OCPI_HOST || 'http://localhost:6001'}/ocpi/${OCPIVersionNumber.v2_1_1}`;
 
         const endpoints: OCPIv211EndpointClass[] = [
             {
@@ -132,7 +132,7 @@ export default class VersionsModuleIncomingRequestService {
             },
             {
                 identifier: OCPIModuleID.Commands,
-                url: `${baseUrl}/${OCPIModuleID.Tariffs}`,
+                url: `${baseUrl}/${OCPIModuleID.Commands}`,
             },
             {
                 identifier: OCPIModuleID.Tokens,
@@ -142,7 +142,7 @@ export default class VersionsModuleIncomingRequestService {
 
         return {
             version: OCPIVersionNumber.v2_1_1,
-            endpoints: endpoints,
+            endpoints,
         };
     }
 }

@@ -5,6 +5,9 @@ import GLOBAL_VARS from "../constants/global-vars";
 import { BecknAction } from "../ubc/schema/v2.0.0/enums/BecknAction";
 import { Context } from "../ubc/schema/v2.0.0/types/Context";
 import { Request } from "express";
+import { OCPICredentialsRoleClass } from "../ocpi/schema/modules/credentials/types";
+import { databaseService } from "../services/database.service";
+import { OCPIPartnerCredentials } from "@prisma/client";
 
 export default class Utils {
     public static upperCaseFirstLetter(str: string): string {
@@ -260,6 +263,14 @@ export default class Utils {
     
         static async executeAsync(fn: any): Promise<void> {
             return fn();
+        }
+
+        public static async findPartnerCredentialsUsingCPOAuthToken(cpoAuthToken: string): Promise<OCPIPartnerCredentials | null> {
+            const partnerCredentials = await databaseService.prisma.oCPIPartnerCredentials.findFirst({
+                where: { cpo_auth_token: cpoAuthToken },
+            });
+
+            return partnerCredentials;
         }
     
 }
