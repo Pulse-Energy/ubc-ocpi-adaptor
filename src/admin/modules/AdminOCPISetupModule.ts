@@ -262,22 +262,6 @@ export default class AdminOCPISetupModule {
             roles,
         );
 
-        const ocpiRole = await databaseService.prisma.oCPIPartnerRole.findFirst({
-            where: { partner_id: partner.id, role: 'EMSP' },
-        });
-
-        if (!ocpiRole) {
-            await databaseService.prisma.oCPIPartnerRole.create({
-                data: { partner_id: partner.id, role: 'EMSP', country_code: roles[0].country_code, party_id: roles[0].party_id },
-            });
-        }
-        else {
-            await databaseService.prisma.oCPIPartnerRole.update({
-                where: { id: ocpiRole.id },
-                data: { country_code: roles[0].country_code, party_id: roles[0].party_id },
-            });
-        }
-
         await databaseService.prisma.oCPIPartnerCredentials.update({
             where: { partner_id: partner.id },
             data: { cpo_auth_token: response.payload.data?.token },
