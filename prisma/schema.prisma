@@ -45,10 +45,13 @@ model Location {
   updated_at           DateTime  @updatedAt
 
   // Relations
-  evses EVSE[]
+  evses      EVSE[]
+  partner_id String
+  partner    OCPIPartner @relation(fields: [partner_id], references: [id], onDelete: Cascade)
 
   @@unique([country_code, party_id, ocpi_location_id])
   @@index([country_code, party_id])
+  @@index([partner_id])
   @@map("location")
 }
 
@@ -76,9 +79,11 @@ model EVSE {
   deleted_at              DateTime?
   created_at              DateTime  @default(now())
   updated_at              DateTime  @updatedAt
+  partner_id              String
 
   // Relations
   evse_connectors EVSEConnector[]
+  partner         OCPIPartner     @relation(fields: [partner_id], references: [id], onDelete: Cascade)
 
   @@unique([location_id, uid])
   @@index([uid])
@@ -88,9 +93,9 @@ model EVSE {
 
 // OCPI 2.2.1 Connector Model
 model EVSEConnector {
-  id                   String    @id @default(uuid())
+  id                   String      @id @default(uuid())
   evse_id              String
-  evse                 EVSE      @relation(fields: [evse_id], references: [id], onDelete: Cascade)
+  evse                 EVSE        @relation(fields: [evse_id], references: [id], onDelete: Cascade)
   connector_id         String // OCPI id field
   standard             String // OCPIConnectorType enum
   format               String // OCPIConnectorFormat enum
@@ -101,15 +106,18 @@ model EVSEConnector {
   max_electric_power   BigInt?
   terms_and_conditions String? // URL
   last_updated         DateTime
-  deleted              Boolean   @default(false)
+  deleted              Boolean     @default(false)
   deleted_at           DateTime?
-  created_at           DateTime  @default(now())
-  updated_at           DateTime  @updatedAt
+  created_at           DateTime    @default(now())
+  updated_at           DateTime    @updatedAt
   tariff_ids           String[]
   tariffs              Tariff[]
+  partner_id           String
+  partner              OCPIPartner @relation(fields: [partner_id], references: [id], onDelete: Cascade)
 
   @@unique([evse_id, connector_id])
   @@index([evse_id])
+  @@index([partner_id])
   @@map("evse_connector")
 }
 
@@ -134,10 +142,13 @@ model Tariff {
   ocpi_tariff_element Json?
   evseconnector       EVSEConnector? @relation(fields: [eVSEConnectorId], references: [id])
   eVSEConnectorId     String?
+  partner_id          String
+  partner             OCPIPartner    @relation(fields: [partner_id], references: [id], onDelete: Cascade)
 
   @@unique([country_code, party_id, ocpi_tariff_id])
   @@index([country_code, party_id])
   @@index([ocpi_tariff_id])
+  @@index([partner_id])
   @@map("tariff")
 }
 
@@ -190,13 +201,13 @@ model Tariff {
 
 // OCPI 2.2.1 Session Model
 model Session {
-  id                      String    @id @default(uuid())
+  id                      String      @id @default(uuid())
   country_code            String
   party_id                String
   ocpi_session_id         String // OCPI id field
   start_date_time         DateTime
   end_date_time           DateTime?
-  kwh                     Decimal   @db.Decimal(10, 3)
+  kwh                     Decimal     @db.Decimal(10, 3)
   cdr_token               Json // OCPICdrToken
   auth_method             String // OCPIAuthMethod enum
   authorization_reference String?
@@ -209,22 +220,25 @@ model Session {
   total_cost              Json? // OCPIPrice
   status                  String // OCPISessionStatus enum
   last_updated            DateTime
-  deleted                 Boolean   @default(false)
+  deleted                 Boolean     @default(false)
   deleted_at              DateTime?
-  created_at              DateTime  @default(now())
-  updated_at              DateTime  @updatedAt
+  created_at              DateTime    @default(now())
+  updated_at              DateTime    @updatedAt
+  partner_id              String
+  partner                 OCPIPartner @relation(fields: [partner_id], references: [id], onDelete: Cascade)
 
   @@unique([country_code, party_id, ocpi_session_id])
   @@index([country_code, party_id])
   @@index([ocpi_session_id])
   @@index([location_id])
   @@index([status])
+  @@index([partner_id])
   @@map("session")
 }
 
 // OCPI 2.2.1 CDR Model
 model CDR {
-  id                      String    @id @default(uuid())
+  id                      String      @id @default(uuid())
   country_code            String
   party_id                String
   ocpi_cdr_id             String // OCPI id field
@@ -242,7 +256,7 @@ model CDR {
   signed_data             Json? // OCPISignedData
   total_cost              Json // OCPIPrice
   total_fixed_cost        Json? // OCPIPrice
-  total_energy            Decimal   @db.Decimal(10, 3)
+  total_energy            Decimal     @db.Decimal(10, 3)
   total_energy_cost       Json? // OCPIPrice
   total_time              BigInt
   total_time_cost         Json? // OCPIPrice
@@ -256,22 +270,25 @@ model CDR {
   // home_charging_compensation Boolean?
   remarks                 String?
   last_updated            DateTime
-  deleted                 Boolean   @default(false)
+  deleted                 Boolean     @default(false)
   deleted_at              DateTime?
-  created_at              DateTime  @default(now())
-  updated_at              DateTime  @updatedAt
+  created_at              DateTime    @default(now())
+  updated_at              DateTime    @updatedAt
+  partner_id              String
+  partner                 OCPIPartner @relation(fields: [partner_id], references: [id], onDelete: Cascade)
 
   @@unique([country_code, party_id, ocpi_cdr_id])
   @@index([country_code, party_id])
   @@index([ocpi_cdr_id])
   @@index([session_id])
   @@index([currency])
+  @@index([partner_id])
   @@map("cdr")
 }
 
 // OCPI 2.2.1 Token Model
 model Token {
-  id                   String    @id @default(uuid())
+  id                   String      @id @default(uuid())
   country_code         String
   party_id             String
   uid                  String
@@ -286,58 +303,51 @@ model Token {
   default_profile_type String? // OCPIProfileType enum
   energy_contract      Json? // OCPIEnergyContract
   last_updated         DateTime
-  deleted              Boolean   @default(false)
+  deleted              Boolean     @default(false)
   deleted_at           DateTime?
-  created_at           DateTime  @default(now())
-  updated_at           DateTime  @updatedAt
+  created_at           DateTime    @default(now())
+  updated_at           DateTime    @updatedAt
+  partner_id           String
+  partner              OCPIPartner @relation(fields: [partner_id], references: [id], onDelete: Cascade)
 
   @@unique([country_code, party_id, uid])
   @@index([country_code, party_id])
   @@index([uid])
   @@index([contract_id])
   @@index([valid])
+  @@index([partner_id])
   @@map("token")
 }
 
 // OCPI Partner (CPO) integration metadata
 model OCPIPartner {
-  id           String             @id @default(uuid())
+  id           String  @id @default(uuid())
   name         String?
   country_code String
   party_id     String
-
-  roles        OCPIPartnerRole[]  // ← one partner, many roles
+  role         String  @default("CPO") // CPO | EMSP
 
   versions_url String
-  status       String             @default("INIT")
+  status       String                  @default("INIT")
   credentials  OCPIPartnerCredentials?
   endpoints    OCPIPartnerEndpoint[]
   versions     OCPIVersion[]
 
-  created_at   DateTime           @default(now())
-  updated_at   DateTime           @updatedAt
-  deleted      Boolean            @default(false)
-  deleted_at   DateTime?
+  created_at     DateTime        @default(now())
+  updated_at     DateTime        @updatedAt
+  deleted        Boolean         @default(false)
+  deleted_at     DateTime?
+  locations      Location[]
+  evses          EVSE[]
+  evseconnectors EVSEConnector[]
+  tariffs        Tariff[]
+  sessions       Session[]
+  cdrs           CDR[]
+  tokens         Token[]
 
   @@unique([country_code, party_id])
   @@map("ocpi_partner")
 }
-
-model OCPIPartnerRole {
-  id           String       @id @default(uuid())
-  partner_id   String
-  partner      OCPIPartner  @relation(fields: [partner_id], references: [id], onDelete: Cascade)
-
-  role         String       // CPO | EMSP | NSP | SCSP | OTHER
-  country_code String
-  party_id     String
-
-  created_at   DateTime     @default(now())
-  updated_at   DateTime     @updatedAt
-
-  @@map("ocpi_partner_role")
-}
-
 
 // OCPI credentials exchanged during handshake for a given partner
 model OCPIPartnerCredentials {
@@ -375,16 +385,16 @@ model OCPIPartnerEndpoint {
 }
 
 model OCPIVersion {
-    id             String    @id @default(uuid())
-    partner_id     String
-    partner        OCPIPartner @relation(fields: [partner_id], references: [id], onDelete: Cascade)
-    version_id     String // e.g. "2.2.1"
-    version_url    String
-    created_at     DateTime    @default(now())
-    updated_at     DateTime    @updatedAt
-    deleted        Boolean     @default(false)
-    deleted_at     DateTime?
+  id          String      @id @default(uuid())
+  partner_id  String
+  partner     OCPIPartner @relation(fields: [partner_id], references: [id], onDelete: Cascade)
+  version_id  String // e.g. "2.2.1"
+  version_url String
+  created_at  DateTime    @default(now())
+  updated_at  DateTime    @updatedAt
+  deleted     Boolean     @default(false)
+  deleted_at  DateTime?
 
-    @@index([partner_id])
-    @@map("ocpi_version")
+  @@index([partner_id])
+  @@map("ocpi_version")
 }

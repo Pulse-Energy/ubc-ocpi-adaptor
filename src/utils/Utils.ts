@@ -7,7 +7,7 @@ import { Context } from "../ubc/schema/v2.0.0/types/Context";
 import { Request } from "express";
 import { OCPICredentialsRoleClass } from "../ocpi/schema/modules/credentials/types";
 import { databaseService } from "../services/database.service";
-import { OCPIPartnerCredentials } from "@prisma/client";
+import { OCPIPartner, OCPIPartnerCredentials } from "@prisma/client";
 
 export default class Utils {
     public static upperCaseFirstLetter(str: string): string {
@@ -271,6 +271,50 @@ export default class Utils {
             });
 
             return partnerCredentials;
+        }
+
+        /**
+         * Find the single EMSP partner configured in the system.
+         * Assumes there is exactly one partner row with role = 'EMSP'.
+         */
+        public static async findEmspPartner(): Promise<OCPIPartner | null> {
+            return databaseService.prisma.oCPIPartner.findFirst({
+                where: {
+                    role: 'EMSP',
+                    deleted: false,
+                },
+            });
+        }
+
+        /**
+         * Find or create a CPO partner for the given (country_code, party_id).
+         * Used for associating OCPI data (locations, tariffs, sessions, etc.) to the correct CPO.
+         */
+        public static async findOrCreateCpoPartner(countryCode: string, partyId: string): Promise<OCPIPartner> {
+            const prisma = databaseService.prisma;
+
+            let partner = await prisma.oCPIPartner.findFirst({
+                where: {
+                    country_code: countryCode,
+                    party_id: partyId,
+                    role: 'CPO',
+                },
+            });
+
+            if (!partner) {
+                partner = await prisma.oCPIPartner.create({
+                    data: {
+                        name: null,
+                        country_code: countryCode,
+                        party_id: partyId,
+                        role: 'CPO',
+                        versions_url: '',
+                        status: 'INIT',
+                    },
+                });
+            }
+
+            return partner;
         }
     
 }

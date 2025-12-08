@@ -91,8 +91,11 @@ export default class OCPIv221CredentialsModuleIncomingRequestService {
             };
         }
 
-        const emspRole = await prisma.oCPIPartnerRole.findFirst({
-            where: { partner_id: partnerCredentials.partner_id, role: 'EMSP' },
+        const emspPartner = await prisma.oCPIPartner.findFirst({
+            where: {
+                role: 'EMSP',
+                deleted: false,
+            },
         });
 
         const emspCredentials: OCPICredentials = {
@@ -100,9 +103,9 @@ export default class OCPIv221CredentialsModuleIncomingRequestService {
             url: partnerCredentials.emsp_url || '',
             roles: [
                 {
-                    country_code: emspRole?.country_code as CountryCode,
-                    party_id: emspRole?.party_id as string,
-                    role: emspRole?.role as OCPIRole,
+                    country_code: emspPartner?.country_code as CountryCode,
+                    party_id: emspPartner?.party_id as string,
+                    role: OCPIRole.EMSP,
                 },
             ],
         };
@@ -213,35 +216,23 @@ export default class OCPIv221CredentialsModuleIncomingRequestService {
             },
         });
 
-        // delete existing roles
-        if (patch?.roles) {
-            await prisma.oCPIPartnerRole.deleteMany({
-                where: { partner_id: existingCreds.partner_id, role: 'CPO' },
-            });
-
-            // create new roles
-            await prisma.oCPIPartnerRole.createMany({
-                data: patch.roles.map(role => ({
-                    partner_id: existingCreds.partner_id,
-                    role: role.role,
-                    country_code: role.country_code,
-                    party_id: role.party_id,
-                })),
-            });
-        }
-
-        const emspRoles = await prisma.oCPIPartnerRole.findMany({
-            where: { partner_id: existingCreds.partner_id, role: 'EMSP' },
+        const emspPartner = await prisma.oCPIPartner.findFirst({
+            where: {
+                role: 'EMSP',
+                deleted: false,
+            },
         });
 
         const emspCredentials: OCPICredentials = {
             token: updatedCreds.emsp_auth_token || '',
             url: updatedCreds.emsp_url || '',
-            roles: emspRoles.map(role => ({
-                country_code: role?.country_code as CountryCode,
-                party_id: role?.party_id as string,
-                role: role?.role as OCPIRole,
-            })),
+            roles: [
+                {
+                    country_code: emspPartner?.country_code as CountryCode,
+                    party_id: emspPartner?.party_id as string,
+                    role: OCPIRole.EMSP,
+                },
+            ],
         };
 
         return {
@@ -280,45 +271,32 @@ export default class OCPIv221CredentialsModuleIncomingRequestService {
             throw new Error('Partner credentials not found');
         }
 
-        // 3) Upsert partner credentials row for this partner – store CPO and EMSP tokens/URLs.
-        // Prefer existing EMSP token/URL from DB; fall back to environment defaults on first creation.
-        if (partnerCredentials) {
-            await prisma.oCPIPartnerCredentials.update({
-                where: { partner_id: partnerCredentials.partner_id },
-                data: {
-                    cpo_auth_token: incoming.token,
-                    cpo_url: incoming.url,
-                },
-            });
+        // 3) Update CPO credentials row for this partner – store CPO token/URL.
+        await prisma.oCPIPartnerCredentials.update({
+            where: { partner_id: partnerCredentials.partner_id },
+            data: {
+                cpo_auth_token: incoming.token,
+                cpo_url: incoming.url,
+            },
+        });
 
-            // delete existing roles
-            await prisma.oCPIPartnerRole.deleteMany({
-                where: { partner_id: partnerCredentials.partner_id, role: 'CPO' },
-            });
-
-            // create new roles
-            await prisma.oCPIPartnerRole.createMany({
-                data: incoming.roles.map(role => ({
-                    partner_id: partnerCredentials.partner_id,
-                    role: role.role,
-                    country_code: role.country_code,
-                    party_id: role.party_id,
-                })),
-            });
-        }
-
-        const emspRoles = await prisma.oCPIPartnerRole.findMany({
-            where: { partner_id: partnerCredentials.partner_id, role: 'EMSP' },
+        const emspPartner = await prisma.oCPIPartner.findFirst({
+            where: {
+                role: 'EMSP',
+                deleted: false,
+            },
         });
 
         return {
             token: partnerCredentials.emsp_auth_token || '',
             url: partnerCredentials.emsp_url || '',
-            roles: emspRoles.map(role => (  {
-                country_code: role?.country_code as CountryCode,
-                party_id: role?.party_id as string,
-                role: role?.role as OCPIRole,
-            })),
+            roles: [
+                {
+                    country_code: emspPartner?.country_code as CountryCode,
+                    party_id: emspPartner?.party_id as string,
+                    role: OCPIRole.EMSP,
+                },
+            ],
         };
     }
 }
