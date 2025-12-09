@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Request } from 'express';
 import { HttpResponse } from '../../../types/responses';
@@ -9,7 +10,7 @@ import Utils from '../../../utils/Utils';
 import OnixBppController from '../../controller/OnixBppController';
 import { UBCOnSelectRequestPayload } from '../../schema/v2.0.0/actions/select/types/OnSelectPayload';
 import { ExtractedSelectRequestBody } from '../../schema/v2.0.0/actions/select/types/ExtractedSelectRequestBody';
-import { ExtractedOnSelectResponseBody } from '../../schema/v2.0.0/actions/select/types/AppOnSelectResponsePayload';
+import { ExtractedOnSelectResponseBody } from '../../schema/v2.0.0/actions/select/types/ExtractedOnSelectResponsePayload';
 import { OrderStatus } from '../../schema/v2.0.0/enums/OrderStatus';
 import { ObjectType } from '../../schema/v2.0.0/enums/ObjectType';
 import { ChargingSessionStatus } from '../../schema/v2.0.0/enums/ChargingSessionStatus';
