@@ -1,6 +1,10 @@
 import { Request } from "express";
+import { OCPIPartnerCredentials } from "@prisma/client";
 import { HttpResponse } from "../../../../../types/responses";
-import { OCPITariffResponse, OCPITariffsResponse } from "../../../../schema/modules/tariffs/types/responses";
+import {
+    OCPITariffResponse,
+    OCPITariffsResponse,
+} from "../../../../schema/modules/tariffs/types/responses";
 import OCPIResponseService from "../../../../services/OCPIResponseService";
 import { TariffDbService } from "../../../../../db-services/TariffDbService";
 import { OCPITariff } from "../../../../schema/modules/tariffs/types";
@@ -14,7 +18,10 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
 
     // get requests
 
-    public static async handleGetTariffs(req: Request): Promise<HttpResponse<OCPITariffsResponse>> {
+    public static async handleGetTariffs(
+        req: Request,
+        partnerCredentials: OCPIPartnerCredentials,
+    ): Promise<HttpResponse<OCPITariffsResponse>> {
         try {
             const limit = req.query.limit ? Number(req.query.limit) : undefined;
             const offset = req.query.offset ? Number(req.query.offset) : undefined;
@@ -31,7 +38,8 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
                 countryCode,
                 partyId,
                 limit,
-                offset
+                offset,
+                partnerCredentials.partner_id,
             );
 
             // Apply date filtering if needed
@@ -97,7 +105,10 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
         }
     }
 
-    public static async handleGetTariff(req: Request): Promise<HttpResponse<OCPITariffResponse>> {
+    public static async handleGetTariff(
+        req: Request,
+        partnerCredentials: OCPIPartnerCredentials,
+    ): Promise<HttpResponse<OCPITariffResponse>> {
         try {
             const tariffId = req.params.tariff_id;
             const countryCode = (req.query.country_code as string) || (req.params.country_code as string);
@@ -114,7 +125,8 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
                 const tariff = await TariffDbService.findByOcpiTariffId(
                     countryCode,
                     partyId,
-                    tariffId
+                    tariffId,
+                    partnerCredentials.partner_id,
                 );
 
                 if (!tariff) {
@@ -129,7 +141,13 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
 
             // If country_code and party_id are not provided, try to find by tariff_id only
             // This is less ideal but works if there's only one tariff with that ID
-            const tariffs = await TariffDbService.findAll(undefined, undefined, undefined, undefined);
+            const tariffs = await TariffDbService.findAll(
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                partnerCredentials.partner_id,
+            );
             const matchingTariffs = tariffs.filter(t => t.ocpi_tariff_id === tariffId);
 
             if (matchingTariffs.length === 0) {
@@ -161,7 +179,10 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
 
     // put requests
 
-    public static async handlePutTariff(req: Request): Promise<HttpResponse<OCPITariffResponse>> {
+    public static async handlePutTariff(
+        req: Request,
+        partnerCredentials: OCPIPartnerCredentials,
+    ): Promise<HttpResponse<OCPITariffResponse>> {
         try {
             const tariffId = req.params.tariff_id;
             const countryCode = (req.params.country_code as string) || (req.query.country_code as string);
@@ -211,11 +232,15 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
             const existingTariff = await TariffDbService.findByOcpiTariffId(
                 ocpiTariff.country_code,
                 ocpiTariff.party_id,
-                ocpiTariff.id
+                ocpiTariff.id,
+                partnerCredentials.partner_id,
             );
 
-            // Store or update the tariff in the database
-            const storedTariff = await TariffDbService.upsertFromOcpiTariff(ocpiTariff);
+            // Store or update the tariff in the database for this partner
+            const storedTariff = await TariffDbService.upsertFromOcpiTariff(
+                ocpiTariff,
+                partnerCredentials.partner_id,
+            );
             const responseTariff = TariffDbService.mapPrismaTariffToOcpi(storedTariff);
 
             logger.info('Tariff stored/updated', {
@@ -245,7 +270,10 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
 
     // delete requests
 
-    public static async handleDeleteTariff(req: Request): Promise<HttpResponse<OCPITariffResponse>> {
+    public static async handleDeleteTariff(
+        req: Request,
+        partnerCredentials: OCPIPartnerCredentials,
+    ): Promise<HttpResponse<OCPITariffResponse>> {
         try {
             const tariffId = req.params.tariff_id;
             const countryCode = req.params.country_code as string;
@@ -267,7 +295,8 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
             const tariff = await TariffDbService.findByOcpiTariffId(
                 countryCode,
                 partyId,
-                tariffId
+                tariffId,
+                partnerCredentials.partner_id,
             );
 
             if (!tariff) {

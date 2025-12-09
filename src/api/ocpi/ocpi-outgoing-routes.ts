@@ -4,7 +4,6 @@ import { logger } from '../../services/logger.service';
 import { AppError } from '../../utils/errors';
 import OCPIv221LocationsModuleOutgoingRequestService from '../../ocpi/modules/v2.2.1/emsp/locations/OCPIv221LocationsModuleOutgoingRequestService';
 import OCPIv221TariffsModuleOutgoingRequestService from '../../ocpi/modules/v2.2.1/emsp/tariffs/OCPIv221TariffsModuleOutgoingRequestService';
-import OCPIv221TariffsModuleIncomingRequestService from '../../ocpi/modules/v2.2.1/emsp/tariffs/OCPIv221TariffsModuleIncomingRequestService';
 
 const router = Router();
 

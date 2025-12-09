@@ -1,11 +1,14 @@
 import { Request } from 'express';
+import { OCPIPartnerCredentials } from '@prisma/client';
 import { HttpResponse } from '../../../../types/responses';
 import { OCPIResponseStatusCode, OCPIRole } from '../../../schema/general/enum';
 import CountryCode from '../../../schema/general/enum/country-codes';
 import { OCPIResponsePayload } from '../../../schema/general/types/responses';
-import { OCPICredentials, OCPICredentialsPatchRequest } from '../../../schema/modules/credentials/types';
+import {
+    OCPICredentials,
+    OCPICredentialsPatchRequest,
+} from '../../../schema/modules/credentials/types';
 import { databaseService } from '../../../../services/database.service';
-import Utils from '../../../../utils/Utils';
 
 /**
  * OCPI 2.2.1 Credentials module (incoming, EMSP side).
@@ -27,18 +30,13 @@ export default class OCPIv221CredentialsModuleIncomingRequestService {
      */
     public static async handlePostCredentials(
         req: Request,
+        partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPIResponsePayload<OCPICredentials>>> {
         const incoming = req.body as OCPICredentials;
 
-        // Prefer identifying the partner by Authorization header (CPO token)
-        const authHeader = req.headers.authorization;
-        const cpoAuthToken = authHeader && authHeader.startsWith('Token ')
-            ? authHeader.substring('Token '.length)
-            : undefined;
-
         const emspCredentials = await OCPIv221CredentialsModuleIncomingRequestService.processIncomingCredentials(
             incoming,
-            cpoAuthToken,
+            partnerCredentials,
         );
 
         return {
@@ -59,28 +57,15 @@ export default class OCPIv221CredentialsModuleIncomingRequestService {
      */
     public static async handleGetCredentials(
         req: Request,
+        partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPIResponsePayload<OCPICredentials>>> {
         const prisma = databaseService.prisma;
 
-        const authHeader = req.headers.authorization;
-        if (!authHeader || !authHeader.startsWith('Token ')) {
-            return {
-                httpStatus: 401,
-                payload: {
-                    status_code: OCPIResponseStatusCode.status_2001,
-                    status_message: 'Unauthorized',
-                    timestamp: new Date().toISOString(),
-                },
-            };
-        }
-
-        const token = authHeader.substring('Token '.length);
-
-        const partnerCredentials = await prisma.oCPIPartnerCredentials.findFirst({
-            where: { emsp_auth_token: token },
+        const dbCreds = await prisma.oCPIPartnerCredentials.findUnique({
+            where: { partner_id: partnerCredentials.partner_id },
         });
 
-        if (!partnerCredentials) {
+        if (!dbCreds) {
             return {
                 httpStatus: 401,
                 payload: {
@@ -99,8 +84,8 @@ export default class OCPIv221CredentialsModuleIncomingRequestService {
         });
 
         const emspCredentials: OCPICredentials = {
-            token: partnerCredentials.emsp_auth_token || '',
-            url: partnerCredentials.emsp_url || '',
+            token: dbCreds.emsp_auth_token || '',
+            url: dbCreds.emsp_url || '',
             roles: [
                 {
                     country_code: emspPartner?.country_code as CountryCode,
@@ -128,17 +113,13 @@ export default class OCPIv221CredentialsModuleIncomingRequestService {
      */
     public static async handlePutCredentials(
         req: Request,
+        partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPIResponsePayload<OCPICredentials>>> {
         const incoming = req.body as OCPICredentials;
 
-        const authHeader = req.headers.authorization;
-        const cpoAuthToken = authHeader && authHeader.startsWith('Token ')
-            ? authHeader.substring('Token '.length)
-            : undefined;
-
         const emspCredentials = await OCPIv221CredentialsModuleIncomingRequestService.processIncomingCredentials(
             incoming,
-            cpoAuthToken,
+            partnerCredentials,
         );
 
         return {
@@ -164,22 +145,10 @@ export default class OCPIv221CredentialsModuleIncomingRequestService {
      */
     public static async handlePatchCredentials(
         req: Request,
+        partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPIResponsePayload<OCPICredentials>>> {
         const prisma = databaseService.prisma;
 
-        const authHeader = req.headers.authorization;
-        if (!authHeader || !authHeader.startsWith('Token ')) {
-            return {
-                httpStatus: 401,
-                payload: {
-                    status_code: OCPIResponseStatusCode.status_2001,
-                    status_message: 'Unauthorized',
-                    timestamp: new Date().toISOString(),
-                },
-            };
-        }
-
-        const currentToken = authHeader.substring('Token '.length);
         const patch = req.body as OCPICredentialsPatchRequest;
 
         if (!patch) {
@@ -193,8 +162,8 @@ export default class OCPIv221CredentialsModuleIncomingRequestService {
             };
         }
 
-        const existingCreds = await prisma.oCPIPartnerCredentials.findFirst({
-            where: { cpo_auth_token: currentToken },
+        const existingCreds = await prisma.oCPIPartnerCredentials.findUnique({
+            where: { partner_id: partnerCredentials.partner_id },
         });
 
         if (!existingCreds) {
@@ -252,7 +221,7 @@ export default class OCPIv221CredentialsModuleIncomingRequestService {
      */
     private static async processIncomingCredentials(
         incoming: OCPICredentials,
-        authToken?: string,
+        partnerCredentials: OCPIPartnerCredentials,
     ): Promise<OCPICredentials> {
         const prisma = databaseService.prisma;
 
@@ -261,18 +230,8 @@ export default class OCPIv221CredentialsModuleIncomingRequestService {
             throw new Error('At least one role is required in credentials payload');
         }
 
-        if (!authToken) {
-            throw new Error('CPO auth token is required');
-        }
-
-        const partnerCredentials = await Utils.findPartnerCredentialsUsingCPOAuthToken(authToken);
-
-        if (!partnerCredentials) {
-            throw new Error('Partner credentials not found');
-        }
-
         // 3) Update CPO credentials row for this partner – store CPO token/URL.
-        await prisma.oCPIPartnerCredentials.update({
+        const updatedCreds = await prisma.oCPIPartnerCredentials.update({
             where: { partner_id: partnerCredentials.partner_id },
             data: {
                 cpo_auth_token: incoming.token,
@@ -288,8 +247,8 @@ export default class OCPIv221CredentialsModuleIncomingRequestService {
         });
 
         return {
-            token: partnerCredentials.emsp_auth_token || '',
-            url: partnerCredentials.emsp_url || '',
+            token: updatedCreds.emsp_auth_token || '',
+            url: updatedCreds.emsp_url || '',
             roles: [
                 {
                     country_code: emspPartner?.country_code as CountryCode,

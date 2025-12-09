@@ -9,6 +9,7 @@ import { TariffDbService } from '../../../../../db-services/TariffDbService';
 import { OCPITariff } from '../../../../schema/modules/tariffs/types';
 import { logger } from '../../../../../services/logger.service';
 import { OCPIResponseStatusCode } from '../../../../schema/general/enum';
+import { databaseService } from '../../../../../services/database.service';
 
 /**
  * Handle all outgoing requests for the Tariffs module to the CPO
@@ -17,17 +18,7 @@ export default class OCPIv221TariffsModuleOutgoingRequestService {
     public static async sendGetTariffs(
         req: Request
     ): Promise<HttpResponse<OCPITariffsResponse>> {
-        let baseUrl: string;
-        try {
-            baseUrl = OCPIv221TariffsModuleOutgoingRequestService.getTariffsEndpointUrl('SENDER');
-        }
-        catch (error) {
-            logger.error('Tariffs endpoint not configured', error as Error);
-            return OCPIResponseService.clientError<unknown>({
-                message: 'Tariffs endpoint not configured',
-                details: 'OCPI tariffs endpoint with role SENDER not found in configuration. Please configure the endpoint in Utils.getAllEndpoints().',
-            }, OCPIResponseStatusCode.status_2003) as HttpResponse<OCPITariffsResponse>;
-        }
+        const baseUrl = await OCPIv221TariffsModuleOutgoingRequestService.getTariffsEndpointUrl('SENDER');
 
         const limit = req.query.limit ? Number(req.query.limit) : undefined;
         const offset = req.query.offset ? Number(req.query.offset) : undefined;
@@ -120,11 +111,14 @@ export default class OCPIv221TariffsModuleOutgoingRequestService {
                 }) as HttpResponse<OCPITariffsResponse>;
             }
 
+            // Determine partner for these tariffs from endpoint configuration
+            const partnerId = await OCPIv221TariffsModuleOutgoingRequestService.getTariffsPartnerId();
+
             // Persist all tariffs into DB
             let storedCount = 0;
             for (const ocpiTariff of payload.data) {
                 try {
-                    await TariffDbService.upsertFromOcpiTariff(ocpiTariff);
+                    await TariffDbService.upsertFromOcpiTariff(ocpiTariff, partnerId);
                     storedCount++;
                 }
                 catch (error) {
@@ -268,11 +262,14 @@ export default class OCPIv221TariffsModuleOutgoingRequestService {
 
         try {
             // First, try to fetch from DB cache
+            const partnerIdForTariffs = await OCPIv221TariffsModuleOutgoingRequestService.getTariffsPartnerId();
+
             if (countryCode && partyId) {
                 const cachedTariff = await TariffDbService.findByOcpiTariffId(
                     countryCode,
                     partyId,
-                    tariffId
+                    tariffId,
+                    partnerIdForTariffs,
                 );
 
                 if (cachedTariff) {
@@ -285,7 +282,7 @@ export default class OCPIv221TariffsModuleOutgoingRequestService {
 
             // Not in DB, fetch from CPO
             // OCPI 2.2.1 requires country_code and party_id in URL path
-            const baseUrl = OCPIv221TariffsModuleOutgoingRequestService.getTariffsEndpointUrl('SENDER');
+            const baseUrl = await OCPIv221TariffsModuleOutgoingRequestService.getTariffsEndpointUrl('SENDER');
             let url: string;
             if (countryCode && partyId) {
                 // Use OCPI 2.2.1 compliant URL format
@@ -361,7 +358,7 @@ export default class OCPIv221TariffsModuleOutgoingRequestService {
                 }, OCPIResponseStatusCode.status_2000) as HttpResponse<OCPITariffResponse>;
             }
 
-            const stored = await TariffDbService.upsertFromOcpiTariff(payload.data);
+            const stored = await TariffDbService.upsertFromOcpiTariff(payload.data, partnerIdForTariffs);
             const ocpiTariff = TariffDbService.mapPrismaTariffToOcpi(stored);
 
             logger.info('Tariff fetched and stored from CPO', {
@@ -417,20 +414,32 @@ export default class OCPIv221TariffsModuleOutgoingRequestService {
         }
     }
 
-    private static getTariffsEndpointUrl(role: 'SENDER' | 'RECEIVER'): string {
-        const endpoints = Utils.getAllEndpoints().data.endpoints;
-        const endpoint = endpoints.find(
-            (e: { identifier: string; role: string; url: string }) =>
-                e.identifier === 'tariffs' && e.role === role,
-        );
+    private static async getTariffsEndpointUrl(role: 'SENDER' | 'RECEIVER'): Promise<string> {
+        return Utils.getOcpiEndpoint('tariffs', role);
+    }
 
-        if (!endpoint || !endpoint.url) {
-            throw new Error(
-                `OCPI tariffs endpoint with role ${role} not configured in Utils.getAllEndpoints`,
-            );
+    /**
+     * Helper to resolve which OCPI partner a tariffs call is associated with,
+     * based on the configured tariffs endpoint.
+     */
+    private static async getTariffsPartnerId(): Promise<string> {
+        const prisma = databaseService.prisma;
+        const endpoint = await prisma.oCPIPartnerEndpoint.findFirst({
+            where: {
+                module: 'tariffs',
+                role: 'SENDER',
+                deleted: false,
+            },
+            orderBy: {
+                created_at: 'desc',
+            },
+        });
+
+        if (!endpoint) {
+            throw new Error('OCPI tariffs endpoint (module=tariffs, role=SENDER) not configured in oCPIPartnerEndpoint');
         }
 
-        return endpoint.url.replace(/\/+$/, '');
+        return endpoint.partner_id;
     }
 
     private static appendQueryParams(

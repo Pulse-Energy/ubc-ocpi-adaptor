@@ -8,7 +8,6 @@ import { OCPIDisplayText } from '../ocpi/schema/general/types';
 import { OCPIPrice } from '../ocpi/schema/general/types';
 import { OCPIEnergyMix } from '../ocpi/schema/modules/locations/types';
 import { OCPITariffType } from '../ocpi/schema/modules/tariffs/enums';
-import Utils from '../utils/Utils';
 
 export type TariffWithRelations = Tariff;
 
@@ -111,26 +110,24 @@ export class TariffDbService {
     public static async findByOcpiTariffId(
         countryCode: string,
         partyId: string,
-        tariffId: string
+        tariffId: string,
+        partnerId?: string,
     ): Promise<TariffWithRelations | null> {
         return databaseService.prisma.tariff.findFirst({
             where: {
                 country_code: countryCode,
                 party_id: partyId,
                 ocpi_tariff_id: tariffId,
+                ...(partnerId ? { partner_id: partnerId } : {}),
             },
         }) as Promise<TariffWithRelations | null>;
     }
 
     public static async upsertFromOcpiTariff(
-        ocpiTariff: OCPITariff
+        ocpiTariff: OCPITariff,
+        partnerId: string,
     ): Promise<TariffWithRelations> {
         const prisma = databaseService.prisma;
-
-        const partner = await Utils.findOrCreateCpoPartner(
-            ocpiTariff.country_code,
-            ocpiTariff.party_id,
-        );
 
         let tariffRecord = await prisma.tariff.findFirst({
             where: {
@@ -148,7 +145,7 @@ export class TariffDbService {
                 data: {
                     ...tariffData,
                     partner: {
-                        connect: { id: partner.id },
+                        connect: { id: partnerId },
                     },
                 },
             });
@@ -158,7 +155,7 @@ export class TariffDbService {
                 data: {
                     ...tariffData,
                     partner: {
-                        connect: { id: partner.id },
+                        connect: { id: partnerId },
                     },
                 },
             });
@@ -294,15 +291,19 @@ export class TariffDbService {
         countryCode?: string,
         partyId?: string,
         limit?: number,
-        offset?: number
+        offset?: number,
+        partnerId?: string,
     ): Promise<TariffWithRelations[]> {
         const where: Prisma.TariffWhereInput = {};
-        
+
         if (countryCode) {
             where.country_code = countryCode;
         }
         if (partyId) {
             where.party_id = partyId;
+        }
+        if (partnerId) {
+            where.partner_id = partnerId;
         }
 
         return databaseService.prisma.tariff.findMany({

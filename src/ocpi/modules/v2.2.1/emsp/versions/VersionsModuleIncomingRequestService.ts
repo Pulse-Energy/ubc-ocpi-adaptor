@@ -6,6 +6,8 @@ import { OCPIResponsePayload } from '../../../../schema/general/types/responses'
 import { OCPIInterfaceRole, OCPIModuleID, OCPIVersionNumber } from '../../../../schema/modules/verisons/enums';
 import { OCPIEndpointClass, OCPIv211EndpointClass, OCPIVersionClass } from '../../../../schema/modules/verisons/types';
 import { OCPIv211VersionDetailResponse, OCPIVersionDetailResponse } from '../../../../schema/modules/verisons/types/responses';
+import Utils from '../../../../../utils/Utils';
+import { databaseService } from '../../../../../services/database.service';
 
 /**
  * OCPI Versions module (incoming, EMSP side, v2.2.1).
@@ -16,14 +18,34 @@ import { OCPIv211VersionDetailResponse, OCPIVersionDetailResponse } from '../../
 export default class VersionsModuleIncomingRequestService {
 
     public static async handleGetVersions(): Promise<HttpResponse<OCPIResponsePayload<OCPIVersionClass[]>>> {
-        const baseHost = process.env.OCPI_HOST || 'http://localhost:6001';
+        const emspPartner = await Utils.findEmspPartner();
 
-        const versions: OCPIVersionClass[] = [
-            {
-                version: OCPIVersionNumber.v2_2_1,
-                url: `${baseHost}/ocpi/versions/${OCPIVersionNumber.v2_2_1}/details`,
+        if (!emspPartner) {
+            return {
+                httpStatus: 404,
+                payload: {
+                    status_code: OCPIResponseStatusCode.status_2001,
+                    status_message: 'EMSP partner not found',
+                    timestamp: new Date().toISOString(),
+                },
+            };
+        }
+
+        const ocpiVersions = await databaseService.prisma.oCPIVersion.findMany({
+            where: {
+                partner_id: emspPartner.id,
+                deleted: false,
             },
-        ];
+            orderBy: {
+                created_at: 'desc',
+            },
+        });
+
+        const versions: OCPIVersionClass[] = ocpiVersions.map((v) => ({
+            version: v.version_id as OCPIVersionNumber,
+            url: v.version_url,
+        }));
+
 
         return {
             httpStatus: 200,
@@ -38,17 +60,11 @@ export default class VersionsModuleIncomingRequestService {
     public static async handleGetVersionDetails(
         req: Request,
     ): Promise<HttpResponse<OCPIResponsePayload<OCPIVersionDetailResponse | OCPIv211VersionDetailResponse>>> {
-        const version = req.params.ocpi_version as OCPIVersionNumber;
-
-        let versionDetails: OCPIVersionDetailResponse | OCPIv211VersionDetailResponse;
-
-        if (version === OCPIVersionNumber.v2_2_1) {
-            versionDetails = VersionsModuleIncomingRequestService.handleGetVersionDetailsV221();
-        }
-        else {
-            throw new AppError('Invalid version', 400);
-        }
-
+        // For this EMSP implementation we currently only support 2.2.1 and the
+        // interface is mounted at /ocpi/emsp/2.2.1, so this handler always
+        // returns the 2.2.1 version details.
+        
+        const versionDetails = await VersionsModuleIncomingRequestService.handleGetVersionDetailsV221();
         return {
             httpStatus: 200,
             payload: {
@@ -57,48 +73,30 @@ export default class VersionsModuleIncomingRequestService {
                 timestamp: new Date().toISOString(),
             },
         };
+
+        
     }
 
-    private static handleGetVersionDetailsV221(): OCPIVersionDetailResponse {
-        const baseUrl = `${process.env.OCPI_HOST || 'http://localhost:6001'}/ocpi/${OCPIVersionNumber.v2_2_1}`;
+    private static async handleGetVersionDetailsV221(): Promise<OCPIVersionDetailResponse> {
+        const emspPartner = await Utils.findEmspPartner();
 
-        const endpoints: OCPIEndpointClass[] = [
-            {
-                identifier: OCPIModuleID.CredentialsAndRegistration,
-                url: `${baseUrl}/${OCPIModuleID.CredentialsAndRegistration}`,
-                role: OCPIInterfaceRole.Sender,
+        if (!emspPartner) {
+            throw new AppError('EMSP partner not found', 404);
+        }
+
+        const ocpiPartnerEndpoints = await databaseService.prisma.oCPIPartnerEndpoint.findMany({
+            where: {
+                partner_id: emspPartner.id,
+                version: OCPIVersionNumber.v2_2_1,
+                deleted: false,
             },
-            {
-                identifier: OCPIModuleID.CredentialsAndRegistration,
-                url: `${baseUrl}/${OCPIModuleID.CredentialsAndRegistration}`,
-                role: OCPIInterfaceRole.Receiver,
-            },
-            {
-                identifier: OCPIModuleID.Locations,
-                url: `${baseUrl}/${OCPIModuleID.Locations}`,
-                role: OCPIInterfaceRole.Receiver,
-            },
-            {
-                identifier: OCPIModuleID.Tariffs,
-                url: `${baseUrl}/${OCPIModuleID.Tariffs}`,
-                role: OCPIInterfaceRole.Receiver,
-            },
-            // {
-            //     identifier: OCPIModuleID.Sessions,
-            //     url: `${baseUrl}/${OCPIModuleID.Sessions}`,
-            //     role: OCPIInterfaceRole.Receiver,
-            // },
-            // {
-            //     identifier: OCPIModuleID.Commands,
-            //     url: `${baseUrl}/${OCPIModuleID.Commands}`,
-            //     role: OCPIInterfaceRole.Sender,
-            // },
-            {
-                identifier: OCPIModuleID.Tokens,
-                url: `${baseUrl}/${OCPIModuleID.Tokens}`,
-                role: OCPIInterfaceRole.Sender,
-            },
-        ];
+        });
+
+        const endpoints: OCPIEndpointClass[] = ocpiPartnerEndpoints.map((e) => ({
+            identifier: e.module as OCPIModuleID,
+            role: e.role as OCPIInterfaceRole,
+            url: e.url,
+        }));
 
         return {
             version: OCPIVersionNumber.v2_2_1,

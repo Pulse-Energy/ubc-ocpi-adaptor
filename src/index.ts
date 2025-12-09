@@ -7,14 +7,15 @@ import { logger } from './services/logger.service';
 import { AppError } from './utils/errors';
 
 // Import routes
-import ocpiRoutes from './ocpi/ocpi-router';
 import ubcRoutes from './ubc/ubc-router';
 import adminAuthRoutes from './admin/routes/admin/auth.routes';
 import adminOCPISetupRoutes from './admin/routes/ocpi/ocpi-setup.routes';
 import adminLocationsRoutes from './admin/routes/ocpi/locations.routes';
 import adminTariffsRoutes from './admin/routes/ocpi/tariffs.routes';
+import adminTokensRoutes from './admin/routes/ocpi/tokens.routes';
 import healthRoutes from './api/health/routes';
-import ocpiApiRoutes from './api/ocpi/routes';
+import ocpiOutgoingRoutes from './api/ocpi/ocpi-outgoing-routes';
+import ocpiIncomingRoutes from './ocpi/ocpi-incoming-routes';
 
 const app: Express = express();
 
@@ -39,17 +40,23 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
     next();
 });
+// OCPI EMSP incoming (receiver) interface
+// - Versions:        /ocpi/versions
+// - Version details: /ocpi/2.2.1
+// - Modules:         /ocpi/2.2.1/<module>
+app.use('/ocpi', ocpiIncomingRoutes);
 
-// Routes
-app.use('/ocpi', ocpiRoutes);
+// OCPI outgoing (internal admin-triggered EMSP → CPO calls)
+app.use('/ocpi/cpo', ocpiOutgoingRoutes);
+
 app.use('/ubc', ubcRoutes);
 
 app.use('/api/admin/auth', adminAuthRoutes);
 app.use('/api/admin/ocpi', adminOCPISetupRoutes);
 app.use('/api/admin/locations', adminLocationsRoutes);
 app.use('/api/admin/tariffs', adminTariffsRoutes);
+app.use('/api/admin/tokens', adminTokensRoutes);
 app.use('/api/health', healthRoutes);
-app.use('/api/ocpi', ocpiApiRoutes);
 
 // Root endpoint
 app.get('/', (req: Request, res: Response) => {

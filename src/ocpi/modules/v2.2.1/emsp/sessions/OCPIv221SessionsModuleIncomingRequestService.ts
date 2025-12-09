@@ -1,40 +1,376 @@
-import { Request } from "express";
-import { HttpResponse } from "../../../../../types/responses";
-import { OCPISessionResponse, OCPISessionsResponse } from "../../../../schema/modules/sessions/types/responses";
-import OCPIResponseService from "../../../../services/OCPIResponseService";
+import { Request } from 'express';
+import { Session as PrismaSession, Prisma } from '@prisma/client';
+import { HttpResponse } from '../../../../../types/responses';
+import {
+    OCPISessionResponse,
+    OCPISessionsResponse,
+} from '../../../../schema/modules/sessions/types/responses';
+import { OCPISession, OCPIPatchSession } from '../../../../schema/modules/sessions/types';
+import { databaseService } from '../../../../../services/database.service';
+import { OCPIResponseStatusCode } from '../../../../schema/general/enum';
+import Utils from '../../../../../utils/Utils';
 
 /**
- * Handle all incoming requests for the Sessions module from the CPO
+ * OCPI 2.2.1 – Sessions module (incoming, EMSP side).
+ *
+ * CPO → EMSP (Receiver interface):
+ * - GET   /sessions
+ * - GET   /sessions/{country_code}/{party_id}/{session_id}
+ * - PUT   /sessions/{country_code}/{party_id}/{session_id}
+ * - PATCH /sessions/{country_code}/{party_id}/{session_id}
  */
 export default class OCPIv221SessionsModuleIncomingRequestService {
+    /**
+     * GET /sessions
+     *
+     * Optional OCPI endpoint to list sessions.
+     * Supports date_from/date_to, country_code, party_id, offset, limit.
+     */
+    public static async handleGetSessions(
+        req: Request,
+    ): Promise<HttpResponse<OCPISessionsResponse>> {
+        const prisma = databaseService.prisma;
 
-    // get requests
+        const {
+            country_code,
+            party_id,
+            date_from,
+            date_to,
+            offset,
+            limit,
+        } = req.query as {
+            country_code?: string;
+            party_id?: string;
+            date_from?: string;
+            date_to?: string;
+            offset?: string;
+            limit?: string;
+        };
 
-    public static async handleGetSessions(req: Request): Promise<HttpResponse<OCPISessionsResponse>> {
-        return OCPIResponseService.success([]);
+        const where: Prisma.SessionWhereInput = {
+            deleted: false,
+        };
+
+        if (country_code) {
+            where.country_code = country_code;
+        }
+        if (party_id) {
+            where.party_id = party_id;
+        }
+        if (date_from || date_to) {
+            where.last_updated = {};
+            if (date_from) {
+                where.last_updated.gte = new Date(date_from);
+            }
+            if (date_to) {
+                where.last_updated.lte = new Date(date_to);
+            }
+        }
+
+        const skip = offset ? Number(offset) : 0;
+        const take = limit ? Number(limit) : undefined;
+
+        const sessions = await prisma.session.findMany({
+            where,
+            orderBy: { last_updated: 'desc' },
+            skip,
+            take,
+        });
+
+        const data: OCPISession[] = sessions.map(
+            OCPIv221SessionsModuleIncomingRequestService.mapPrismaSessionToOcpi,
+        );
+
+        return {
+            httpStatus: 200,
+            payload: {
+                data,
+                status_code: OCPIResponseStatusCode.status_1000,
+                timestamp: new Date().toISOString(),
+            },
+        };
     }
 
-    public static async handleGetSession(req: Request): Promise<HttpResponse<OCPISessionResponse>> {
-        return OCPIResponseService.success(undefined);
+    /**
+     * GET /sessions/{country_code}/{party_id}/{session_id}
+     */
+    public static async handleGetSession(
+        req: Request,
+    ): Promise<HttpResponse<OCPISessionResponse>> {
+        const prisma = databaseService.prisma;
+        const { country_code, party_id, session_id } = req.params as {
+            country_code: string;
+            party_id: string;
+            session_id: string;
+        };
+
+        const session = await prisma.session.findFirst({
+            where: {
+                country_code,
+                party_id,
+                ocpi_session_id: session_id,
+                deleted: false,
+            },
+        });
+
+        if (!session) {
+            return {
+                httpStatus: 404,
+                payload: {
+                    status_code: OCPIResponseStatusCode.status_2001,
+                    status_message: 'Session not found',
+                    timestamp: new Date().toISOString(),
+                },
+            };
+        }
+
+        const data = OCPIv221SessionsModuleIncomingRequestService.mapPrismaSessionToOcpi(
+            session,
+        );
+
+        return {
+            httpStatus: 200,
+            payload: {
+                data,
+                status_code: OCPIResponseStatusCode.status_1000,
+                timestamp: new Date().toISOString(),
+            },
+        };
     }
 
-    // post requests
+    /**
+     * PUT /sessions/{country_code}/{party_id}/{session_id}
+     *
+     * Create or fully replace a session.
+     */
+    public static async handlePutSession(
+        req: Request,
+    ): Promise<HttpResponse<OCPISessionResponse>> {
+        const prisma = databaseService.prisma;
+        const { country_code, party_id, session_id } = req.params as {
+            country_code: string;
+            party_id: string;
+            session_id: string;
+        };
 
-    public static async handlePostSession(req: Request): Promise<HttpResponse<OCPISessionResponse>> {
-        return OCPIResponseService.success(undefined);
+        const payload = req.body as OCPISession;
+
+        if (
+            !payload ||
+            payload.country_code !== country_code ||
+            payload.party_id !== party_id ||
+            payload.id !== session_id
+        ) {
+            return {
+                httpStatus: 400,
+                payload: {
+                    status_code: OCPIResponseStatusCode.status_2000,
+                    status_message: 'Path parameters and session payload must match',
+                    timestamp: new Date().toISOString(),
+                },
+            };
+        }
+
+        const existing = await prisma.session.findFirst({
+            where: {
+                country_code,
+                party_id,
+                ocpi_session_id: session_id,
+            },
+        });
+
+        // Resolve OCPI partner from Authorization header (CPO token)
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith('Token ')) {
+            return {
+                httpStatus: 401,
+                payload: {
+                    status_code: OCPIResponseStatusCode.status_2001,
+                    status_message: 'Unauthorized',
+                    timestamp: new Date().toISOString(),
+                },
+            };
+        }
+
+        const cpoAuthToken = authHeader.substring('Token '.length);
+        const partnerCredentials = await Utils.findPartnerCredentialsUsingCPOAuthToken(cpoAuthToken);
+
+        if (!partnerCredentials) {
+            return {
+                httpStatus: 401,
+                payload: {
+                    status_code: OCPIResponseStatusCode.status_2001,
+                    status_message: 'Unauthorized',
+                    timestamp: new Date().toISOString(),
+                },
+            };
+        }
+
+        const partnerId = partnerCredentials.partner_id;
+
+        const createData =
+            OCPIv221SessionsModuleIncomingRequestService.mapOcpiSessionToPrisma(
+                payload,
+                partnerId,
+            );
+
+        let stored: PrismaSession;
+        if (existing) {
+            const updateData: Prisma.SessionUncheckedUpdateInput = {
+                ...createData,
+            };
+            stored = await prisma.session.update({
+                where: { id: existing.id },
+                data: updateData,
+            });
+        }
+        else {
+            stored = await prisma.session.create({
+                data: createData,
+            });
+        }
+
+        const data =
+            OCPIv221SessionsModuleIncomingRequestService.mapPrismaSessionToOcpi(stored);
+
+        return {
+            httpStatus: 200,
+            payload: {
+                data,
+                status_code: OCPIResponseStatusCode.status_1000,
+                timestamp: new Date().toISOString(),
+            },
+        };
     }
 
-    // put requests
+    /**
+     * PATCH /sessions/{country_code}/{party_id}/{session_id}
+     *
+     * Partial update of an existing session.
+     */
+    public static async handlePatchSession(
+        req: Request,
+    ): Promise<HttpResponse<OCPISessionResponse>> {
+        const prisma = databaseService.prisma;
+        const { country_code, party_id, session_id } = req.params as {
+            country_code: string;
+            party_id: string;
+            session_id: string;
+        };
 
-    public static async handlePutSession(req: Request): Promise<HttpResponse<OCPISessionResponse>> {
-        return OCPIResponseService.success(undefined);
+        const patch = req.body as OCPIPatchSession;
+
+        const existing = await prisma.session.findFirst({
+            where: {
+                country_code,
+                party_id,
+                ocpi_session_id: session_id,
+                deleted: false,
+            },
+        });
+
+        if (!existing) {
+            return {
+                httpStatus: 404,
+                payload: {
+                    status_code: OCPIResponseStatusCode.status_2001,
+                    status_message: 'Session not found',
+                    timestamp: new Date().toISOString(),
+                },
+            };
+        }
+
+        const current =
+            OCPIv221SessionsModuleIncomingRequestService.mapPrismaSessionToOcpi(existing);
+
+        const merged: OCPISession = {
+            ...current,
+            ...patch,
+            last_updated: patch.last_updated ?? new Date().toISOString(),
+        };
+
+        const dataForDb =
+            OCPIv221SessionsModuleIncomingRequestService.mapOcpiSessionToPrisma(
+                merged,
+                existing.partner_id,
+            );
+
+        const stored = await prisma.session.update({
+            where: { id: existing.id },
+            data: dataForDb,
+        });
+
+        const data =
+            OCPIv221SessionsModuleIncomingRequestService.mapPrismaSessionToOcpi(stored);
+
+        return {
+            httpStatus: 200,
+            payload: {
+                data,
+                status_code: OCPIResponseStatusCode.status_1000,
+                timestamp: new Date().toISOString(),
+            },
+        };
     }
 
-    // patch requests
-
-    public static async handlePatchSession(req: Request): Promise<HttpResponse<OCPISessionResponse>> {
-        return OCPIResponseService.success(undefined);
+    private static mapPrismaSessionToOcpi(session: PrismaSession): OCPISession {
+        return {
+            country_code: session.country_code,
+            party_id: session.party_id,
+            id: session.ocpi_session_id,
+            start_date_time: session.start_date_time.toISOString(),
+            end_date_time: session.end_date_time?.toISOString(),
+            kwh: Number(session.kwh),
+            cdr_token: session.cdr_token as unknown as OCPISession['cdr_token'],
+            auth_method: session.auth_method as OCPISession['auth_method'],
+            authorization_reference: session.authorization_reference ?? undefined,
+            location_id: session.location_id,
+            evse_uid: session.evse_uid,
+            connector_id: session.connector_id,
+            meter_id: session.meter_id ?? undefined,
+            currency: session.currency,
+            charging_periods:
+                (session.charging_periods as unknown as OCPISession['charging_periods']) ||
+                undefined,
+            total_cost: (session.total_cost as unknown as OCPISession['total_cost']) || undefined,
+            status: session.status as OCPISession['status'],
+            last_updated: session.last_updated.toISOString(),
+        };
     }
 
+    private static mapOcpiSessionToPrisma(
+        session: OCPISession,
+        partnerId: string,
+    ): Prisma.SessionUncheckedCreateInput {
+        return {
+            country_code: session.country_code,
+            party_id: session.party_id,
+            ocpi_session_id: session.id,
+            start_date_time: new Date(session.start_date_time),
+            end_date_time: session.end_date_time ? new Date(session.end_date_time) : null,
+            kwh: new Prisma.Decimal(session.kwh),
+            cdr_token: session.cdr_token as unknown as Prisma.InputJsonValue,
+            auth_method: String(session.auth_method),
+            authorization_reference: session.authorization_reference ?? null,
+            location_id: session.location_id,
+            evse_uid: session.evse_uid,
+            connector_id: session.connector_id,
+            meter_id: session.meter_id ?? null,
+            currency: session.currency,
+            charging_periods: session.charging_periods
+                ? (session.charging_periods as unknown as Prisma.InputJsonValue)
+                : undefined,
+            total_cost: session.total_cost
+                ? (session.total_cost as unknown as Prisma.InputJsonValue)
+                : undefined,
+            status: String(session.status),
+            last_updated: new Date(session.last_updated ?? new Date().toISOString()),
+            deleted: false,
+            deleted_at: null,
+            created_at: undefined,
+            updated_at: undefined,
+            partner_id: partnerId,
+            id: undefined,
+        };
+    }
 }
-

@@ -23,18 +23,21 @@ import {
     OCPIConnectorType,
     OCPIConnectorFormat,
 } from '../ocpi/schema/modules/locations/enums';
-import Utils from '../utils/Utils';
 
 export type LocationWithRelations = Location & {
     evses: (EVSE & { evse_connectors: EVSEConnector[] })[];
 };
 
 export class LocationDbService {
-    public static async findByOcpiLocationId(locationId: string): Promise<LocationWithRelations | null> {
+    public static async findByOcpiLocationId(
+        locationId: string,
+        partnerId?: string,
+    ): Promise<LocationWithRelations | null> {
         return databaseService.prisma.location.findFirst({
             where: {
                 ocpi_location_id: locationId,
                 deleted: false,
+                ...(partnerId ? { partner_id: partnerId } : {}),
             },
             include: {
                 evses: {
@@ -46,13 +49,11 @@ export class LocationDbService {
         }) as Promise<LocationWithRelations | null>;
     }
 
-    public static async upsertFromOcpiLocation(ocpiLocation: OCPILocation): Promise<LocationWithRelations> {
+    public static async upsertFromOcpiLocation(
+        ocpiLocation: OCPILocation,
+        partnerId: string,
+    ): Promise<LocationWithRelations> {
         const prisma = databaseService.prisma;
-
-        const partner = await Utils.findOrCreateCpoPartner(
-            ocpiLocation.country_code,
-            ocpiLocation.party_id,
-        );
 
         let locationRecord = await prisma.location.findFirst({
             where: {
@@ -77,7 +78,7 @@ export class LocationDbService {
                 data: {
                     ...locationData,
                     partner: {
-                        connect: { id: partner.id },
+                        connect: { id: partnerId },
                     },
                 },
             });
@@ -87,7 +88,7 @@ export class LocationDbService {
                 data: {
                     ...locationData,
                     partner: {
-                        connect: { id: partner.id },
+                        connect: { id: partnerId },
                     },
                 },
             });
@@ -98,14 +99,14 @@ export class LocationDbService {
             for (const evse of ocpiLocation.evses) {
                 const evseRecord = await this.createEvseForLocation(
                     locationRecord.id,
-                    partner.id,
+                    partnerId,
                     evse,
                     ocpiLocation.coordinates,
                 );
 
                 if (evse.connectors && evse.connectors.length > 0) {
                     for (const connector of evse.connectors) {
-                        await this.createConnectorForEvse(evseRecord.id, partner.id, connector);
+                        await this.createConnectorForEvse(evseRecord.id, partnerId, connector);
                     }
                 }
             }

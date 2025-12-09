@@ -1,5 +1,5 @@
 import { Request } from 'express';
-import { Token } from '@prisma/client';
+import { OCPIPartnerCredentials, Token } from '@prisma/client';
 import { HttpResponse } from '../../../../../types/responses';
 import {
     OCPIAuthorizationInfoResponse,
@@ -7,27 +7,47 @@ import {
     OCPITokensResponse,
 } from '../../../../schema/modules/tokens/types/responses';
 import { databaseService } from '../../../../../services/database.service';
-import { OCPIToken } from '../../../../schema/modules/tokens/types';
+import { OCPIAuthorizationInfo, OCPILocationReferences, OCPIToken } from '../../../../schema/modules/tokens/types';
+import { OCPIAllowedType } from '../../../../schema/modules/tokens/enums';
 import { OCPIResponseStatusCode } from '../../../../schema/general/enum';
-import Utils from '../../../../../utils/Utils';
 
 /**
- * Handle all incoming requests for the Tokens module from the CPO
+ * OCPI 2.2.1 – Tokens module (incoming, EMSP side).
+ *
+ * Endpoints implemented as in the OCPI spec:
+ * - GET    /tokens
+ * - GET    /tokens/{country_code}/{party_id}/{token_uid}
+ * - PUT    /tokens/{country_code}/{party_id}/{token_uid}
+ * - PATCH  /tokens/{country_code}/{party_id}/{token_uid}
+ * - POST   /tokens/{country_code}/{party_id}/{token_uid}/authorize
+ *
+ * All responses use the standard OCPI response envelope.
  */
 export default class OCPIv221TokensModuleIncomingRequestService {
 
-    // get requests
-
     /**
-     * GET /ocpi/tokens
+     * GET /tokens
      *
-     * Returns all non-deleted tokens, optionally filtered by country_code / party_id.
+     * Optional OCPI endpoint: return all tokens, optionally filtered by
+     * country_code / party_id.
      */
-    public static async handleGetTokens(req: Request): Promise<HttpResponse<OCPITokensResponse>> {
-        const { country_code, party_id } = req.query as { country_code?: string; party_id?: string };
+    public static async handleGetTokens(
+        req: Request,
+        partnerCredentials: OCPIPartnerCredentials,
+    ): Promise<HttpResponse<OCPITokensResponse>> {
+        const { country_code, party_id } = req.query as {
+            country_code?: string;
+            party_id?: string;
+        };
 
-        const where: { deleted: boolean; country_code?: string; party_id?: string } = {
+        const where: {
+            deleted: boolean;
+            partner_id: string;
+            country_code?: string;
+            party_id?: string;
+        } = {
             deleted: false,
+            partner_id: partnerCredentials.partner_id,
         };
         if (country_code) {
             where.country_code = country_code;
@@ -38,12 +58,12 @@ export default class OCPIv221TokensModuleIncomingRequestService {
 
         const prismaTokens = await databaseService.prisma.token.findMany({
             where,
-            orderBy: {
-                last_updated: 'desc',
-            },
+            orderBy: { last_updated: 'desc' },
         });
 
-        const data: OCPIToken[] = prismaTokens.map(OCPIv221TokensModuleIncomingRequestService.mapPrismaTokenToOcpi);
+        const data: OCPIToken[] = prismaTokens.map(
+            OCPIv221TokensModuleIncomingRequestService.mapPrismaTokenToOcpi,
+        );
 
         return {
             httpStatus: 200,
@@ -56,11 +76,14 @@ export default class OCPIv221TokensModuleIncomingRequestService {
     }
 
     /**
-     * GET /ocpi/tokens/:country_code/:party_id/:token_uid
+     * GET /tokens/{country_code}/{party_id}/{token_uid}
      *
-     * Returns a single token.
+     * Returns a single token if it exists.
      */
-    public static async handleGetToken(req: Request): Promise<HttpResponse<OCPITokenResponse>> {
+    public static async handleGetToken(
+        req: Request,
+        partnerCredentials: OCPIPartnerCredentials,
+    ): Promise<HttpResponse<OCPITokenResponse>> {
         const { country_code, party_id, token_uid } = req.params as {
             country_code: string;
             party_id: string;
@@ -73,6 +96,7 @@ export default class OCPIv221TokensModuleIncomingRequestService {
                 party_id,
                 uid: token_uid,
                 deleted: false,
+                partner_id: partnerCredentials.partner_id,
             },
         });
 
@@ -87,7 +111,9 @@ export default class OCPIv221TokensModuleIncomingRequestService {
             };
         }
 
-        const data = OCPIv221TokensModuleIncomingRequestService.mapPrismaTokenToOcpi(prismaToken);
+        const data = OCPIv221TokensModuleIncomingRequestService.mapPrismaTokenToOcpi(
+            prismaToken,
+        );
 
         return {
             httpStatus: 200,
@@ -99,45 +125,98 @@ export default class OCPIv221TokensModuleIncomingRequestService {
         };
     }
 
-    // post requests
+    /**
+     * POST /tokens/{country_code}/{party_id}/{token_uid}/authorize
+     *
+     * CPO asks the EMSP if a token may be used for starting a session.
+     * We implement a minimal OCPI-compliant behaviour:
+     * - If token exists and valid === true  → allowed = ALLOWED
+     * - Otherwise                          → allowed = NOT_ALLOWED
+     */
+    public static async handlePostAuthorizeToken(
+        req: Request,
+        partnerCredentials: OCPIPartnerCredentials,
+    ): Promise<HttpResponse<OCPIAuthorizationInfoResponse>> {
+        const { country_code, party_id, token_uid } = req.params as {
+            country_code: string;
+            party_id: string;
+            token_uid: string;
+        };
 
-    public static async handlePostAuthorizeToken(): Promise<HttpResponse<OCPIAuthorizationInfoResponse>> {
-        // Full authorization logic is out of scope for now.
-        // We just acknowledge the request with an empty 1000 response.
+        const _location = req.body as OCPILocationReferences | undefined;
+
+        const prismaToken = await databaseService.prisma.token.findFirst({
+            where: {
+                country_code,
+                party_id,
+                uid: token_uid,
+                deleted: false,
+                partner_id: partnerCredentials.partner_id,
+            },
+        });
+
+        if (!prismaToken) {
+            const info: OCPIAuthorizationInfo = {
+                allowed: OCPIAllowedType.NOT_ALLOWED,
+                token: {
+                    country_code,
+                    party_id,
+                    uid: token_uid,
+                    type: undefined as never,
+                    contract_id: '',
+                    issuer: '',
+                    valid: false,
+                    whitelist: undefined as never,
+                    last_updated: new Date().toISOString(),
+                } as unknown as OCPIToken,
+                location: _location,
+            };
+
+            return {
+                httpStatus: 200,
+                payload: {
+                    data: info,
+                    status_code: OCPIResponseStatusCode.status_1000,
+                    timestamp: new Date().toISOString(),
+                },
+            };
+        }
+
+        const token = OCPIv221TokensModuleIncomingRequestService.mapPrismaTokenToOcpi(
+            prismaToken,
+        );
+
+        const info: OCPIAuthorizationInfo = {
+            allowed: prismaToken.valid ? OCPIAllowedType.ALLOWED : OCPIAllowedType.NOT_ALLOWED,
+            token,
+            location: _location,
+        };
+
         return {
             httpStatus: 200,
             payload: {
+                data: info,
                 status_code: OCPIResponseStatusCode.status_1000,
                 timestamp: new Date().toISOString(),
             },
         };
     }
 
-    // put requests
-
     /**
-     * PUT /ocpi/tokens/:country_code/:party_id/:token_uid
+     * PUT /tokens/{country_code}/{party_id}/{token_uid}
      *
      * Creates or fully replaces a token.
      */
-    public static async handlePutToken(req: Request): Promise<HttpResponse<OCPITokenResponse>> {
+    public static async handlePutToken(
+        req: Request,
+        partnerCredentials: OCPIPartnerCredentials,
+    ): Promise<HttpResponse<OCPITokenResponse>> {
         const { country_code, party_id, token_uid } = req.params as {
             country_code: string;
             party_id: string;
             token_uid: string;
         };
         const payload = req.body as OCPIToken;
-
-        if (!payload || payload.country_code !== country_code || payload.party_id !== party_id || payload.uid !== token_uid) {
-            return {
-                httpStatus: 400,
-                payload: {
-                    status_code: OCPIResponseStatusCode.status_2000,
-                    status_message: 'Path parameters and token payload must match',
-                    timestamp: new Date().toISOString(),
-                },
-            };
-        }
 
         const prisma = databaseService.prisma;
 
@@ -148,15 +227,23 @@ export default class OCPIv221TokensModuleIncomingRequestService {
                 uid: token_uid,
             },
         });
-        const emspPartner = await Utils.findEmspPartner();
-        if (!emspPartner) {
-            throw new Error('EMSP partner not configured');
+
+        if (!existing) {
+            return {
+                httpStatus: 404,
+                payload: {
+                    status_code: OCPIResponseStatusCode.status_2001,
+                    status_message: 'Token not found',
+                    timestamp: new Date().toISOString(),
+                },
+            };
         }
 
-        const tokenData = OCPIv221TokensModuleIncomingRequestService.mapOcpiTokenToPrisma(
-            payload,
-            emspPartner.id,
-        );
+        const tokenData =
+            OCPIv221TokensModuleIncomingRequestService.mapOcpiTokenToPrisma(
+                payload,
+                partnerCredentials.partner_id,
+            );
 
         let stored: Token;
         if (existing) {
@@ -171,7 +258,9 @@ export default class OCPIv221TokensModuleIncomingRequestService {
             });
         }
 
-        const data = OCPIv221TokensModuleIncomingRequestService.mapPrismaTokenToOcpi(stored);
+        const data = OCPIv221TokensModuleIncomingRequestService.mapPrismaTokenToOcpi(
+            stored,
+        );
 
         return {
             httpStatus: 200,
@@ -183,14 +272,15 @@ export default class OCPIv221TokensModuleIncomingRequestService {
         };
     }
 
-    // patch requests
-
     /**
-     * PATCH /ocpi/tokens/:country_code/:party_id/:token_uid
+     * PATCH /tokens/{country_code}/{party_id}/{token_uid}
      *
      * Applies a partial update to an existing token.
      */
-    public static async handlePatchToken(req: Request): Promise<HttpResponse<OCPITokenResponse>> {
+    public static async handlePatchToken(
+        req: Request,
+        partnerCredentials: OCPIPartnerCredentials,
+    ): Promise<HttpResponse<OCPITokenResponse>> {
         const { country_code, party_id, token_uid } = req.params as {
             country_code: string;
             party_id: string;
@@ -206,6 +296,7 @@ export default class OCPIv221TokensModuleIncomingRequestService {
                 party_id,
                 uid: token_uid,
                 deleted: false,
+                partner_id: partnerCredentials.partner_id,
             },
         });
 
@@ -225,14 +316,10 @@ export default class OCPIv221TokensModuleIncomingRequestService {
             ...patch,
             last_updated: patch.last_updated ?? new Date().toISOString(),
         };
-        const emspPartner = await Utils.findEmspPartner();
-        if (!emspPartner) {
-            throw new Error('EMSP partner not configured');
-        }
 
         const tokenData = OCPIv221TokensModuleIncomingRequestService.mapOcpiTokenToPrisma(
             merged,
-            emspPartner.id,
+            partnerCredentials.partner_id,
         );
 
         const stored = await prisma.token.update({
@@ -240,7 +327,9 @@ export default class OCPIv221TokensModuleIncomingRequestService {
             data: tokenData,
         });
 
-        const data = OCPIv221TokensModuleIncomingRequestService.mapPrismaTokenToOcpi(stored);
+        const data = OCPIv221TokensModuleIncomingRequestService.mapPrismaTokenToOcpi(
+            stored,
+        );
 
         return {
             httpStatus: 200,
@@ -257,16 +346,16 @@ export default class OCPIv221TokensModuleIncomingRequestService {
             country_code: token.country_code,
             party_id: token.party_id,
             uid: token.uid,
-            type: token.type as any,
+            type: token.type as never,
             contract_id: token.contract_id,
             visual_number: token.visual_number ?? undefined,
             issuer: token.issuer,
             group_id: token.group_id ?? undefined,
             valid: token.valid,
-            whitelist: token.whitelist as any,
+            whitelist: token.whitelist as never,
             language: token.language ?? undefined,
-            default_profile_type: token.default_profile_type as any || undefined,
-            energy_contract: token.energy_contract as any || undefined,
+            default_profile_type: (token.default_profile_type as never) || undefined,
+            energy_contract: token.energy_contract as never,
             last_updated: token.last_updated.toISOString(),
         };
     }
@@ -284,13 +373,14 @@ export default class OCPIv221TokensModuleIncomingRequestService {
             valid: token.valid,
             whitelist: String(token.whitelist),
             language: token.language ?? null,
-            default_profile_type: token.default_profile_type ? String(token.default_profile_type) : null,
-            energy_contract: token.energy_contract as any ?? undefined,
+            default_profile_type: token.default_profile_type
+                ? String(token.default_profile_type)
+                : null,
+            energy_contract: (token.energy_contract as unknown) ?? undefined,
             last_updated: new Date(token.last_updated ?? new Date().toISOString()),
             deleted: false,
             partner_id: partnerId,
         };
     }
-
 }
 
