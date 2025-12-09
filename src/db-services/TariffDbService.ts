@@ -8,6 +8,7 @@ import { OCPIDisplayText } from '../ocpi/schema/general/types';
 import { OCPIPrice } from '../ocpi/schema/general/types';
 import { OCPIEnergyMix } from '../ocpi/schema/modules/locations/types';
 import { OCPITariffType } from '../ocpi/schema/modules/tariffs/enums';
+import Utils from '../utils/Utils';
 
 export type TariffWithRelations = Tariff;
 
@@ -126,6 +127,11 @@ export class TariffDbService {
     ): Promise<TariffWithRelations> {
         const prisma = databaseService.prisma;
 
+        const partner = await Utils.findOrCreateCpoPartner(
+            ocpiTariff.country_code,
+            ocpiTariff.party_id,
+        );
+
         let tariffRecord = await prisma.tariff.findFirst({
             where: {
                 country_code: ocpiTariff.country_code,
@@ -139,12 +145,22 @@ export class TariffDbService {
         if (tariffRecord) {
             tariffRecord = await prisma.tariff.update({
                 where: { id: tariffRecord.id },
-                data: tariffData,
+                data: {
+                    ...tariffData,
+                    partner: {
+                        connect: { id: partner.id },
+                    },
+                },
             });
         }
         else {
             tariffRecord = await prisma.tariff.create({
-                data: tariffData,
+                data: {
+                    ...tariffData,
+                    partner: {
+                        connect: { id: partner.id },
+                    },
+                },
             });
         }
 

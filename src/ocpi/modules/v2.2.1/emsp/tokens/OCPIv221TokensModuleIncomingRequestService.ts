@@ -9,6 +9,7 @@ import {
 import { databaseService } from '../../../../../services/database.service';
 import { OCPIToken } from '../../../../schema/modules/tokens/types';
 import { OCPIResponseStatusCode } from '../../../../schema/general/enum';
+import Utils from '../../../../../utils/Utils';
 
 /**
  * Handle all incoming requests for the Tokens module from the CPO
@@ -147,8 +148,15 @@ export default class OCPIv221TokensModuleIncomingRequestService {
                 uid: token_uid,
             },
         });
+        const emspPartner = await Utils.findEmspPartner();
+        if (!emspPartner) {
+            throw new Error('EMSP partner not configured');
+        }
 
-        const tokenData = OCPIv221TokensModuleIncomingRequestService.mapOcpiTokenToPrisma(payload);
+        const tokenData = OCPIv221TokensModuleIncomingRequestService.mapOcpiTokenToPrisma(
+            payload,
+            emspPartner.id,
+        );
 
         let stored: Token;
         if (existing) {
@@ -217,8 +225,15 @@ export default class OCPIv221TokensModuleIncomingRequestService {
             ...patch,
             last_updated: patch.last_updated ?? new Date().toISOString(),
         };
+        const emspPartner = await Utils.findEmspPartner();
+        if (!emspPartner) {
+            throw new Error('EMSP partner not configured');
+        }
 
-        const tokenData = OCPIv221TokensModuleIncomingRequestService.mapOcpiTokenToPrisma(merged);
+        const tokenData = OCPIv221TokensModuleIncomingRequestService.mapOcpiTokenToPrisma(
+            merged,
+            emspPartner.id,
+        );
 
         const stored = await prisma.token.update({
             where: { id: existing.id },
@@ -256,7 +271,7 @@ export default class OCPIv221TokensModuleIncomingRequestService {
         };
     }
 
-    private static mapOcpiTokenToPrisma(token: OCPIToken) {
+    private static mapOcpiTokenToPrisma(token: OCPIToken, partnerId: string) {
         return {
             country_code: token.country_code,
             party_id: token.party_id,
@@ -273,6 +288,7 @@ export default class OCPIv221TokensModuleIncomingRequestService {
             energy_contract: token.energy_contract as any ?? undefined,
             last_updated: new Date(token.last_updated ?? new Date().toISOString()),
             deleted: false,
+            partner_id: partnerId,
         };
     }
 
