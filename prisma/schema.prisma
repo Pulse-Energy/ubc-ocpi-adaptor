@@ -388,3 +388,28 @@ model OCPIVersion {
     @@index([partner_id])
     @@map("ocpi_version")
 }
+
+
+/// The model name has to be `UeiLog` because `UEILog` is treated as `uEILog` in the codebase
+model BecknLog {
+  id               String    @id @default(uuid())
+  aiid             BigInt    @default(autoincrement())
+  domain           String
+  action           String
+  transaction_id   String
+  message_id       String
+  payload          Json?     @default("{}") @db.Json
+  additional_props Json?     @default("{}") @db.Json /// Added for any future requirements
+  created_on       DateTime  @default(now())
+  updated_on       DateTime  @updatedAt
+  deleted          Boolean?  @default(false)
+  deleted_on       DateTime?
+
+  @@index([domain])
+  @@index([action])
+  @@index([transaction_id])
+  @@index([message_id])
+  @@index([domain, action, transaction_id, created_on(sort: Desc)])
+  @@index([created_on(sort: Desc)])
+  @@map(name: "beckn_log")
+}
