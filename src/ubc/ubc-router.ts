@@ -6,7 +6,6 @@ import { BecknAction } from './schema/v2.0.0/enums/BecknAction';
 
 // Import action handlers
 import SelectActionHandler from './actions/handlers/SelectActionHandler';
-import InitActionHandler from './actions/handlers/InitActionHandler';
 import ConfirmActionHandler from './actions/handlers/ConfirmActionHandler';
 import UpdateActionHandler from './actions/handlers/UpdateActionHandler';
 import StatusActionHandler from './actions/handlers/StatusActionHandler';
@@ -14,6 +13,7 @@ import TrackActionHandler from './actions/handlers/TrackActionHandler';
 import CancelActionHandler from './actions/handlers/CancelActionHandler';
 import RatingActionHandler from './actions/handlers/RatingActionHandler';
 import SupportActionHandler from './actions/handlers/SupportActionHandler';
+import InitActionHandler from './actions/handlers/InitActionHandler';
 
 const router = Router();
 
@@ -75,7 +75,7 @@ router.post(`/${BecknAction.select}`, ubcAuth, async (req: Request, res: Respons
 );
 
 router.post(`/${BecknAction.init}`, ubcAuth, async (req: Request, res: Response, next: NextFunction) =>
-    handleRequest(req, res, next, InitActionHandler.handleInit)
+    handleRequest(req, res, next, InitActionHandler.handleBppInitAction)
 );
 
 router.post(`/${BecknAction.confirm}`, ubcAuth, async (req: Request, res: Response, next: NextFunction) =>
@@ -86,8 +86,8 @@ router.post(`/${BecknAction.update}`, ubcAuth, async (req: Request, res: Respons
     handleRequest(req, res, next, UpdateActionHandler.handleUpdate)
 );
 
-router.post(`/${BecknAction.status}`, ubcAuth, async (req: Request, res: Response, next: NextFunction) =>
-    handleRequest(req, res, next, StatusActionHandler.handleStatus)
+router.post(`/${BecknAction.on_status}`, ubcAuth, async (req: Request, res: Response, next: NextFunction) =>
+    handleRequest(req, res, next, StatusActionHandler.handleBppOnStatusRequest)
 );
 
 router.post(`/${BecknAction.track}`, ubcAuth, async (req: Request, res: Response, next: NextFunction) =>
