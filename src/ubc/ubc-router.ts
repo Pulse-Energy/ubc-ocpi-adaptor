@@ -86,8 +86,8 @@ router.post(`/${BecknAction.update}`, ubcAuth, async (req: Request, res: Respons
     handleRequest(req, res, next, UpdateActionHandler.handleUpdate)
 );
 
-router.post(`/${BecknAction.status}`, ubcAuth, async (req: Request, res: Response, next: NextFunction) =>
-    handleRequest(req, res, next, StatusActionHandler.handleStatus)
+router.post(`/${BecknAction.on_status}`, ubcAuth, async (req: Request, res: Response, next: NextFunction) =>
+    handleRequest(req, res, next, StatusActionHandler.handleBppOnStatusRequest)
 );
 
 router.post(`/${BecknAction.track}`, ubcAuth, async (req: Request, res: Response, next: NextFunction) =>
