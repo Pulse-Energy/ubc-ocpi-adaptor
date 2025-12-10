@@ -17,3 +17,9 @@ export type ExtractedOnInitResponseBody = {
     },
     payload: ExtractedOnInitResponsePayload,
 };
+
+
+export type GeneratePaymentLinkResponsePayload = {
+    payment_link: string,
+    authorization_reference: string,
+};
