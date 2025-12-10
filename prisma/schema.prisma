@@ -48,6 +48,7 @@ model Location {
   evses      EVSE[]
   partner_id String
   partner    OCPIPartner @relation(fields: [partner_id], references: [id], onDelete: Cascade)
+  ocpilogs   OCPILog[]
 
   @@unique([country_code, party_id, ocpi_location_id])
   @@index([country_code, party_id])
@@ -84,6 +85,7 @@ model EVSE {
   // Relations
   evse_connectors EVSEConnector[]
   partner         OCPIPartner     @relation(fields: [partner_id], references: [id], onDelete: Cascade)
+  ocpilogs        OCPILog[]
 
   @@unique([location_id, uid])
   @@index([uid])
@@ -114,6 +116,7 @@ model EVSEConnector {
   tariffs              Tariff[]
   partner_id           String
   partner              OCPIPartner @relation(fields: [partner_id], references: [id], onDelete: Cascade)
+  ocpilogs             OCPILog[]
 
   @@unique([evse_id, connector_id])
   @@index([evse_id])
@@ -204,7 +207,8 @@ model Session {
   id                      String      @id @default(uuid())
   country_code            String
   party_id                String
-  ocpi_session_id         String // OCPI id field
+  emsp_session_id         String // OCPI id field
+  cpo_session_id          String // OCPI id field
   start_date_time         DateTime
   end_date_time           DateTime?
   kwh                     Decimal     @db.Decimal(10, 3)
@@ -226,10 +230,12 @@ model Session {
   updated_at              DateTime    @updatedAt
   partner_id              String
   partner                 OCPIPartner @relation(fields: [partner_id], references: [id], onDelete: Cascade)
+  // Log relations (named to avoid ambiguity)
+  ocpi_logs_session       OCPILog[]   @relation("OCPILogSession")
+  ocpi_logs_emsp_session  OCPILog[]   @relation("OCPILogEmspSession")
+  ocpi_logs_cpo_session   OCPILog[]   @relation("OCPILogCpoSession")
 
-  @@unique([country_code, party_id, ocpi_session_id])
   @@index([country_code, party_id])
-  @@index([ocpi_session_id])
   @@index([location_id])
   @@index([status])
   @@index([partner_id])
@@ -344,6 +350,7 @@ model OCPIPartner {
   sessions       Session[]
   cdrs           CDR[]
   tokens         Token[]
+  ocpilogs       OCPILog[]
 
   @@unique([country_code, party_id])
   @@map("ocpi_partner")
@@ -399,7 +406,6 @@ model OCPIVersion {
   @@map("ocpi_version")
 }
 
-
 /// The model name has to be `UeiLog` because `UEILog` is treated as `uEILog` in the codebase
 model BecknLog {
   id               String    @id @default(uuid())
@@ -422,4 +428,29 @@ model BecknLog {
   @@index([domain, action, transaction_id, created_on(sort: Desc)])
   @@index([created_on(sort: Desc)])
   @@map(name: "beckn_log")
+}
+
+model OCPILog {
+  id               String         @id @default(uuid())
+  aiid             BigInt         @default(autoincrement())
+  command          String
+  payload          Json           @db.Json
+  additional_props Json?          @default("{}") @db.Json
+  partner_id       String
+  partner          OCPIPartner    @relation(fields: [partner_id], references: [id], onDelete: Cascade)
+  location_id      String?
+  location         Location?      @relation(fields: [location_id], references: [id], onDelete: Cascade)
+  evse_id          String?
+  evse             EVSE?          @relation(fields: [evse_id], references: [id], onDelete: Cascade)
+  connector_id     String?
+  connector        EVSEConnector? @relation(fields: [connector_id], references: [id], onDelete: Cascade)
+  session_id       String?
+  session          Session?       @relation("OCPILogSession", fields: [session_id], references: [id], onDelete: Cascade)
+  emsp_session_id  String?
+  emsp_session     Session?       @relation("OCPILogEmspSession", fields: [emsp_session_id], references: [id], onDelete: Cascade)
+  cpo_session_id   String?
+  cpo_session      Session?       @relation("OCPILogCpoSession", fields: [cpo_session_id], references: [id], onDelete: Cascade)
+  created_on       DateTime       @default(now())
+
+  @@map(name: "ocpi_log")
 }
