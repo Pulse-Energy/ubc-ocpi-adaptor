@@ -233,7 +233,7 @@ model Session {
   ocpi_logs_session                 OCPILog[]    @relation("OCPILogSession")
   ocpi_logs_cpo_session             OCPILog[]    @relation("OCPILogCpoSession")
   ocpi_logs_authorization_reference OCPILog[]    @relation("OCPILogAuthorizationReferenceSession")
-  payment_txns                      PaymentTxn[]    @relation("PaymentTxnAuthorizationReferenceSession")
+  payment_txns                      PaymentTxn[] @relation("PaymentTxnAuthorizationReferenceSession")
 
   @@index([country_code, party_id])
   @@index([location_id])
@@ -327,31 +327,30 @@ model Token {
 
 // OCPI Partner (CPO) integration metadata
 model OCPIPartner {
-  id           String  @id @default(uuid())
-  name         String?
-  country_code String
-  party_id     String
-  role         String  @default("CPO") // CPO | EMSP
-
-  versions_url String
-  status       String                  @default("INIT")
-  credentials  OCPIPartnerCredentials?
-  endpoints    OCPIPartnerEndpoint[]
-  versions     OCPIVersion[]
-
-  created_at     DateTime        @default(now())
-  updated_at     DateTime        @updatedAt
-  deleted        Boolean         @default(false)
-  deleted_at     DateTime?
-  locations      Location[]
-  evses          EVSE[]
-  evseconnectors EVSEConnector[]
-  tariffs        Tariff[]
-  sessions       Session[]
-  cdrs           CDR[]
-  tokens         Token[]
-  ocpilogs       OCPILog[]
-  paymentTxns    PaymentTxn[]
+  id               String                  @id @default(uuid())
+  name             String?
+  country_code     String
+  party_id         String
+  role             String                  @default("CPO") // CPO | EMSP
+  versions_url     String
+  status           String                  @default("INIT")
+  credentials      OCPIPartnerCredentials?
+  endpoints        OCPIPartnerEndpoint[]
+  versions         OCPIVersion[]
+  created_at       DateTime                @default(now())
+  updated_at       DateTime                @updatedAt
+  deleted          Boolean                 @default(false)
+  deleted_at       DateTime?
+  locations        Location[]
+  evses            EVSE[]
+  evseconnectors   EVSEConnector[]
+  tariffs          Tariff[]
+  sessions         Session[]
+  cdrs             CDR[]
+  tokens           Token[]
+  ocpilogs         OCPILog[]
+  paymentTxns      PaymentTxn[]
+  additional_props Json?                   @default("{}") @db.Json
 
   @@unique([country_code, party_id])
   @@map("ocpi_partner")
