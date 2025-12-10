@@ -14,7 +14,7 @@ import InitActionHandler from "./InitActionHandler";
 /**
  * Handler for status action
  */
-export default class StatusActionHandler {
+export default class OnStatusActionHandler {
     public static async handleBppOnStatusRequest(reqDetails: Request): Promise<HttpResponse<BecknActionResponse>> {
         try {
             logger.debug(`🟡 Received on_status request in handleBppOnStatusRequest`, { data: reqDetails });
@@ -23,7 +23,7 @@ export default class StatusActionHandler {
                 const body = reqDetails.body as ExtractedOnStatusRequestBody;
                 
                 // Forward on_status to BPP ONIX (no response needed as request comes from backend)
-                await StatusActionHandler.handleEVChargingUBCBppOnStatusAction(body);
+                await OnStatusActionHandler.handleEVChargingUBCBppOnStatusAction(body);
             }
 
             logger.debug(`🟢 Sending on_status response in handleBppOnStatusRequest`, { data: {} });
@@ -46,7 +46,7 @@ export default class StatusActionHandler {
         try {
             // Forward on_update to BPP ONIX
             logger.debug(`🟡 [${reqId}] Forwarding on_update to BPP ONIX in handleEVChargingUBCBppOnUpdateAction`, { data: { logData, reqPayload } });
-            const response = await StatusActionHandler.forwardOnStatusToBppOnix(reqPayload);
+            const response = await OnStatusActionHandler.forwardOnStatusToBppOnix(reqPayload);
             logger.debug(`🟢 [${reqId}] Forwarded on_update to BPP ONIX in handleEVChargingUBCBppOnUpdateAction`, { data: { response } });
         }
         catch (e: any) {
