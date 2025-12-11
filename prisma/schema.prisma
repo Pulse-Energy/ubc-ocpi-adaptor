@@ -434,6 +434,7 @@ model OCPILog {
   id                              String         @id @default(uuid())
   aiid                            BigInt         @default(autoincrement())
   command                         String
+  sender_type                     String // CPO | EMSP
   payload                         Json           @db.Json
   additional_props                Json?          @default("{}") @db.Json
   partner_id                      String

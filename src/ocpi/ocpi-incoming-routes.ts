@@ -14,6 +14,7 @@ import VersionsModuleIncomingRequestService from './modules/v2.2.1/emsp/versions
 import { OCPIResponsePayload } from './schema/general/types/responses';
 import Utils from '../utils/Utils';
 import { OCPIPartnerCredentials } from '@prisma/client';
+import { OCPIRequestLogService } from './services/OCPIRequestLogService';
 
 const router = Router();
 
@@ -127,6 +128,21 @@ async function handleRequest<T>(
                 (_key, value) => (typeof value === 'bigint' ? Number(value) : value),
             ),
         );
+
+        // Persist OCPI incoming log (best-effort; errors are not fatal)
+        try {
+            await OCPIRequestLogService.logIncoming({
+                req,
+                responsePayload: safePayload,
+                statusCode: response.httpStatus || 200,
+            });
+        }
+        catch (logError) {
+            logger.error('Failed to persist OCPI incoming log', logError as Error, {
+                path: req.path,
+                method: req.method,
+            });
+        }
 
         res.status(response.httpStatus || 200).json(safePayload);
         if (response.headers) {

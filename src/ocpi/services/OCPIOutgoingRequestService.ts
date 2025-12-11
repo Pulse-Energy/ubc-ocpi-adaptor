@@ -1,12 +1,22 @@
-import { Response } from "express";
 import axios from "axios";
 import { logger } from "../../services/logger.service";
+import { OCPIRequestLogService } from "./OCPIRequestLogService";
 
 // TODO: move this somewhere else
 type OutgoingRequestConfig = {
-    url: string
-    headers: Record<string, string>
-    data?: any,
+    url: string;
+    headers: Record<string, string>;
+    data?: any;
+    /**
+     * OCPI partner_id for which this request is being made (CPO or EMSP).
+     * Required for persisting OCPILog; if omitted, DB logging is skipped.
+     */
+    partnerId?: string;
+    /**
+     * Optional logical command name for easier debugging (e.g. "LOCATIONS_GET").
+     * If omitted, a generic "OUTGOING <METHOD> <url>" is used.
+     */
+    command?: string;
 }
 type OutgoingGetRequestConfig = OutgoingRequestConfig & {
 
@@ -22,10 +32,12 @@ export default class OCPIOutgoingRequestService {
         return authorizationHeader;
     }
 
-    static async sendGetRequest(requestConfig: OutgoingGetRequestConfig, res?: Response): Promise<any> {
+    static async sendGetRequest(requestConfig: OutgoingGetRequestConfig): Promise<any> {
         const {
             url,
             headers,
+            partnerId,
+            command,
         } = requestConfig;
 
         const requestId = headers['X-Request-Id'];
@@ -66,9 +78,16 @@ export default class OCPIOutgoingRequestService {
                     },
                 });
 
-                /**
-                 * @todo Add incoming response DB log
-                 */
+                // Best-effort OCPI DB log
+                void OCPIRequestLogService.logOutgoing({
+                    url,
+                    method: 'GET',
+                    headers,
+                    responseBody: response.data ?? response,
+                    statusCode: response.status,
+                    partnerId,
+                    command,
+                });
 
                 return response;
             })
@@ -87,15 +106,27 @@ export default class OCPIOutgoingRequestService {
                     },
                 });
 
+                // Best-effort OCPI DB log (error)
+                void OCPIRequestLogService.logOutgoing({
+                    url,
+                    method: 'GET',
+                    headers,
+                    error: e,
+                    partnerId,
+                    command,
+                });
+
                 return Promise.reject(e);
             });
     }
 
-    static async sendPostRequest(requestConfig: OutgoingRequestConfig, res?: Response): Promise<any> {
+    static async sendPostRequest(requestConfig: OutgoingRequestConfig): Promise<any> {
         const {
             url,
             headers,
             data = {},
+            partnerId,
+            command,
         } = requestConfig;
 
         const requestId = headers['X-Request-Id'];
@@ -138,9 +169,16 @@ export default class OCPIOutgoingRequestService {
                     },
                 });
 
-                /**
-                 * @todo Add incoming response DB log
-                 */
+                void OCPIRequestLogService.logOutgoing({
+                    url,
+                    method: 'POST',
+                    headers,
+                    requestBody: data,
+                    responseBody: response.data ?? response,
+                    statusCode: response.status,
+                    partnerId,
+                    command,
+                });
 
                 return response.data;
             })
@@ -159,15 +197,27 @@ export default class OCPIOutgoingRequestService {
                     },
                 });
 
+                void OCPIRequestLogService.logOutgoing({
+                    url,
+                    method: 'POST',
+                    headers,
+                    requestBody: data,
+                    error: e,
+                    partnerId,
+                    command,
+                });
+
                 return Promise.reject(e);
             });
     }
 
-    static async sendPutRequest(requestConfig: OutgoingRequestConfig, res?: Response): Promise<any> {
+    static async sendPutRequest(requestConfig: OutgoingRequestConfig): Promise<any> {
         const {
             url,
             headers,
             data = {},
+            partnerId,
+            command,
         } = requestConfig;
 
         const requestId = headers['X-Request-Id'];
@@ -211,9 +261,16 @@ export default class OCPIOutgoingRequestService {
                     },
                 });
 
-                /**
-                 * @todo Add incoming response DB log
-                 */
+                void OCPIRequestLogService.logOutgoing({
+                    url,
+                    method: 'PUT',
+                    headers,
+                    requestBody: data,
+                    responseBody: response.data ?? response,
+                    statusCode: response.status,
+                    partnerId,
+                    command,
+                });
 
                 return response.data;
             })
@@ -233,15 +290,27 @@ export default class OCPIOutgoingRequestService {
                     },
                 });
 
+                void OCPIRequestLogService.logOutgoing({
+                    url,
+                    method: 'PUT',
+                    headers,
+                    requestBody: data,
+                    error: e,
+                    partnerId,
+                    command,
+                });
+
                 return Promise.reject(e);
             });
     }
 
-    static async sendPatchRequest(requestConfig: OutgoingRequestConfig, res?: Response): Promise<any> {
+    static async sendPatchRequest(requestConfig: OutgoingRequestConfig): Promise<any> {
         const {
             url,
             headers,
             data = {},
+            partnerId,
+            command,
         } = requestConfig;
 
         const requestId = headers['X-Request-Id'];
@@ -285,9 +354,16 @@ export default class OCPIOutgoingRequestService {
                     },
                 });
 
-                /**
-                 * @todo Add incoming response DB log
-                 */
+                void OCPIRequestLogService.logOutgoing({
+                    url,
+                    method: 'PATCH',
+                    headers,
+                    requestBody: data,
+                    responseBody: response.data ?? response,
+                    statusCode: response.status,
+                    partnerId,
+                    command,
+                });
 
                 return response.data;
             })
@@ -307,15 +383,27 @@ export default class OCPIOutgoingRequestService {
                     },
                 });
 
+                void OCPIRequestLogService.logOutgoing({
+                    url,
+                    method: 'PATCH',
+                    headers,
+                    requestBody: data,
+                    error: e,
+                    partnerId,
+                    command,
+                });
+
                 return Promise.reject(e);
             });
     }
 
-    static async sendDeleteRequest(requestConfig: OutgoingRequestConfig, res?: Response): Promise<any> {
+    static async sendDeleteRequest(requestConfig: OutgoingRequestConfig): Promise<any> {
         const {
             url,
             headers,
             data = {},
+            partnerId,
+            command,
         } = requestConfig;
 
         const requestId = headers['X-Request-Id'];
@@ -358,9 +446,16 @@ export default class OCPIOutgoingRequestService {
                     },
                 });
 
-                /**
-                 * @todo Add incoming response DB log
-                 */
+                void OCPIRequestLogService.logOutgoing({
+                    url,
+                    method: 'DELETE',
+                    headers,
+                    requestBody: data,
+                    responseBody: response.data ?? response,
+                    statusCode: response.status,
+                    partnerId,
+                    command,
+                });
 
                 return response.data;
             })
@@ -378,6 +473,16 @@ export default class OCPIOutgoingRequestService {
                         payload: data,
                         error: e,
                     },
+                });
+
+                void OCPIRequestLogService.logOutgoing({
+                    url,
+                    method: 'DELETE',
+                    headers,
+                    requestBody: data,
+                    error: e,
+                    partnerId,
+                    command,
                 });
 
                 return Promise.reject(e);
