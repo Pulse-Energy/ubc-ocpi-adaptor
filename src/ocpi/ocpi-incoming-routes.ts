@@ -1,4 +1,5 @@
 import { NextFunction, Request, Response, Router } from 'express';
+import { Buffer } from 'buffer';
 import { logger } from '../services/logger.service';
 import { HttpResponse } from '../types/responses';
 import { AppError } from '../utils/errors';
@@ -16,10 +17,9 @@ import { OCPIPartnerCredentials } from '@prisma/client';
 
 const router = Router();
 
-// Extend Express Request locally to carry OCPI partner credentials
-type OCPIAuthedRequest = Request & {
+interface OCPIAuthedRequest extends Request {
     ocpiPartnerCredentials?: OCPIPartnerCredentials;
-};
+}
 
 // OCPI Authentication Middleware
 const ocpiAuth = async (req: OCPIAuthedRequest, res: Response, next: NextFunction): Promise<void> => {
@@ -33,10 +33,30 @@ const ocpiAuth = async (req: OCPIAuthedRequest, res: Response, next: NextFunctio
         return;
     }
 
-    const emspAuthToken = authHeader.substring('Token '.length);
+    const rawToken = authHeader.substring('Token '.length);
+
+    // Some CPOs base64‑encode the EMSP auth token before sending it.
+    // Try to decode as base64; if that fails, fall back to the raw token.
+    const candidateTokens: string[] = [rawToken];
+    try {
+        const decoded = Buffer.from(rawToken, 'base64').toString('utf8');
+        // Heuristic: only treat it as base64 if re‑encoding matches (ignoring padding).
+        const reEncoded = Buffer.from(decoded, 'utf8').toString('base64').replace(/=+$/, '');
+        const normalizedOriginal = rawToken.replace(/=+$/, '');
+        if (decoded && reEncoded === normalizedOriginal && decoded !== rawToken) {
+            candidateTokens.unshift(decoded);
+        }
+    }
+    catch {
+        // Ignore decode errors – we'll just use the raw token
+    }
 
     try {
-        const partnerCredentials = await Utils.findPartnerCredentialsUsingEMSPAuthToken(emspAuthToken);
+        let partnerCredentials: OCPIPartnerCredentials | null = null;
+        for (const candidate of candidateTokens) {
+            partnerCredentials = await Utils.findPartnerCredentialsUsingEMSPAuthToken(candidate);
+            if (partnerCredentials) break;
+        }
 
         if (!partnerCredentials) {
             res.status(401).json({

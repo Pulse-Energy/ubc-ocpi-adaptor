@@ -16,14 +16,20 @@ export default class Utils {
 
     /**
      * Generic helper to fetch an OCPI endpoint URL by module identifier and role.
-     * Example: getOcpiEndpoint('locations', 'SENDER')
+     * Optionally filter by partner_id when known.
+     * Example: getOcpiEndpoint('locations', 'SENDER', partnerId)
      */
-    public static async getOcpiEndpoint(identifier: string, role: 'SENDER' | 'RECEIVER'): Promise<string> {
+    public static async getOcpiEndpoint(
+        identifier: string,
+        role: 'SENDER' | 'RECEIVER',
+        partnerId?: string,
+    ): Promise<string> {
         const prisma = databaseService.prisma;
         const endpoint = await prisma.oCPIPartnerEndpoint.findFirst({
             where: {
                 module: identifier,
                 role,
+                ...(partnerId ? { partner_id: partnerId } : {}),
                 deleted: false,
             },
             orderBy: {
@@ -34,6 +40,31 @@ export default class Utils {
         if (!endpoint || !endpoint.url) {
             throw new Error(
                 `OCPI endpoint with identifier=${identifier} and role=${role} not configured in oCPIPartnerEndpoint`,
+            );
+        }
+
+        return endpoint.url.replace(/\/+$/, '');
+    }
+
+    public static async getEMSPEndpoint(identifier: string, role: 'SENDER' | 'RECEIVER'): Promise<string> {
+        const prisma = databaseService.prisma;
+        const endpoint = await prisma.oCPIPartnerEndpoint.findFirst({
+            where: {
+                module: identifier,
+                role,
+                partner: {
+                    role: 'EMSP',
+                },
+                deleted: false,
+            },
+            orderBy: {
+                created_at: 'desc',
+            },
+        });
+
+        if (!endpoint || !endpoint.url) {
+            throw new Error(
+                `EMSP endpoint with identifier=${identifier} and role=${role} not configured in oCPIPartnerEndpoint`,
             );
         }
 

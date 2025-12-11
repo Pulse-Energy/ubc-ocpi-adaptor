@@ -13,6 +13,7 @@ import adminOCPISetupRoutes from './admin/routes/ocpi/ocpi-setup.routes';
 import adminLocationsRoutes from './admin/routes/ocpi/locations.routes';
 import adminTariffsRoutes from './admin/routes/ocpi/tariffs.routes';
 import adminTokensRoutes from './admin/routes/ocpi/tokens.routes';
+import adminCommandsRoutes from './admin/routes/ocpi/commands.routes';
 import healthRoutes from './api/health/routes';
 import ocpiOutgoingRoutes from './api/ocpi/ocpi-outgoing-routes';
 import ocpiIncomingRoutes from './ocpi/ocpi-incoming-routes';
@@ -56,6 +57,7 @@ app.use('/api/admin/ocpi', adminOCPISetupRoutes);
 app.use('/api/admin/locations', adminLocationsRoutes);
 app.use('/api/admin/tariffs', adminTariffsRoutes);
 app.use('/api/admin/tokens', adminTokensRoutes);
+app.use('/api/admin/commands', adminCommandsRoutes);
 app.use('/api/health', healthRoutes);
 
 // Root endpoint

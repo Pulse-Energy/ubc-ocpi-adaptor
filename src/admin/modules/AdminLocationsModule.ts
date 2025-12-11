@@ -41,6 +41,7 @@ export default class AdminLocationsModule {
             await OCPIv221LocationsModuleOutgoingRequestService.sendGetLocations(
                 req,
                 creds.cpo_auth_token,
+                partnerId,
             );
 
         // On success, persist all locations (including EVSEs and connectors) into DB
@@ -112,6 +113,7 @@ export default class AdminLocationsModule {
             await OCPIv221LocationsModuleOutgoingRequestService.sendGetLocation(
                 req,
                 creds.cpo_auth_token,
+                partnerId,
             );
 
         // On success, persist location tree into DB

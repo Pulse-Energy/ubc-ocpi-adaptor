@@ -10,7 +10,8 @@ import { OCPIBusinessDetailsClass } from "../../locations/types";
 export type OCPICredentialsRoleClass = {
     country_code: CountryCode
     party_id: string
-    role: OCPIRole
+    role: OCPIRole,
+    business_details?: OCPIBusinessDetailsClass
 }
 
 // 7.3.1

@@ -17,7 +17,8 @@ import Utils from '../../../../../utils/Utils';
 export default class OCPIv221LocationsModuleOutgoingRequestService {
     public static async sendGetLocations(
         req: Request,
-        cpoAuthToken?: string,
+        cpoAuthToken: string | undefined,
+        partnerId?: string,
     ): Promise<HttpResponse<OCPILocationsResponse>> {
         if (!cpoAuthToken) {
             return OCPIResponseService.clientError<unknown>({
@@ -26,7 +27,7 @@ export default class OCPIv221LocationsModuleOutgoingRequestService {
         }
 
         try {
-            const baseUrl = await Utils.getOcpiEndpoint('locations', 'SENDER');
+            const baseUrl = await Utils.getOcpiEndpoint('locations', 'SENDER', partnerId);
 
             const limit = req.query.limit ? Number(req.query.limit) : undefined;
             const offset = req.query.offset ? Number(req.query.offset) : undefined;
@@ -73,7 +74,8 @@ export default class OCPIv221LocationsModuleOutgoingRequestService {
 
     public static async sendGetLocation(
         req: Request,
-        cpoAuthToken?: string,
+        cpoAuthToken: string | undefined,
+        partnerId?: string,
     ): Promise<HttpResponse<OCPILocationResponse>> {
         const locationId = req.params.location_id;
 
@@ -89,7 +91,7 @@ export default class OCPIv221LocationsModuleOutgoingRequestService {
         }
 
         try {
-            const baseUrl = await Utils.getOcpiEndpoint('locations', 'SENDER');
+            const baseUrl = await Utils.getOcpiEndpoint('locations', 'SENDER', partnerId);
             const url = `${baseUrl}/${encodeURIComponent(locationId)}`;
 
             const response = await OCPIOutgoingRequestService.sendGetRequest({

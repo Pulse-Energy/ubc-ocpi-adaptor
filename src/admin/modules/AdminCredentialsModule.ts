@@ -1,11 +1,15 @@
 import { Request } from 'express';
+import { randomUUID } from 'crypto';
 import { HttpResponse } from '../../types/responses';
 import { AdminResponsePayload } from '../types/responses';
 import { ValidationError } from '../../utils/errors';
 import { OCPICredentials, OCPICredentialsRoleClass } from '../../ocpi/schema/modules/credentials/types';
 import { databaseService } from '../../services/database.service';
 import { OCPIResponsePayload } from '../../ocpi/schema/general/types/responses';
+import { OCPIResponseStatusCode, OCPIRole } from '../../ocpi/schema/general/enum';
+import CountryCode from '../../ocpi/schema/general/enum/country-codes';
 import OCPIv221CredentialsModuleOutgoingRequestService from '../../ocpi/modules/v2.2.1/credentials/OCPIv221CredentialsModuleOutgoingRequestService';
+import OCPIResponseService from '../../ocpi/services/OCPIResponseService';
 
 export default class AdminCredentialsModule {
     /**
@@ -130,6 +134,134 @@ export default class AdminCredentialsModule {
                 data: response.payload,
             },
         };
+    }
+
+    /**
+     * Upsert an OCPI CPO partner + credentials from a raw OCPI Credentials payload.
+     *
+     * Intended for admin/bootstrap flows where you manually paste the CPO's
+     * credentials JSON (token, roles, url) and want to persist/update the
+     * corresponding `OCPIPartner` and `OCPIPartnerCredentials` records.
+     *
+     * Body:
+     * {
+     *   token: string;
+     *   url: string;
+     *   roles: [{ country_code, party_id, role, business_details? }]
+     * }
+     */
+    public static async upsertCpoFromCredentialsPayload(
+        req: Request,
+    ): Promise<HttpResponse<OCPIResponsePayload<OCPICredentials>>> {
+        const payload = req.body as OCPICredentials | undefined;
+
+        if (!payload) {
+            throw new ValidationError('OCPI credentials payload is required');
+        }
+
+        const { token, url, roles } = payload;
+
+        if (!token || !url) {
+            throw new ValidationError('Both token and url are required in OCPI credentials payload');
+        }
+
+        if (!roles || roles.length === 0) {
+            throw new ValidationError('At least one role is required in OCPI credentials payload');
+        }
+
+        const cpoRole = roles.find((r) => r.role === 'CPO');
+        if (!cpoRole) {
+            throw new ValidationError('CPO role is required in OCPI credentials payload');
+        }
+
+        const prisma = databaseService.prisma;
+
+        // 1) Upsert OCPIPartner (by country_code + party_id + role = CPO)
+        let partner = await prisma.oCPIPartner.findFirst({
+            where: {
+                country_code: cpoRole.country_code,
+                party_id: cpoRole.party_id,
+                role: 'CPO',
+                deleted: false,
+            },
+        });
+
+        const partnerData = {
+            name: partner?.name ?? null,
+            country_code: cpoRole.country_code,
+            party_id: cpoRole.party_id,
+            role: 'CPO',
+            versions_url: url,
+            status: partner?.status ?? 'INIT',
+        };
+
+        if (partner) {
+            partner = await prisma.oCPIPartner.update({
+                where: { id: partner.id },
+                data: {
+                    name: partnerData.name ?? undefined,
+                    versions_url: partnerData.versions_url,
+                    status: partnerData.status,
+                },
+            });
+        }
+        else {
+            partner = await prisma.oCPIPartner.create({
+                data: partnerData,
+            });
+        }
+
+        // 2) Upsert OCPIPartnerCredentials for this partner
+        let credentials = await prisma.oCPIPartnerCredentials.findUnique({
+            where: { partner_id: partner.id },
+        });
+
+        if (credentials) {
+            credentials = await prisma.oCPIPartnerCredentials.update({
+                where: { partner_id: partner.id },
+                data: {
+                    cpo_auth_token: token,
+                    cpo_url: url,
+                    emsp_auth_token: credentials.emsp_auth_token ?? randomUUID(),
+                },
+            });
+        }
+        else {
+            credentials = await prisma.oCPIPartnerCredentials.create({
+                data: {
+                    partner_id: partner.id,
+                    cpo_auth_token: token,
+                    cpo_url: url,
+                    emsp_auth_token: randomUUID(),
+                },
+            });
+        }
+
+        // Build EMSP-facing OCPI credentials response (what we will expose to the CPO)
+        const emspPartner = await prisma.oCPIPartner.findFirst({
+            where: {
+                role: 'EMSP',
+                deleted: false,
+            },
+        });
+
+        const emspCredentials: OCPICredentials & { partner_id: string } = {
+            partner_id: partner.id,
+            token: credentials.emsp_auth_token || '', 
+            url: credentials.emsp_url || '',
+            roles: [
+                {
+                    country_code: emspPartner?.country_code as CountryCode,
+                    party_id: emspPartner?.party_id as string,
+                    role: OCPIRole.EMSP,
+                    business_details: {
+                        name: emspPartner?.name ?? '',
+                    },
+                },
+            ],
+        };
+
+        return OCPIResponseService.success(emspCredentials);
     }
 }
 

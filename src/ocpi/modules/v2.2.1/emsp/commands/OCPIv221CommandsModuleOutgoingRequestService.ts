@@ -26,27 +26,34 @@ import Utils from '../../../../../utils/Utils';
  * Responses are OCPICommandResponse wrapped in the standard OCPI envelope.
  */
 export default class OCPIv221CommandsModuleOutgoingRequestService {
-    private static async getCpoCommandsBaseUrl(): Promise<string> {
-        return Utils.getOcpiEndpoint('commands', 'RECEIVER');
+    private static async getCpoCommandsBaseUrl(partnerId?: string): Promise<string> {
+        return Utils.getOcpiEndpoint('commands', 'RECEIVER', partnerId);
     }
 
-    private static getAuthHeaders(): Record<string, string> {
-        const token = process.env.OCPI_CPO_AUTH_TOKEN || '';
+    private static getAuthHeaders(cpoAuthToken: string): Record<string, string> {
+        if (!cpoAuthToken) {
+            throw new Error('CPO auth token is required to send OCPI command');
+        }
+
         return {
-            Authorization: `Token ${token}`,
+            Authorization: `Token ${cpoAuthToken}`,
         };
     }
 
     private static async sendCommand(
         commandType: OCPICommandType,
         body: OCPICancelReservation | OCPIReserveNow | OCPIStartSession | OCPIStopSession | OCPIUnlockConnector,
+        cpoAuthToken: string,
+        partnerId?: string,
     ): Promise<HttpResponse<OCPICommandResponseResponse>> {
-        const baseUrl = await OCPIv221CommandsModuleOutgoingRequestService.getCpoCommandsBaseUrl();
+        const baseUrl = await OCPIv221CommandsModuleOutgoingRequestService.getCpoCommandsBaseUrl(
+            partnerId,
+        );
         const url = `${baseUrl}/${commandType}`;
 
         const response = await OCPIOutgoingRequestService.sendPostRequest({
             url,
-            headers: OCPIv221CommandsModuleOutgoingRequestService.getAuthHeaders(),
+            headers: OCPIv221CommandsModuleOutgoingRequestService.getAuthHeaders(cpoAuthToken),
             data: body,
         });
 
@@ -63,46 +70,66 @@ export default class OCPIv221CommandsModuleOutgoingRequestService {
      */
     public static async sendStartSessionCommand(
         body: OCPIStartSession,
+        cpoAuthToken: string,
+        partnerId?: string,
     ): Promise<HttpResponse<OCPICommandResponseResponse>> {
         return OCPIv221CommandsModuleOutgoingRequestService.sendCommand(
             OCPICommandType.START_SESSION,
             body,
+            cpoAuthToken,
+            partnerId,
         );
     }
 
     public static async sendStopSessionCommand(
         body: OCPIStopSession,
+        cpoAuthToken: string,
+        partnerId?: string,
     ): Promise<HttpResponse<OCPICommandResponseResponse>> {
         return OCPIv221CommandsModuleOutgoingRequestService.sendCommand(
             OCPICommandType.STOP_SESSION,
             body,
+            cpoAuthToken,
+            partnerId,
         );
     }
 
     public static async sendReserveNowCommand(
         body: OCPIReserveNow,
+        cpoAuthToken: string,
+        partnerId?: string,
     ): Promise<HttpResponse<OCPICommandResponseResponse>> {
         return OCPIv221CommandsModuleOutgoingRequestService.sendCommand(
             OCPICommandType.RESERVE_NOW,
             body,
+            cpoAuthToken,
+            partnerId,
         );
     }
 
     public static async sendCancelReservationCommand(
         body: OCPICancelReservation,
+        cpoAuthToken: string,
+        partnerId?: string,
     ): Promise<HttpResponse<OCPICommandResponseResponse>> {
         return OCPIv221CommandsModuleOutgoingRequestService.sendCommand(
             OCPICommandType.CANCEL_RESERVATION,
             body,
+            cpoAuthToken,
+            partnerId,
         );
     }
 
     public static async sendUnlockConnectorCommand(
         body: OCPIUnlockConnector,
+        cpoAuthToken: string,
+        partnerId?: string,
     ): Promise<HttpResponse<OCPICommandResponseResponse>> {
         return OCPIv221CommandsModuleOutgoingRequestService.sendCommand(
             OCPICommandType.UNLOCK_CONNECTOR,
             body,
+            cpoAuthToken,
+            partnerId,
         );
     }
 
@@ -112,6 +139,7 @@ export default class OCPIv221CommandsModuleOutgoingRequestService {
      */
     public static async sendPostCommand(
         req: Request,
+        cpoAuthToken: string,
     ): Promise<HttpResponse<OCPICommandResponseResponse>> {
         const { command_type } = req.params as { command_type?: string };
         if (!command_type || !(command_type in OCPICommandType)) {
@@ -126,6 +154,10 @@ export default class OCPIv221CommandsModuleOutgoingRequestService {
             | OCPIStopSession
             | OCPIUnlockConnector;
 
-        return OCPIv221CommandsModuleOutgoingRequestService.sendCommand(type, body);
+        return OCPIv221CommandsModuleOutgoingRequestService.sendCommand(
+            type,
+            body,
+            cpoAuthToken,
+        );
     }
 }

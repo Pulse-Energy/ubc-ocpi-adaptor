@@ -1,13 +1,19 @@
 import { NextFunction, Request, Response, Router } from 'express';
+import { OCPIPartnerCredentials } from '@prisma/client';
 import { HttpResponse } from '../../types/responses';
 import { logger } from '../../services/logger.service';
 import { AppError } from '../../utils/errors';
 import OCPIv221LocationsModuleOutgoingRequestService from '../../ocpi/modules/v2.2.1/emsp/locations/OCPIv221LocationsModuleOutgoingRequestService';
 import OCPIv221TariffsModuleOutgoingRequestService from '../../ocpi/modules/v2.2.1/emsp/tariffs/OCPIv221TariffsModuleOutgoingRequestService';
+import { databaseService } from '../../services/database.service';
 
 const router = Router();
 
 type AnyHttpResponse = HttpResponse<any, Record<string, string>>;
+
+interface OCPIAuthedRequest extends Request {
+    ocpiPartnerCredentials?: OCPIPartnerCredentials;
+}
 
 async function handleRequest(
     req: Request,
@@ -34,17 +40,51 @@ async function handleRequest(
 }
 
 // Optional: simple auth/middleware hook if needed later
-const ocpiApiAuth = (_req: Request, _res: Response, next: NextFunction) => {
+const ocpiApiAuth = async (req: Request, res: Response, next: NextFunction) => {
     // Add authentication/authorization here if desired
+    const cpoAuthToken = req.headers.authorization?.substring('Token '.length);
+    if (!cpoAuthToken) {
+        res.status(401).json({
+            status_code: 2001,
+            status_message: 'Unauthorized',
+            timestamp: new Date().toISOString(),
+        });
+        return;
+    }
+
+    const partnerCredentials = await databaseService.prisma.oCPIPartnerCredentials.findFirst({
+        where: { cpo_auth_token: cpoAuthToken },
+        include: { partner: true },
+    });
+
+    if (!partnerCredentials) {
+        res.status(401).json({
+            status_code: 2001,
+            status_message: 'Unauthorized',
+        });
+        return;
+    }
+
+    (req as OCPIAuthedRequest).ocpiPartnerCredentials = partnerCredentials;
+
     next();
 };
-
 // Trigger a GET Locations towards CPO, store results in DB, and return OCPI payload
 router.get(
     '/locations',
     ocpiApiAuth,
     async (req: Request, res: Response, next: NextFunction) =>
-        handleRequest(req, res, next, OCPIv221LocationsModuleOutgoingRequestService.sendGetLocations),
+        handleRequest(
+            req,
+            res,
+            next,
+            (innerReq: Request) =>
+                OCPIv221LocationsModuleOutgoingRequestService.sendGetLocations(
+                    innerReq,
+                    (req as OCPIAuthedRequest).ocpiPartnerCredentials?.cpo_auth_token ?? undefined,
+                    (req as OCPIAuthedRequest).ocpiPartnerCredentials?.partner_id,
+                ),
+        ),
 );
 
 // Get a single location from DB; if missing, fetch from CPO, store, then return
@@ -52,7 +92,17 @@ router.get(
     '/locations/:location_id',
     ocpiApiAuth,
     async (req: Request, res: Response, next: NextFunction) =>
-        handleRequest(req, res, next, OCPIv221LocationsModuleOutgoingRequestService.sendGetLocation),
+        handleRequest(
+            req,
+            res,
+            next,
+            (innerReq: Request) =>
+                OCPIv221LocationsModuleOutgoingRequestService.sendGetLocation(
+                    innerReq,
+                    (req as OCPIAuthedRequest).ocpiPartnerCredentials?.cpo_auth_token ?? undefined,
+                    (req as OCPIAuthedRequest).ocpiPartnerCredentials?.partner_id,
+                ),
+        ),
 );
 
 
@@ -73,6 +123,7 @@ router.post(
 );
 
 // Error handling for this router
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 router.use((error: Error, req: Request, res: Response, _next: NextFunction): void => {
     logger.error('OCPI API (internal) error', error, {
         path: req.path,
