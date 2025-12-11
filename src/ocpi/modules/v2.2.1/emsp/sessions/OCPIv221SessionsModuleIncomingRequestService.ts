@@ -315,7 +315,7 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
         return {
             country_code: session?.country_code ?? undefined,
             party_id: session?.party_id ?? undefined,
-            id: session?.cpo_session_id ?? undefined,
+            id: session?.cpo_session_id ?? '',
             start_date_time: session?.start_date_time?.toISOString() ?? undefined,
             end_date_time: session?.end_date_time?.toISOString() ?? undefined,
             kwh: Number(session?.kwh ?? 0),
@@ -344,7 +344,7 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
             country_code: session.country_code,
             party_id: session.party_id,
             cpo_session_id: session.id,
-            start_date_time: new Date(session.start_date_time),
+            start_date_time: session.start_date_time ? new Date(session.start_date_time) : null,
             end_date_time: session.end_date_time ? new Date(session.end_date_time) : null,
             kwh: new Prisma.Decimal(session.kwh),
             cdr_token: session.cdr_token as unknown as Prisma.InputJsonValue,

@@ -5,7 +5,7 @@ import { OCPICDRResponse, OCPICDRsResponse } from '../../../../schema/modules/cd
 import { OCPICDR } from '../../../../schema/modules/cdrs/types';
 import { databaseService } from '../../../../../services/database.service';
 import { OCPIResponseStatusCode } from '../../../../schema/general/enum';
-import Utils from '../../../../../utils/Utils';
+// NOTE: Utils import removed – not used in this module.
 
 /**
  * OCPI 2.2.1 – CDRs module (incoming, EMSP side).
@@ -146,10 +146,6 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPICDRResponse>> {
         const prisma = databaseService.prisma;
-        const { country_code, party_id } = req.params as {
-            country_code: string;
-            party_id: string;
-        };
         const payload = req.body as OCPICDR;
 
         if (!payload) {
@@ -158,21 +154,6 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
                 payload: {
                     status_code: OCPIResponseStatusCode.status_2000,
                     status_message: 'CDR payload is required',
-                    timestamp: new Date().toISOString(),
-                },
-            };
-        }
-
-        // Validate that path params and payload match
-        if (
-            payload.country_code !== country_code ||
-            payload.party_id !== party_id
-        ) {
-            return {
-                httpStatus: 400,
-                payload: {
-                    status_code: OCPIResponseStatusCode.status_2000,
-                    status_message: 'Path parameters and CDR payload must match',
                     timestamp: new Date().toISOString(),
                 },
             };
@@ -294,12 +275,14 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
             total_energy_cost: cdr.total_energy_cost
                 ? (cdr.total_energy_cost as unknown as Prisma.InputJsonValue)
                 : undefined,
-            total_time: BigInt(cdr.total_time),
+            // OCPI provides total_time in hours (decimal). We store it as seconds in BigInt.
+            total_time: BigInt(Math.round(Number(cdr.total_time ?? 0) * 3600)),
             total_time_cost: cdr.total_time_cost
                 ? (cdr.total_time_cost as unknown as Prisma.InputJsonValue)
                 : undefined,
             total_parking_time: cdr.total_parking_time != null
-                ? BigInt(cdr.total_parking_time)
+                // OCPI provides total_parking_time in hours (decimal). We store it as seconds in BigInt.
+                ? BigInt(Math.round(Number(cdr.total_parking_time) * 3600))
                 : undefined,
             total_parking_cost: cdr.total_parking_cost
                 ? (cdr.total_parking_cost as unknown as Prisma.InputJsonValue)

@@ -423,7 +423,7 @@ router.get(
 );
 
 router.post(
-    '/2.2.1/cdrs/:country_code/:party_id',
+    '/2.2.1/cdrs',
     ocpiAuth,
     async (req: Request, res: Response, next: NextFunction) =>
         handleRequest(
@@ -520,7 +520,7 @@ router.patch(
 
 // EVSE endpoints
 router.get(
-    '/2.2.1/locations/:country_code/:party_id/:location_id/evses/:evse_uid',
+    '/2.2.1/locations/:country_code/:party_id/:location_id/:evse_uid',
     ocpiAuth,
     async (req: Request, res: Response, next: NextFunction) =>
         handleRequest(
@@ -535,7 +535,7 @@ router.get(
         ),
 );
 router.put(
-    '/2.2.1/locations/:country_code/:party_id/:location_id/evses/:evse_uid',
+    '/2.2.1/locations/:country_code/:party_id/:location_id/:evse_uid',
     ocpiAuth,
     async (req: Request, res: Response, next: NextFunction) =>
         handleRequest(
@@ -550,7 +550,7 @@ router.put(
         ),
 );
 router.patch(
-    '/2.2.1/locations/:country_code/:party_id/:location_id/evses/:evse_uid',
+    '/2.2.1/locations/:country_code/:party_id/:location_id/:evse_uid',
     ocpiAuth,
     async (req: Request, res: Response, next: NextFunction) =>
         handleRequest(
@@ -567,7 +567,7 @@ router.patch(
 
 // Connector endpoints
 router.get(
-    '/2.2.1/locations/:country_code/:party_id/:location_id/evses/:evse_uid/connectors/:connector_id',
+    '/2.2.1/locations/:country_code/:party_id/:location_id/:evse_uid/:connector_id',
     ocpiAuth,
     async (req: Request, res: Response, next: NextFunction) =>
         handleRequest(
@@ -582,7 +582,7 @@ router.get(
         ),
 );
 router.put(
-    '/2.2.1/locations/:country_code/:party_id/:location_id/evses/:evse_uid/connectors/:connector_id',
+    '/2.2.1/locations/:country_code/:party_id/:location_id/:evse_uid/:connector_id',
     ocpiAuth,
     async (req: Request, res: Response, next: NextFunction) =>
         handleRequest(
@@ -597,7 +597,7 @@ router.put(
         ),
 );
 router.patch(
-    '/2.2.1/locations/:country_code/:party_id/:location_id/evses/:evse_uid/connectors/:connector_id',
+    '/2.2.1/locations/:country_code/:party_id/:location_id/:evse_uid/:connector_id',
     ocpiAuth,
     async (req: Request, res: Response, next: NextFunction) =>
         handleRequest(

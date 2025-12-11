@@ -24,6 +24,7 @@ export type OCPISession = {
     total_cost?: OCPIPrice,
     status?: OCPISessionStatus,
     last_updated?: ISODateTime,
+    cpo_session_id?: string,
 }
 
 // #OCPIv2.1.1
