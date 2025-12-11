@@ -204,36 +204,36 @@ model Tariff {
 
 // OCPI 2.2.1 Session Model
 model Session {
-  id                      String      @id @default(uuid())
-  country_code            String
-  party_id                String
-  emsp_session_id         String // OCPI id field
-  cpo_session_id          String // OCPI id field
-  start_date_time         DateTime
-  end_date_time           DateTime?
-  kwh                     Decimal     @db.Decimal(10, 3)
-  cdr_token               Json // OCPICdrToken
-  auth_method             String // OCPIAuthMethod enum
-  authorization_reference String?
-  location_id             String
-  evse_uid                String
-  connector_id            String
-  meter_id                String?
-  currency                String
-  charging_periods        Json? // OCPIChargingPeriod[]
-  total_cost              Json? // OCPIPrice
-  status                  String // OCPISessionStatus enum
-  last_updated            DateTime
-  deleted                 Boolean     @default(false)
-  deleted_at              DateTime?
-  created_at              DateTime    @default(now())
-  updated_at              DateTime    @updatedAt
-  partner_id              String
-  partner                 OCPIPartner @relation(fields: [partner_id], references: [id], onDelete: Cascade)
+  id                                String       @id @default(uuid())
+  country_code                      String
+  party_id                          String
+  cpo_session_id                    String // OCPI id field
+  start_date_time                   DateTime
+  end_date_time                     DateTime?
+  kwh                               Decimal      @db.Decimal(10, 3)
+  cdr_token                         Json // OCPICdrToken
+  auth_method                       String // OCPIAuthMethod enum
+  authorization_reference           String? // EMSP session ID
+  location_id                       String
+  evse_uid                          String
+  connector_id                      String
+  meter_id                          String?
+  currency                          String
+  charging_periods                  Json? // OCPIChargingPeriod[]
+  total_cost                        Json? // OCPIPrice
+  status                            String // OCPISessionStatus enum
+  last_updated                      DateTime
+  deleted                           Boolean      @default(false)
+  deleted_at                        DateTime?
+  created_at                        DateTime     @default(now())
+  updated_at                        DateTime     @updatedAt
+  partner_id                        String
+  partner                           OCPIPartner  @relation(fields: [partner_id], references: [id], onDelete: Cascade)
   // Log relations (named to avoid ambiguity)
-  ocpi_logs_session       OCPILog[]   @relation("OCPILogSession")
-  ocpi_logs_emsp_session  OCPILog[]   @relation("OCPILogEmspSession")
-  ocpi_logs_cpo_session   OCPILog[]   @relation("OCPILogCpoSession")
+  ocpi_logs_session                 OCPILog[]    @relation("OCPILogSession")
+  ocpi_logs_cpo_session             OCPILog[]    @relation("OCPILogCpoSession")
+  ocpi_logs_authorization_reference OCPILog[]    @relation("OCPILogAuthorizationReferenceSession")
+  payment_txns                      PaymentTxn[] @relation("PaymentTxnAuthorizationReferenceSession")
 
   @@index([country_code, party_id])
   @@index([location_id])
@@ -327,30 +327,30 @@ model Token {
 
 // OCPI Partner (CPO) integration metadata
 model OCPIPartner {
-  id           String  @id @default(uuid())
-  name         String?
-  country_code String
-  party_id     String
-  role         String  @default("CPO") // CPO | EMSP
-
-  versions_url String
-  status       String                  @default("INIT")
-  credentials  OCPIPartnerCredentials?
-  endpoints    OCPIPartnerEndpoint[]
-  versions     OCPIVersion[]
-
-  created_at     DateTime        @default(now())
-  updated_at     DateTime        @updatedAt
-  deleted        Boolean         @default(false)
-  deleted_at     DateTime?
-  locations      Location[]
-  evses          EVSE[]
-  evseconnectors EVSEConnector[]
-  tariffs        Tariff[]
-  sessions       Session[]
-  cdrs           CDR[]
-  tokens         Token[]
-  ocpilogs       OCPILog[]
+  id               String                  @id @default(uuid())
+  name             String?
+  country_code     String
+  party_id         String
+  role             String                  @default("CPO") // CPO | EMSP
+  versions_url     String
+  status           String                  @default("INIT")
+  credentials      OCPIPartnerCredentials?
+  endpoints        OCPIPartnerEndpoint[]
+  versions         OCPIVersion[]
+  created_at       DateTime                @default(now())
+  updated_at       DateTime                @updatedAt
+  deleted          Boolean                 @default(false)
+  deleted_at       DateTime?
+  locations        Location[]
+  evses            EVSE[]
+  evseconnectors   EVSEConnector[]
+  tariffs          Tariff[]
+  sessions         Session[]
+  cdrs             CDR[]
+  tokens           Token[]
+  ocpilogs         OCPILog[]
+  paymentTxns      PaymentTxn[]
+  additional_props Json?                   @default("{}") @db.Json
 
   @@unique([country_code, party_id])
   @@map("ocpi_partner")
@@ -431,26 +431,48 @@ model BecknLog {
 }
 
 model OCPILog {
-  id               String         @id @default(uuid())
-  aiid             BigInt         @default(autoincrement())
-  command          String
-  payload          Json           @db.Json
-  additional_props Json?          @default("{}") @db.Json
-  partner_id       String
-  partner          OCPIPartner    @relation(fields: [partner_id], references: [id], onDelete: Cascade)
-  location_id      String?
-  location         Location?      @relation(fields: [location_id], references: [id], onDelete: Cascade)
-  evse_id          String?
-  evse             EVSE?          @relation(fields: [evse_id], references: [id], onDelete: Cascade)
-  connector_id     String?
-  connector        EVSEConnector? @relation(fields: [connector_id], references: [id], onDelete: Cascade)
-  session_id       String?
-  session          Session?       @relation("OCPILogSession", fields: [session_id], references: [id], onDelete: Cascade)
-  emsp_session_id  String?
-  emsp_session     Session?       @relation("OCPILogEmspSession", fields: [emsp_session_id], references: [id], onDelete: Cascade)
-  cpo_session_id   String?
-  cpo_session      Session?       @relation("OCPILogCpoSession", fields: [cpo_session_id], references: [id], onDelete: Cascade)
-  created_on       DateTime       @default(now())
+  id                              String         @id @default(uuid())
+  aiid                            BigInt         @default(autoincrement())
+  command                         String
+  payload                         Json           @db.Json
+  additional_props                Json?          @default("{}") @db.Json
+  partner_id                      String
+  partner                         OCPIPartner    @relation(fields: [partner_id], references: [id], onDelete: Cascade)
+  location_id                     String?
+  location                        Location?      @relation(fields: [location_id], references: [id], onDelete: Cascade)
+  evse_id                         String?
+  evse                            EVSE?          @relation(fields: [evse_id], references: [id], onDelete: Cascade)
+  connector_id                    String?
+  connector                       EVSEConnector? @relation(fields: [connector_id], references: [id], onDelete: Cascade)
+  session_id                      String?
+  session                         Session?       @relation("OCPILogSession", fields: [session_id], references: [id], onDelete: Cascade)
+  authorization_reference         String?
+  authorization_reference_session Session?       @relation("OCPILogAuthorizationReferenceSession", fields: [authorization_reference], references: [id], onDelete: Cascade)
+  cpo_session_id                  String?
+  cpo_session                     Session?       @relation("OCPILogCpoSession", fields: [cpo_session_id], references: [id], onDelete: Cascade)
+  created_on                      DateTime       @default(now())
 
   @@map(name: "ocpi_log")
+}
+
+model PaymentTxn {
+  id                              String      @id @default(uuid())
+  authorization_reference         String
+  authorization_reference_session Session?    @relation("PaymentTxnAuthorizationReferenceSession", fields: [authorization_reference], references: [id], onDelete: Cascade)
+  amount                          Decimal     @db.Decimal(10, 2)
+  payment_link                    String
+  payment_breakdown               Json        @default("{}") @db.Json
+  status                          String
+  requested_energy_units          Decimal     @db.Decimal(10, 3)
+  partner_id                      String
+  partner                         OCPIPartner @relation(fields: [partner_id], references: [id])
+  beckn_transaction_id            String
+  created_at                      DateTime    @default(now())
+  updated_at                      DateTime    @updatedAt
+  deleted                         Boolean     @default(false)
+  deleted_at                      DateTime?
+
+  @@index([authorization_reference])
+  @@index([partner_id])
+  @@map("payment_txn")
 }

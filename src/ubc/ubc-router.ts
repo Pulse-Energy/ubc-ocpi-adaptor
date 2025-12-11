@@ -8,7 +8,7 @@ import { BecknAction } from './schema/v2.0.0/enums/BecknAction';
 import SelectActionHandler from './actions/handlers/SelectActionHandler';
 import ConfirmActionHandler from './actions/handlers/ConfirmActionHandler';
 import UpdateActionHandler from './actions/handlers/UpdateActionHandler';
-import StatusActionHandler from './actions/handlers/StatusActionHandler';
+import OnStatusActionHandler from './actions/handlers/OnStatusActionHandler';
 import TrackActionHandler from './actions/handlers/TrackActionHandler';
 import CancelActionHandler from './actions/handlers/CancelActionHandler';
 import RatingActionHandler from './actions/handlers/RatingActionHandler';
@@ -87,7 +87,7 @@ router.post(`/${BecknAction.update}`, ubcAuth, async (req: Request, res: Respons
 );
 
 router.post(`/${BecknAction.on_status}`, ubcAuth, async (req: Request, res: Response, next: NextFunction) =>
-    handleRequest(req, res, next, StatusActionHandler.handleBppOnStatusRequest)
+    handleRequest(req, res, next, OnStatusActionHandler.handleBppOnStatusRequest)
 );
 
 router.post(`/${BecknAction.track}`, ubcAuth, async (req: Request, res: Response, next: NextFunction) =>

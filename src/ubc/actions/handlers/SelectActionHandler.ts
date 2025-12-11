@@ -316,12 +316,13 @@ export default class SelectActionHandler {
         const ocpiTariffElement = tariffElement.ocpi_tariff_element[0];
         const priceComponents = ocpiTariffElement.price_components as OCPIv211PriceComponent[];
 
-        const total = priceComponents.reduce((acc: number, curr: OCPIv211PriceComponent) => acc + (curr.price * chargingOptionUnit) + (curr.vat ? (curr.price * chargingOptionUnit) * (curr.vat / 100) : 0), 0);
+        const chargingSessionCost = priceComponents.reduce((acc: number, curr: OCPIv211PriceComponent) => acc + (curr.price * chargingOptionUnit) + (curr.vat ? (curr.price * chargingOptionUnit) * (curr.vat / 100) : 0), 0);
 
-        const gst = total * 0.18;
-        const serviceCharge = total * 0.05;
+        const gst = chargingSessionCost * 0.18;
+        const serviceCharge = chargingSessionCost * 0.05;
+        const total = chargingSessionCost + gst + serviceCharge;
         const orderValueComponents = SelectActionHandler.buildOrderValueComponents({
-            charging_session_cost: total,
+            charging_session_cost: chargingSessionCost,
             gst: gst, 
             service_charge: serviceCharge,
         });

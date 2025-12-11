@@ -10,14 +10,19 @@ import { logger } from '../../../services/logger.service';
 import { UBCOnInitRequestPayload } from '../../schema/v2.0.0/actions/init/types/OnInitPayload';
 import BecknLogDbService from '../../../db-services/BecknLogDbService';
 import { ChargingSessionStatus } from '../../schema/v2.0.0/enums/ChargingSessionStatus';
-import { ExtractedInitRequestBody } from '../../schema/v2.0.0/actions/init/types/ExtractedInitRequestPayload';
-import { ExtractedOnInitResponseBody } from '../../schema/v2.0.0/actions/init/types/ExtractedOnInitResponsePayload';
+import { ExtractedInitRequestBody, GeneratePaymentLinkRequestPayload } from '../../schema/v2.0.0/actions/init/types/ExtractedInitRequestPayload';
+import { ExtractedOnInitResponseBody, GeneratePaymentLinkResponsePayload } from '../../schema/v2.0.0/actions/init/types/ExtractedOnInitResponsePayload';
 import { ObjectType } from '../../schema/v2.0.0/enums/ObjectType';
 import BppOnixRequestService from '../../services/BppOnixRequestService';
 import Utils from '../../../utils/Utils';
 import { AcceptedPaymentMethod } from '../../schema/v2.0.0/enums/AcceptedPaymentMethod';
 import { UBCChargingMethod } from '../../schema/v2.0.0/enums/UBCChargingMethod';
 import CPOBackendRequestService from '../../services/CPOBackendRequestService';
+import PaymentTxnDbService from '../../../db-services/PaymentTxnDbService';
+import { BecknPaymentStatus } from '../../schema/v2.0.0/enums/PaymentStatus';
+import { EvseConnectorDbService } from '../../../db-services/EvseConnectorDbService';
+import OCPIPartnerDbService from '../../../db-services/OCPIPartnerDbService';
+import { OCPIPartnerAdditionalProps } from '../../../types/OCPIPartner';
 
 export default class InitActionHandler {
     public static async handleBppInitAction(
@@ -59,7 +64,7 @@ export default class InitActionHandler {
                 { data: { backendInitPayload } }
             );
             const backendOnInitResponsePayload: ExtractedOnInitResponseBody =
-                await InitActionHandler.sendInitCallToBackend(backendInitPayload);
+                await InitActionHandler.createPaymentTxnDetails(backendInitPayload);
             logger.debug(
                 `🟢 [${reqId}] Received init response from backend in handleEVChargingUBCBppInitAction`,
                 { data: { backendOnInitResponsePayload } }
@@ -142,6 +147,8 @@ export default class InitActionHandler {
                 bap_uri: payload.context.bap_uri,
             },
             payload: {
+                amount: payload.message.order['beckn:orderValue']['value'],
+                orderValueComponents: payload.message.order['beckn:orderValue']['components'],
                 charge_point_connector_id:
                     payload.message.order['beckn:orderItems'][0]['beckn:orderedItem'],
                 charging_option_type: UBCChargingMethod.Units,
@@ -166,16 +173,78 @@ export default class InitActionHandler {
         return backendInitPayload;
     }
 
-    public static async sendInitCallToBackend(
+    public static async createPaymentTxnDetails(
         payload: ExtractedInitRequestBody
     ): Promise<ExtractedOnInitResponseBody> {
-        const backendHost = Utils.getCPOBackendHost();
-        const response = await CPOBackendRequestService.sendPostRequest({
-            url: `${backendHost}/${BecknAction.init}`,
-            data: payload,
-            headers: {},
+        const finalAmount = payload.payload.amount;
+        const evseConnector = await EvseConnectorDbService.getByConnectorId(payload.payload.charge_point_connector_id);
+        const authorizationReference = Utils.generateUUID();
+        const paymentStatus = BecknPaymentStatus.PENDING;
+        const orderValueComponents = payload.payload.orderValueComponents;
+        const paymentTxnData: Prisma.PaymentTxnUncheckedCreateInput = {
+            authorization_reference: authorizationReference,
+            amount: finalAmount,
+            payment_link: '',
+            payment_breakdown: {
+                total: finalAmount,
+                breakdown: orderValueComponents,
+            },
+            status: paymentStatus,
+            requested_energy_units: payload.payload.charging_option_unit,
+            partner_id: evseConnector?.partner_id ?? '', 
+            beckn_transaction_id: payload.metadata.beckn_transaction_id,
+        }; 
+        const paymentTxn = await PaymentTxnDbService.create({
+            data: paymentTxnData,
         });
-        return response.data as ExtractedOnInitResponseBody;
+        const generatePaymentLinkResponse = await InitActionHandler.sendGeneratePaymentLinkCallToBackend({
+            amount: finalAmount,
+            authorization_reference: authorizationReference,
+        }, paymentTxn.partner_id);
+        PaymentTxnDbService.update(paymentTxn.id, {
+            payment_link: generatePaymentLinkResponse.payment_link,
+            authorization_reference: generatePaymentLinkResponse.authorization_reference,
+        });
+
+        const extractedOnInitResponseBody: ExtractedOnInitResponseBody = {
+            metadata: {
+                domain: BecknDomain.EVChargingUBC,
+            },
+            payload: {
+                becknPaymentId: paymentTxn.id,
+                paymentLink: generatePaymentLinkResponse.payment_link,
+                chargeTxnRef: paymentTxn.authorization_reference,
+                paymentStatus: paymentStatus,
+                becknOrderId: paymentTxn.authorization_reference,
+                amount: finalAmount,
+            },
+        };
+        return extractedOnInitResponseBody;
+    }
+
+    public static async sendGeneratePaymentLinkCallToBackend(
+        payload: GeneratePaymentLinkRequestPayload, partnerId: string
+    ): Promise<GeneratePaymentLinkResponsePayload> {
+        const ocpiPartner = await OCPIPartnerDbService.getById(partnerId);
+        const ocpiPartnerAdditionalProps = ocpiPartner?.additional_props as OCPIPartnerAdditionalProps;
+        const generatePaymentLink = ocpiPartnerAdditionalProps?.communication_urls?.generate_payment_link;
+        if (!generatePaymentLink) {
+            throw new Error('Generate payment link endpoint not found');
+        }
+        const generatePaymentLinkUrl = generatePaymentLink.url;
+        const generatePaymentLinkAuthToken = generatePaymentLink.auth_token;
+        const headers: Record<string, string> =  {
+           'Content-Type': 'application/json',
+        } 
+        if (generatePaymentLinkAuthToken) {
+            headers['Authorization'] = `${generatePaymentLinkAuthToken}`;
+        }
+        const response = await CPOBackendRequestService.sendPostRequest({
+            url: generatePaymentLinkUrl,
+            data: payload,
+            headers: headers,
+        });
+        return response.data as GeneratePaymentLinkResponsePayload;
     }
 
     public static translateBackendToUBC(
