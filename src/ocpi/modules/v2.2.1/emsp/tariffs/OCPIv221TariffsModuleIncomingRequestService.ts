@@ -268,6 +268,67 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
         }
     }
 
+    /**
+     * PATCH /tariffs/{country_code}/{party_id}/{tariff_id}
+     *
+     * Applies a partial update to an existing tariff.
+     */
+    public static async handlePatchTariff(
+        req: Request,
+        partnerCredentials: OCPIPartnerCredentials,
+    ): Promise<HttpResponse<OCPITariffResponse>> {
+        try {
+            const { country_code, party_id, tariff_id } = req.params as {
+                country_code: string;
+                party_id: string;
+                tariff_id: string;
+            };
+            const patch = req.body as Partial<OCPITariff>;
+
+            const existingTariff = await TariffDbService.findByOcpiTariffId(
+                country_code,
+                party_id,
+                tariff_id,
+                partnerCredentials.partner_id,
+            );
+
+            if (!existingTariff) {
+                return OCPIResponseService.clientError<unknown>({
+                    message: 'Tariff not found',
+                }, OCPIResponseStatusCode.status_2003) as HttpResponse<OCPITariffResponse>;
+            }
+
+            const current = TariffDbService.mapPrismaTariffToOcpi(existingTariff);
+
+            const merged: OCPITariff = {
+                ...current,
+                ...patch,
+                last_updated: patch.last_updated ?? new Date().toISOString(),
+            };
+
+            const storedTariff = await TariffDbService.upsertFromOcpiTariff(
+                merged,
+                partnerCredentials.partner_id,
+            );
+            const responseTariff = TariffDbService.mapPrismaTariffToOcpi(storedTariff);
+
+            return {
+                httpStatus: 200,
+                payload: OCPIResponseService.success(responseTariff).payload,
+            };
+        }
+        catch (error) {
+            logger.error('Error patching tariff', error as Error, {
+                params: req.params,
+                body: req.body,
+            });
+            return OCPIResponseService.serverError<unknown>({
+                message: 'Failed to patch tariff',
+                error: error instanceof Error ? error.message : String(error),
+            }) as HttpResponse<OCPITariffResponse>;
+        }
+    }
+
     // delete requests
 
     public static async handleDeleteTariff(

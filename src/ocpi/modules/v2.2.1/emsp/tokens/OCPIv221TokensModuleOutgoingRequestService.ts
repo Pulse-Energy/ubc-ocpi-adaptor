@@ -21,16 +21,16 @@ import { OCPIResponsePayload } from '../../../../schema/general/types/responses'
  *   - POST   /tokens/{country_code}/{party_id}/{token_uid}/authorize
  */
 export default class OCPIv221TokensModuleOutgoingRequestService {
-    private static async getCpoTokensBaseUrl(): Promise<string> {
-        return Utils.getOcpiEndpoint('tokens', 'RECEIVER');
+    private static async getCpoTokensBaseUrl(partnerId?: string): Promise<string> {
+        return Utils.getOcpiEndpoint('tokens', 'RECEIVER', partnerId);
     }
 
-    private static getAuthHeaders(): Record<string, string> {
-        // Re‑use same auth token as other outgoing OCPI calls
-        // This should be the token the CPO expects from this EMSP.
-        const token = process.env.OCPI_CPO_AUTH_TOKEN || '';
+    private static getAuthHeaders(cpoAuthToken: string): Record<string, string> {
+        if (!cpoAuthToken) {
+            throw new Error('CPO auth token is required to send OCPI token request');
+        }
         return {
-            Authorization: `Token ${token}`,
+            Authorization: `Token ${cpoAuthToken}`,
         };
     }
 
@@ -39,8 +39,12 @@ export default class OCPIv221TokensModuleOutgoingRequestService {
      */
     public static async sendGetTokens(
         req: Request,
+        cpoAuthToken: string,
+        partnerId?: string,
     ): Promise<HttpResponse<OCPITokensResponse>> {
-        const baseUrl = await OCPIv221TokensModuleOutgoingRequestService.getCpoTokensBaseUrl();
+        const baseUrl = await OCPIv221TokensModuleOutgoingRequestService.getCpoTokensBaseUrl(
+            partnerId,
+        );
 
         const params = new globalThis.URLSearchParams();
         if (req.query.offset) params.append('offset', String(req.query.offset));
@@ -54,7 +58,9 @@ export default class OCPIv221TokensModuleOutgoingRequestService {
 
         const response = await OCPIOutgoingRequestService.sendGetRequest({
             url,
-            headers: OCPIv221TokensModuleOutgoingRequestService.getAuthHeaders(),
+            headers: OCPIv221TokensModuleOutgoingRequestService.getAuthHeaders(cpoAuthToken),
+            partnerId,
+            command: 'TOKENS_GET',
         });
 
         const payload = response.data as OCPITokensResponse;
@@ -70,8 +76,12 @@ export default class OCPIv221TokensModuleOutgoingRequestService {
      */
     public static async sendGetToken(
         req: Request,
+        cpoAuthToken: string,
+        partnerId?: string,
     ): Promise<HttpResponse<OCPITokenResponse>> {
-        const baseUrl = await OCPIv221TokensModuleOutgoingRequestService.getCpoTokensBaseUrl();
+        const baseUrl = await OCPIv221TokensModuleOutgoingRequestService.getCpoTokensBaseUrl(
+            partnerId,
+        );
         const { country_code, party_id, token_uid } = req.params as {
             country_code: string;
             party_id: string;
@@ -86,7 +96,9 @@ export default class OCPIv221TokensModuleOutgoingRequestService {
 
         const response = await OCPIOutgoingRequestService.sendGetRequest({
             url,
-            headers: OCPIv221TokensModuleOutgoingRequestService.getAuthHeaders(),
+            headers: OCPIv221TokensModuleOutgoingRequestService.getAuthHeaders(cpoAuthToken),
+            partnerId,
+            command: 'TOKENS_GET_ONE',
         });
 
         const payload = response.data as OCPITokenResponse;
@@ -102,8 +114,12 @@ export default class OCPIv221TokensModuleOutgoingRequestService {
      */
     public static async sendPutToken(
         req: Request,
+        cpoAuthToken: string,
+        partnerId?: string,
     ): Promise<HttpResponse<OCPITokenResponse>> {
-        const baseUrl = await OCPIv221TokensModuleOutgoingRequestService.getCpoTokensBaseUrl();
+        const baseUrl = await OCPIv221TokensModuleOutgoingRequestService.getCpoTokensBaseUrl(
+            partnerId,
+        );
         const { country_code, party_id, token_uid } = req.params as {
             country_code: string;
             party_id: string;
@@ -119,8 +135,10 @@ export default class OCPIv221TokensModuleOutgoingRequestService {
 
         const response = await OCPIOutgoingRequestService.sendPutRequest({
             url,
-            headers: OCPIv221TokensModuleOutgoingRequestService.getAuthHeaders(),
+            headers: OCPIv221TokensModuleOutgoingRequestService.getAuthHeaders(cpoAuthToken),
             data: token,
+            partnerId,
+            command: 'TOKENS_PUT',
         });
 
         const payload = response as OCPIResponsePayload<OCPIToken>;
@@ -137,14 +155,20 @@ export default class OCPIv221TokensModuleOutgoingRequestService {
      */
     public static async sendPutTokenDirect(
         token: OCPIToken,
+        cpoAuthToken: string,
+        partnerId: string,
     ): Promise<HttpResponse<OCPIResponsePayload<OCPIToken>>> {
-        const baseUrl = await OCPIv221TokensModuleOutgoingRequestService.getCpoTokensBaseUrl();
+        const baseUrl = await OCPIv221TokensModuleOutgoingRequestService.getCpoTokensBaseUrl(
+            partnerId,
+        );
         const path = `${baseUrl}/${token.country_code}/${token.party_id}/${token.uid}`;
 
         const response = await OCPIOutgoingRequestService.sendPutRequest({
             url: path,
-            headers: OCPIv221TokensModuleOutgoingRequestService.getAuthHeaders(),
+            headers: OCPIv221TokensModuleOutgoingRequestService.getAuthHeaders(cpoAuthToken),
             data: token,
+            partnerId,
+            command: 'TOKENS_PUT_DIRECT',
         });
 
         const payload = response as OCPIResponsePayload<OCPIToken>;
@@ -160,8 +184,12 @@ export default class OCPIv221TokensModuleOutgoingRequestService {
      */
     public static async sendPatchToken(
         req: Request,
+        cpoAuthToken: string,
+        partnerId?: string,
     ): Promise<HttpResponse<OCPITokenResponse>> {
-        const baseUrl = await OCPIv221TokensModuleOutgoingRequestService.getCpoTokensBaseUrl();
+        const baseUrl = await OCPIv221TokensModuleOutgoingRequestService.getCpoTokensBaseUrl(
+            partnerId,
+        );
         const { country_code, party_id, token_uid } = req.params as {
             country_code: string;
             party_id: string;
@@ -177,8 +205,10 @@ export default class OCPIv221TokensModuleOutgoingRequestService {
 
         const response = await OCPIOutgoingRequestService.sendPatchRequest({
             url,
-            headers: OCPIv221TokensModuleOutgoingRequestService.getAuthHeaders(),
+            headers: OCPIv221TokensModuleOutgoingRequestService.getAuthHeaders(cpoAuthToken),
             data: patch,
+            partnerId,
+            command: 'TOKENS_PATCH',
         });
 
         const payload = response as OCPIResponsePayload<OCPIToken>;
@@ -194,8 +224,12 @@ export default class OCPIv221TokensModuleOutgoingRequestService {
      */
     public static async sendPostAuthorizeToken(
         req: Request,
+        cpoAuthToken: string,
+        partnerId?: string,
     ): Promise<HttpResponse<OCPIAuthorizationInfoResponse>> {
-        const baseUrl = await OCPIv221TokensModuleOutgoingRequestService.getCpoTokensBaseUrl();
+        const baseUrl = await OCPIv221TokensModuleOutgoingRequestService.getCpoTokensBaseUrl(
+            partnerId,
+        );
         const { country_code, party_id, token_uid } = req.params as {
             country_code: string;
             party_id: string;
@@ -211,8 +245,10 @@ export default class OCPIv221TokensModuleOutgoingRequestService {
 
         const response = await OCPIOutgoingRequestService.sendPostRequest({
             url,
-            headers: OCPIv221TokensModuleOutgoingRequestService.getAuthHeaders(),
+            headers: OCPIv221TokensModuleOutgoingRequestService.getAuthHeaders(cpoAuthToken),
             data: location,
+            partnerId,
+            command: 'TOKENS_AUTHORIZE',
         });
 
         const payload = response as OCPIAuthorizationInfoResponse;

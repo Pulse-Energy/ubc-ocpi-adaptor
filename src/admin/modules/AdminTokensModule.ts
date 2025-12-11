@@ -75,9 +75,25 @@ export default class AdminTokensModule {
             });
         }
 
-        // 2) Call CPO Tokens endpoint (PUT)
+        // 2) Resolve CPO partner credentials and call CPO Tokens endpoint (PUT)
+        const partner = await prisma.oCPIPartner.findUnique({
+            where: { id: partnerId },
+            include: { credentials: true },
+        });
+
+        if (!partner || partner.deleted) {
+            throw new ValidationError('OCPI partner not found');
+        }
+
+        const creds = partner.credentials;
+        if (!creds || !creds.cpo_auth_token) {
+            throw new ValidationError('OCPI partner credentials (cpo_auth_token) not configured');
+        }
+
         const cpoResponse = await OCPIv221TokensModuleOutgoingRequestService.sendPutTokenDirect(
             AdminTokensModule.mapPrismaTokenToOcpi(stored),
+            creds.cpo_auth_token,
+            partnerId,
         );
 
         return {

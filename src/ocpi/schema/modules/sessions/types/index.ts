@@ -6,24 +6,24 @@ import { OCPIProfileType, OCPISessionStatus, OCPIv211SessionStatus } from "../en
 
 // 9.3.1
 export type OCPISession = {
-    country_code: string,
-    party_id: string,
+    country_code?: string,
+    party_id?: string,
     id: string,
-    start_date_time: ISODateTime,
+    start_date_time?: ISODateTime,
     end_date_time?: ISODateTime,
     kwh: number,
-    cdr_token: OCPICdrToken,
-    auth_method: OCPIAuthMethod,
+    cdr_token?: OCPICdrToken,
+    auth_method?: OCPIAuthMethod,
     authorization_reference?: string,
-    location_id: string,
-    evse_uid: string,
-    connector_id: string,
+    location_id?: string,
+    evse_uid?: string,
+    connector_id?: string,
     meter_id?: string,
-    currency: string,
+    currency?: string,
     charging_periods?: OCPIChargingPeriod[],
     total_cost?: OCPIPrice,
-    status: OCPISessionStatus,
-    last_updated: ISODateTime,
+    status?: OCPISessionStatus,
+    last_updated?: ISODateTime,
 }
 
 // #OCPIv2.1.1

@@ -19,14 +19,16 @@ import { OCPIResponsePayload } from '../../../../schema/general/types/responses'
  *   - PATCH /sessions/{country_code}/{party_id}/{session_id}
  */
 export default class OCPIv221SessionsModuleOutgoingRequestService {
-    private static async getCpoSessionsBaseUrl(): Promise<string> {
-        return Utils.getOcpiEndpoint('sessions', 'SENDER');
+    private static async getCpoSessionsBaseUrl(partnerId?: string): Promise<string> {
+        return Utils.getOcpiEndpoint('sessions', 'SENDER', partnerId);
     }
 
-    private static getAuthHeaders(): Record<string, string> {
-        const token = process.env.OCPI_CPO_AUTH_TOKEN || '';
+    private static getAuthHeaders(cpoAuthToken: string): Record<string, string> {
+        if (!cpoAuthToken) {
+            throw new Error('CPO auth token is required to send OCPI session request');
+        }
         return {
-            Authorization: `Token ${token}`,
+            Authorization: `Token ${cpoAuthToken}`,
         };
     }
 
@@ -35,8 +37,11 @@ export default class OCPIv221SessionsModuleOutgoingRequestService {
      */
     public static async sendGetSessions(
         req: Request,
+        cpoAuthToken: string,
+        partnerId?: string,
     ): Promise<HttpResponse<OCPISessionsResponse>> {
-        const baseUrl = await OCPIv221SessionsModuleOutgoingRequestService.getCpoSessionsBaseUrl();
+        const baseUrl =
+            await OCPIv221SessionsModuleOutgoingRequestService.getCpoSessionsBaseUrl(partnerId);
 
         const params = new globalThis.URLSearchParams();
         if (req.query.offset) params.append('offset', String(req.query.offset));
@@ -50,7 +55,9 @@ export default class OCPIv221SessionsModuleOutgoingRequestService {
 
         const response = await OCPIOutgoingRequestService.sendGetRequest({
             url,
-            headers: OCPIv221SessionsModuleOutgoingRequestService.getAuthHeaders(),
+            headers: OCPIv221SessionsModuleOutgoingRequestService.getAuthHeaders(cpoAuthToken),
+            partnerId,
+            command: 'SESSIONS_GET',
         });
 
         const payload = response.data as OCPISessionsResponse;
@@ -66,8 +73,11 @@ export default class OCPIv221SessionsModuleOutgoingRequestService {
      */
     public static async sendGetSession(
         req: Request,
+        cpoAuthToken: string,
+        partnerId?: string,
     ): Promise<HttpResponse<OCPISessionResponse>> {
-        const baseUrl = await OCPIv221SessionsModuleOutgoingRequestService.getCpoSessionsBaseUrl();
+        const baseUrl =
+            await OCPIv221SessionsModuleOutgoingRequestService.getCpoSessionsBaseUrl(partnerId);
         const { country_code, party_id, session_id } = req.params as {
             country_code: string;
             party_id: string;
@@ -82,7 +92,9 @@ export default class OCPIv221SessionsModuleOutgoingRequestService {
 
         const response = await OCPIOutgoingRequestService.sendGetRequest({
             url,
-            headers: OCPIv221SessionsModuleOutgoingRequestService.getAuthHeaders(),
+            headers: OCPIv221SessionsModuleOutgoingRequestService.getAuthHeaders(cpoAuthToken),
+            partnerId,
+            command: 'SESSIONS_GET_ONE',
         });
 
         const payload = response.data as OCPISessionResponse;
@@ -98,8 +110,11 @@ export default class OCPIv221SessionsModuleOutgoingRequestService {
      */
     public static async sendPutSession(
         req: Request,
+        cpoAuthToken: string,
+        partnerId?: string,
     ): Promise<HttpResponse<OCPISessionResponse>> {
-        const baseUrl = await OCPIv221SessionsModuleOutgoingRequestService.getCpoSessionsBaseUrl();
+        const baseUrl =
+            await OCPIv221SessionsModuleOutgoingRequestService.getCpoSessionsBaseUrl(partnerId);
         const { country_code, party_id, session_id } = req.params as {
             country_code: string;
             party_id: string;
@@ -112,8 +127,10 @@ export default class OCPIv221SessionsModuleOutgoingRequestService {
 
         const response = await OCPIOutgoingRequestService.sendPutRequest({
             url: path,
-            headers: OCPIv221SessionsModuleOutgoingRequestService.getAuthHeaders(),
+            headers: OCPIv221SessionsModuleOutgoingRequestService.getAuthHeaders(cpoAuthToken),
             data: payload,
+            partnerId,
+            command: 'SESSIONS_PUT',
         });
 
         const payloadOut = response as OCPIResponsePayload<OCPISession>;
@@ -129,8 +146,11 @@ export default class OCPIv221SessionsModuleOutgoingRequestService {
      */
     public static async sendPatchSession(
         req: Request,
+        cpoAuthToken: string,
+        partnerId?: string,
     ): Promise<HttpResponse<OCPISessionResponse>> {
-        const baseUrl = await OCPIv221SessionsModuleOutgoingRequestService.getCpoSessionsBaseUrl();
+        const baseUrl =
+            await OCPIv221SessionsModuleOutgoingRequestService.getCpoSessionsBaseUrl(partnerId);
         const { country_code, party_id, session_id } = req.params as {
             country_code: string;
             party_id: string;
@@ -143,8 +163,10 @@ export default class OCPIv221SessionsModuleOutgoingRequestService {
 
         const response = await OCPIOutgoingRequestService.sendPatchRequest({
             url: path,
-            headers: OCPIv221SessionsModuleOutgoingRequestService.getAuthHeaders(),
+            headers: OCPIv221SessionsModuleOutgoingRequestService.getAuthHeaders(cpoAuthToken),
             data: patch,
+            partnerId,
+            command: 'SESSIONS_PATCH',
         });
 
         const payloadOut = response as OCPIResponsePayload<OCPISession>;

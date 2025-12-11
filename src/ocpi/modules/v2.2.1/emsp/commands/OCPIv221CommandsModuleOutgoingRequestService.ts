@@ -55,6 +55,8 @@ export default class OCPIv221CommandsModuleOutgoingRequestService {
             url,
             headers: OCPIv221CommandsModuleOutgoingRequestService.getAuthHeaders(cpoAuthToken),
             data: body,
+            partnerId,
+            command: commandType,
         });
 
         const payload = response as OCPICommandResponseResponse;

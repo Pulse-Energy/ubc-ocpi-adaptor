@@ -12,6 +12,7 @@ import { OCPITokenType, OCPIWhitelistType } from '../ocpi/schema/modules/tokens/
 import { OCPIProfileType } from '../ocpi/schema/modules/sessions/enums';
 import { OCPIEnergyContract } from '../ocpi/schema/modules/tokens/types';
 import { OCPIResponse } from '../ocpi/types';
+import { OCPICommandType } from '../ocpi/schema/modules/commands/enums';
 
 /**
  * Admin Commands module
@@ -80,7 +81,7 @@ export default class CommandsService {
         const commandBody: OCPIStartSession = {
             // NOTE: response_url and token must be populated by the caller or
             // extended logic later; we set minimal placeholders here.
-            response_url: `${commandsUrl}/start_session/${transactionId}`,
+            response_url: `${commandsUrl}/${OCPICommandType.START_SESSION}/${transactionId}`,
             token: {
                 country_code: token?.country_code,
                 party_id: token.party_id,
@@ -140,7 +141,7 @@ export default class CommandsService {
         const commandsUrl = await Utils.getEMSPEndpoint('commands', 'RECEIVER');
 
         const commandBody: OCPIStopSession = {
-            response_url: `${commandsUrl}/stop_session/${sessionId}`,
+            response_url: `${commandsUrl}/${OCPICommandType.STOP_SESSION}/${sessionId}`,
             session_id: sessionId,
         };
 

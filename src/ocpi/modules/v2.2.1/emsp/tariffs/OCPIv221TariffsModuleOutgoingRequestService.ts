@@ -35,6 +35,7 @@ export default class OCPIv221TariffsModuleOutgoingRequestService {
         try {
 
             const authToken = getOcpiCpoAuthToken();
+            const partnerId = await OCPIv221TariffsModuleOutgoingRequestService.getTariffsPartnerId();
             const response = await OCPIOutgoingRequestService.sendGetRequest({
                 url,
                 headers: {
@@ -43,6 +44,8 @@ export default class OCPIv221TariffsModuleOutgoingRequestService {
                         authToken,
                     ),
                 },
+                partnerId,
+                command: 'TARIFFS_GET',
             });
 
             // Log response for debugging
@@ -110,9 +113,6 @@ export default class OCPIv221TariffsModuleOutgoingRequestService {
                     details: 'Response data is not an array',
                 }) as HttpResponse<OCPITariffsResponse>;
             }
-
-            // Determine partner for these tariffs from endpoint configuration
-            const partnerId = await OCPIv221TariffsModuleOutgoingRequestService.getTariffsPartnerId();
 
             // Persist all tariffs into DB
             let storedCount = 0;
@@ -302,6 +302,8 @@ export default class OCPIv221TariffsModuleOutgoingRequestService {
                         authToken,
                     ),
                 },
+                partnerId: partnerIdForTariffs,
+                command: 'TARIFF_GET',
             });
 
             // Handle axios response structure

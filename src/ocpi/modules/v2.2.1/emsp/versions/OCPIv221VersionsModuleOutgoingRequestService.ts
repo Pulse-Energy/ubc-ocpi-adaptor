@@ -25,6 +25,7 @@ export default class OCPIv221VersionsModuleOutgoingRequestService {
     public static async getVersions(
         versionsUrl: string,
         cpoAuthToken: string,
+        partnerId?: string,
     ): Promise<OCPIVersionClass[]> {
         if (!cpoAuthToken) {
             throw new Error('CPO auth token is required');
@@ -35,6 +36,8 @@ export default class OCPIv221VersionsModuleOutgoingRequestService {
             headers: {
                 Authorization: `Token ${cpoAuthToken}`,
             },
+            partnerId,
+            command: 'VERSIONS_GET',
         });
 
         const payload = response.data as {
@@ -64,6 +67,7 @@ export default class OCPIv221VersionsModuleOutgoingRequestService {
         versionUrl: string,
         cpoAuthToken: string,
         fallbackVersionId?: string,
+        partnerId?: string,
     ): Promise<VersionDetailUnion> {
         if (!cpoAuthToken) {
             throw new Error('CPO auth token is required');
@@ -74,6 +78,8 @@ export default class OCPIv221VersionsModuleOutgoingRequestService {
             headers: {
                 Authorization: `Token ${cpoAuthToken}`,
             },
+            partnerId,
+            command: 'VERSIONS_GET_DETAILS',
         });
 
         const payload = response.data as {

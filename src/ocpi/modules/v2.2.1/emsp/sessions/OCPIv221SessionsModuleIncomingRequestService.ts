@@ -1,5 +1,5 @@
 import { Request } from 'express';
-import { Session as PrismaSession, Prisma } from '@prisma/client';
+import { Session as PrismaSession, Prisma, OCPIPartnerCredentials } from '@prisma/client';
 import { HttpResponse } from '../../../../../types/responses';
 import {
     OCPISessionResponse,
@@ -8,7 +8,8 @@ import {
 import { OCPISession, OCPIPatchSession } from '../../../../schema/modules/sessions/types';
 import { databaseService } from '../../../../../services/database.service';
 import { OCPIResponseStatusCode } from '../../../../schema/general/enum';
-import Utils from '../../../../../utils/Utils';
+import { OCPISessionStatus } from '../../../../schema/modules/sessions/enums';
+import { OCPIAuthMethod } from '../../../../schema/modules/cdrs/enums';
 
 /**
  * OCPI 2.2.1 – Sessions module (incoming, EMSP side).
@@ -28,6 +29,7 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
      */
     public static async handleGetSessions(
         req: Request,
+        partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPISessionsResponse>> {
         const prisma = databaseService.prisma;
 
@@ -49,6 +51,7 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
 
         const where: Prisma.SessionWhereInput = {
             deleted: false,
+            partner_id: partnerCredentials.partner_id,
         };
 
         if (country_code) {
@@ -96,6 +99,7 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
      */
     public static async handleGetSession(
         req: Request,
+        partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPISessionResponse>> {
         const prisma = databaseService.prisma;
         const { country_code, party_id, session_id } = req.params as {
@@ -108,8 +112,9 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
             where: {
                 country_code,
                 party_id,
-                ocpi_session_id: session_id,
+                cpo_session_id: session_id,
                 deleted: false,
+                partner_id: partnerCredentials.partner_id,
             },
         });
 
@@ -145,6 +150,7 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
      */
     public static async handlePutSession(
         req: Request,
+        partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPISessionResponse>> {
         const prisma = databaseService.prisma;
         const { country_code, party_id, session_id } = req.params as {
@@ -175,36 +181,10 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
             where: {
                 country_code,
                 party_id,
-                ocpi_session_id: session_id,
+                cpo_session_id: session_id,
+                partner_id: partnerCredentials.partner_id,
             },
         });
-
-        // Resolve OCPI partner from Authorization header (CPO token)
-        const authHeader = req.headers.authorization;
-        if (!authHeader || !authHeader.startsWith('Token ')) {
-            return {
-                httpStatus: 401,
-                payload: {
-                    status_code: OCPIResponseStatusCode.status_2001,
-                    status_message: 'Unauthorized',
-                    timestamp: new Date().toISOString(),
-                },
-            };
-        }
-
-        const cpoAuthToken = authHeader.substring('Token '.length);
-        const partnerCredentials = await Utils.findPartnerCredentialsUsingCPOAuthToken(cpoAuthToken);
-
-        if (!partnerCredentials) {
-            return {
-                httpStatus: 401,
-                payload: {
-                    status_code: OCPIResponseStatusCode.status_2001,
-                    status_message: 'Unauthorized',
-                    timestamp: new Date().toISOString(),
-                },
-            };
-        }
 
         const partnerId = partnerCredentials.partner_id;
 
@@ -247,9 +227,14 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
      * PATCH /sessions/{country_code}/{party_id}/{session_id}
      *
      * Partial update of an existing session.
+     *
+     * Some CPOs may send PATCH as the first message (no prior PUT).
+     * In that case, if the payload contains a full OCPI Session object,
+     * we treat it as an upsert and create the Session.
      */
     public static async handlePatchSession(
         req: Request,
+        partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPISessionResponse>> {
         const prisma = databaseService.prisma;
         const { country_code, party_id, session_id } = req.params as {
@@ -260,26 +245,39 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
 
         const patch = req.body as OCPIPatchSession;
 
-        const existing = await prisma.session.findFirst({
+        let existing = await prisma.session.findFirst({
             where: {
                 country_code,
                 party_id,
-                ocpi_session_id: session_id,
+                cpo_session_id: session_id,
                 deleted: false,
+                partner_id: partnerCredentials.partner_id,
             },
         });
+
+        if (!existing) {
+            existing = await prisma.session.findFirst({
+                where: {
+                    status: OCPISessionStatus.ACTIVE,
+                    deleted: false,
+                    partner_id: partnerCredentials.partner_id,
+                    evse_uid: patch.evse_uid,
+                    location_id: patch.location_id,
+                },
+            });
+        }
 
         if (!existing) {
             return {
                 httpStatus: 404,
                 payload: {
                     status_code: OCPIResponseStatusCode.status_2001,
-                    status_message: 'Session not found',
                     timestamp: new Date().toISOString(),
                 },
             };
         }
 
+        // Session exists, do a normal merge+update
         const current =
             OCPIv221SessionsModuleIncomingRequestService.mapPrismaSessionToOcpi(existing);
 
@@ -292,7 +290,7 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
         const dataForDb =
             OCPIv221SessionsModuleIncomingRequestService.mapOcpiSessionToPrisma(
                 merged,
-                existing.partner_id,
+                partnerCredentials.partner_id,
             );
 
         const stored = await prisma.session.update({
@@ -315,26 +313,26 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
 
     private static mapPrismaSessionToOcpi(session: PrismaSession): OCPISession {
         return {
-            country_code: session.country_code,
-            party_id: session.party_id,
-            id: session.ocpi_session_id,
-            start_date_time: session.start_date_time.toISOString(),
-            end_date_time: session.end_date_time?.toISOString(),
-            kwh: Number(session.kwh),
-            cdr_token: session.cdr_token as unknown as OCPISession['cdr_token'],
-            auth_method: session.auth_method as OCPISession['auth_method'],
+            country_code: session?.country_code ?? undefined,
+            party_id: session?.party_id ?? undefined,
+            id: session?.cpo_session_id ?? undefined,
+            start_date_time: session?.start_date_time?.toISOString() ?? undefined,
+            end_date_time: session?.end_date_time?.toISOString() ?? undefined,
+            kwh: Number(session?.kwh ?? 0),
+            cdr_token: session?.cdr_token as unknown as OCPISession['cdr_token'],
+            auth_method: session?.auth_method as OCPIAuthMethod,
             authorization_reference: session.authorization_reference ?? undefined,
-            location_id: session.location_id,
-            evse_uid: session.evse_uid,
-            connector_id: session.connector_id,
-            meter_id: session.meter_id ?? undefined,
-            currency: session.currency,
+            location_id: session?.location_id ?? undefined,
+            evse_uid: session?.evse_uid ?? undefined,
+            connector_id: session?.connector_id ?? undefined,
+            meter_id: session?.meter_id ?? undefined,
+            currency: session?.currency ?? undefined,
             charging_periods:
-                (session.charging_periods as unknown as OCPISession['charging_periods']) ||
+                (session?.charging_periods as unknown as OCPISession['charging_periods']) ||
                 undefined,
-            total_cost: (session.total_cost as unknown as OCPISession['total_cost']) || undefined,
-            status: session.status as OCPISession['status'],
-            last_updated: session.last_updated.toISOString(),
+            total_cost: (session?.total_cost as unknown as OCPISession['total_cost']) || undefined,
+            status: session?.status as OCPISession['status'],
+            last_updated: session?.last_updated?.toISOString() ?? undefined,
         };
     }
 
@@ -345,7 +343,7 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
         return {
             country_code: session.country_code,
             party_id: session.party_id,
-            ocpi_session_id: session.id,
+            cpo_session_id: session.id,
             start_date_time: new Date(session.start_date_time),
             end_date_time: session.end_date_time ? new Date(session.end_date_time) : null,
             kwh: new Prisma.Decimal(session.kwh),

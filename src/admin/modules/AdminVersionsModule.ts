@@ -57,6 +57,7 @@ export default class AdminVersionsModule {
             await OCPIv221VersionsModuleOutgoingRequestService.getVersions(
                 partner.versions_url,
                 creds.cpo_auth_token,
+                partner.id,
             );
 
         // Create versions only if they do not already exist
@@ -140,6 +141,7 @@ export default class AdminVersionsModule {
                 selected.version_url,
                 creds.cpo_auth_token,
                 selected.version_id,
+                partner.id,
             );
 
         const endpoints = versionDetails.endpoints ?? [];

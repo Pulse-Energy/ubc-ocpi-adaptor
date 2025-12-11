@@ -2,8 +2,6 @@ import { Request } from 'express';
 import { OCPILogDbService } from '../../db-services/OCPILogDbService';
 import { OCPIPartnerCredentials } from '@prisma/client';
 
-type Direction = 'INCOMING' | 'OUTGOING';
-
 export class OCPIRequestLogService {
     private static toSafeJson<T>(value: T): T {
         // Ensure payload is JSON-serializable (strip functions, undefined, etc.)
@@ -26,7 +24,6 @@ export class OCPIRequestLogService {
 
     public static async logIncoming(params: {
         req: Request;
-        direction?: Direction;
         partnerId?: string;
         command?: string;
         responsePayload?: any;
@@ -34,7 +31,6 @@ export class OCPIRequestLogService {
     }): Promise<void> {
         const {
             req,
-            direction = 'INCOMING',
             partnerId,
             command,
             responsePayload,
@@ -52,7 +48,6 @@ export class OCPIRequestLogService {
         }
 
         const payload = this.toSafeJson({
-            direction,
             method: req.method,
             path: req.path,
             query: req.query,
@@ -63,7 +58,8 @@ export class OCPIRequestLogService {
         });
 
         await OCPILogDbService.createLog({
-            command: command ?? `${direction} ${req.method} ${req.path}`,
+            command: command ?? `INCOMING ${req.method} ${req.path}`,
+            sender_type: 'CPO',
             payload,
             partner: {
                 connect: { id: resolvedPartnerId },
@@ -100,7 +96,6 @@ export class OCPIRequestLogService {
         }
 
         const payload = this.toSafeJson({
-            direction: 'OUTGOING' as Direction,
             method,
             url,
             headers,
@@ -112,6 +107,7 @@ export class OCPIRequestLogService {
 
         await OCPILogDbService.createLog({
             command: command ?? `OUTGOING ${method} ${url}`,
+            sender_type: 'EMSP',
             payload,
             partner: {
                 connect: { id: partnerId },

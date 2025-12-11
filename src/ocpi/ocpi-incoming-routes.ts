@@ -329,28 +329,64 @@ router.get(
     '/2.2.1/sessions',
     ocpiAuth,
     async (req: Request, res: Response, next: NextFunction) =>
-        handleRequest(req, res, next, OCPIv221SessionsModuleIncomingRequestService.handleGetSessions),
+        handleRequest(
+            req,
+            res,
+            next,
+            (innerReq: Request) =>
+                OCPIv221SessionsModuleIncomingRequestService.handleGetSessions(
+                    innerReq,
+                    (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
+                ),
+        ),
 );
 
 router.get(
     '/2.2.1/sessions/:country_code/:party_id/:session_id',
     ocpiAuth,
     async (req: Request, res: Response, next: NextFunction) =>
-        handleRequest(req, res, next, OCPIv221SessionsModuleIncomingRequestService.handleGetSession),
+        handleRequest(
+            req,
+            res,
+            next,
+            (innerReq: Request) =>
+                OCPIv221SessionsModuleIncomingRequestService.handleGetSession(
+                    innerReq,
+                    (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
+                ),
+        ),
 );
 
 router.put(
     '/2.2.1/sessions/:country_code/:party_id/:session_id',
     ocpiAuth,
     async (req: Request, res: Response, next: NextFunction) =>
-        handleRequest(req, res, next, OCPIv221SessionsModuleIncomingRequestService.handlePutSession),
+        handleRequest(
+            req,
+            res,
+            next,
+            (innerReq: Request) =>
+                OCPIv221SessionsModuleIncomingRequestService.handlePutSession(
+                    innerReq,
+                    (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
+                ),
+        ),
 );
 
 router.patch(
     '/2.2.1/sessions/:country_code/:party_id/:session_id',
     ocpiAuth,
     async (req: Request, res: Response, next: NextFunction) =>
-        handleRequest(req, res, next, OCPIv221SessionsModuleIncomingRequestService.handlePatchSession),
+        handleRequest(
+            req,
+            res,
+            next,
+            (innerReq: Request) =>
+                OCPIv221SessionsModuleIncomingRequestService.handlePatchSession(
+                    innerReq,
+                    (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
+                ),
+        ),
 );
 
 // CDRs endpoints (OCPI 2.2.1, EMSP receiver)
@@ -358,21 +394,48 @@ router.get(
     '/2.2.1/cdrs',
     ocpiAuth,
     async (req: Request, res: Response, next: NextFunction) =>
-        handleRequest(req, res, next, OCPIv221CDRsModuleIncomingRequestService.handleGetCDRs),
+        handleRequest(
+            req,
+            res,
+            next,
+            (innerReq: Request) =>
+                OCPIv221CDRsModuleIncomingRequestService.handleGetCDRs(
+                    innerReq,
+                    (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
+                ),
+        ),
 );
 
 router.get(
-    '/2.2.1/cdrs/:cdr_id',
+    '/2.2.1/cdrs/:country_code/:party_id/:cdr_id',
     ocpiAuth,
     async (req: Request, res: Response, next: NextFunction) =>
-        handleRequest(req, res, next, OCPIv221CDRsModuleIncomingRequestService.handleGetCDR),
+        handleRequest(
+            req,
+            res,
+            next,
+            (innerReq: Request) =>
+                OCPIv221CDRsModuleIncomingRequestService.handleGetCDR(
+                    innerReq,
+                    (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
+                ),
+        ),
 );
 
 router.post(
-    '/2.2.1/cdrs',
+    '/2.2.1/cdrs/:country_code/:party_id',
     ocpiAuth,
     async (req: Request, res: Response, next: NextFunction) =>
-        handleRequest(req, res, next, OCPIv221CDRsModuleIncomingRequestService.handlePostCDR),
+        handleRequest(
+            req,
+            res,
+            next,
+            (innerReq: Request) =>
+                OCPIv221CDRsModuleIncomingRequestService.handlePostCDR(
+                    innerReq,
+                    (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
+                ),
+        ),
 );
 
 // Commands callback endpoint (response_url target)
@@ -380,7 +443,16 @@ router.post(
     '/2.2.1/commands/:command_type/:command_id',
     ocpiAuth,
     async (req: Request, res: Response, next: NextFunction) =>
-        handleRequest(req, res, next, OCPIv221CommandsModuleIncomingRequestService.handlePostCommand),
+        handleRequest(
+            req,
+            res,
+            next,
+            (innerReq: Request) =>
+                OCPIv221CommandsModuleIncomingRequestService.handlePostCommand(
+                    innerReq,
+                    (req as OCPIAuthedRequest).ocpiPartnerCredentials as OCPIPartnerCredentials,
+                ),
+        ),
 );
 
 
@@ -400,8 +472,23 @@ router.get(
                 ),
         ),
 );
+router.get(
+    '/2.2.1/locations/:country_code/:party_id/:location_id',
+    ocpiAuth,
+    async (req: Request, res: Response, next: NextFunction) =>
+        handleRequest(
+            req,
+            res,
+            next,
+            (innerReq: Request) =>
+                OCPIv221LocationsModuleIncomingRequestService.handleGetLocation(
+                    innerReq,
+                    (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
+                ),
+        ),
+);
 router.put(
-    '/2.2.1/locations/:location_id',
+    '/2.2.1/locations/:country_code/:party_id/:location_id',
     ocpiAuth,
     async (req: Request, res: Response, next: NextFunction) =>
         handleRequest(
@@ -416,7 +503,7 @@ router.put(
         ),
 );
 router.patch(
-    '/2.2.1/locations/:location_id',
+    '/2.2.1/locations/:country_code/:party_id/:location_id',
     ocpiAuth,
     async (req: Request, res: Response, next: NextFunction) =>
         handleRequest(
@@ -433,7 +520,7 @@ router.patch(
 
 // EVSE endpoints
 router.get(
-    '/2.2.1/locations/:location_id/evses/:evse_uid',
+    '/2.2.1/locations/:country_code/:party_id/:location_id/evses/:evse_uid',
     ocpiAuth,
     async (req: Request, res: Response, next: NextFunction) =>
         handleRequest(
@@ -448,7 +535,7 @@ router.get(
         ),
 );
 router.put(
-    '/2.2.1/locations/:location_id/evses/:evse_uid',
+    '/2.2.1/locations/:country_code/:party_id/:location_id/evses/:evse_uid',
     ocpiAuth,
     async (req: Request, res: Response, next: NextFunction) =>
         handleRequest(
@@ -463,7 +550,7 @@ router.put(
         ),
 );
 router.patch(
-    '/2.2.1/locations/:location_id/evses/:evse_uid',
+    '/2.2.1/locations/:country_code/:party_id/:location_id/evses/:evse_uid',
     ocpiAuth,
     async (req: Request, res: Response, next: NextFunction) =>
         handleRequest(
@@ -480,7 +567,7 @@ router.patch(
 
 // Connector endpoints
 router.get(
-    '/2.2.1/locations/:location_id/evses/:evse_uid/connectors/:connector_id',
+    '/2.2.1/locations/:country_code/:party_id/:location_id/evses/:evse_uid/connectors/:connector_id',
     ocpiAuth,
     async (req: Request, res: Response, next: NextFunction) =>
         handleRequest(
@@ -495,7 +582,7 @@ router.get(
         ),
 );
 router.put(
-    '/2.2.1/locations/:location_id/evses/:evse_uid/connectors/:connector_id',
+    '/2.2.1/locations/:country_code/:party_id/:location_id/evses/:evse_uid/connectors/:connector_id',
     ocpiAuth,
     async (req: Request, res: Response, next: NextFunction) =>
         handleRequest(
@@ -510,7 +597,7 @@ router.put(
         ),
 );
 router.patch(
-    '/2.2.1/locations/:location_id/evses/:evse_uid/connectors/:connector_id',
+    '/2.2.1/locations/:country_code/:party_id/:location_id/evses/:evse_uid/connectors/:connector_id',
     ocpiAuth,
     async (req: Request, res: Response, next: NextFunction) =>
         handleRequest(
@@ -566,6 +653,22 @@ router.put(
             next,
             (innerReq: Request) =>
                 OCPIv221TariffsModuleIncomingRequestService.handlePutTariff(
+                    innerReq,
+                    (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
+                ),
+        ),
+);
+
+router.patch(
+    '/2.2.1/tariffs/:country_code/:party_id/:tariff_id',
+    ocpiAuth,
+    async (req: Request, res: Response, next: NextFunction) =>
+        handleRequest(
+            req,
+            res,
+            next,
+            (innerReq: Request) =>
+                OCPIv221TariffsModuleIncomingRequestService.handlePatchTariff(
                     innerReq,
                     (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
                 ),

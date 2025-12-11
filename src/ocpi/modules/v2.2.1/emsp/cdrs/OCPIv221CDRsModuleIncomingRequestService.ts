@@ -1,5 +1,5 @@
 import { Request } from 'express';
-import { CDR as PrismaCDR, Prisma } from '@prisma/client';
+import { CDR as PrismaCDR, Prisma, OCPIPartnerCredentials } from '@prisma/client';
 import { HttpResponse } from '../../../../../types/responses';
 import { OCPICDRResponse, OCPICDRsResponse } from '../../../../schema/modules/cdrs/types/responses';
 import { OCPICDR } from '../../../../schema/modules/cdrs/types';
@@ -24,6 +24,7 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
      */
     public static async handleGetCDRs(
         req: Request,
+        partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPICDRsResponse>> {
         const prisma = databaseService.prisma;
 
@@ -45,6 +46,7 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
 
         const where: Prisma.CDRWhereInput = {
             deleted: false,
+            partner_id: partnerCredentials.partner_id,
         };
 
         if (country_code) {
@@ -88,18 +90,26 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
     }
 
     /**
-     * GET /cdrs/{cdr_id}
+     * GET /cdrs/{country_code}/{party_id}/{cdr_id}
      */
     public static async handleGetCDR(
         req: Request,
+        partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPICDRResponse>> {
         const prisma = databaseService.prisma;
-        const { cdr_id } = req.params as { cdr_id: string };
+        const { country_code, party_id, cdr_id } = req.params as {
+            country_code: string;
+            party_id: string;
+            cdr_id: string;
+        };
 
         const cdr = await prisma.cDR.findFirst({
             where: {
+                country_code,
+                party_id,
                 ocpi_cdr_id: cdr_id,
                 deleted: false,
+                partner_id: partnerCredentials.partner_id,
             },
         });
 
@@ -127,14 +137,19 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
     }
 
     /**
-     * POST /cdrs
+     * POST /cdrs/{country_code}/{party_id}
      *
      * CPO pushes a new CDR.
      */
     public static async handlePostCDR(
         req: Request,
+        partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPICDRResponse>> {
         const prisma = databaseService.prisma;
+        const { country_code, party_id } = req.params as {
+            country_code: string;
+            party_id: string;
+        };
         const payload = req.body as OCPICDR;
 
         if (!payload) {
@@ -148,28 +163,16 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
             };
         }
 
-        // Resolve OCPI partner from Authorization header (CPO token)
-        const authHeader = req.headers.authorization;
-        if (!authHeader || !authHeader.startsWith('Token ')) {
+        // Validate that path params and payload match
+        if (
+            payload.country_code !== country_code ||
+            payload.party_id !== party_id
+        ) {
             return {
-                httpStatus: 401,
+                httpStatus: 400,
                 payload: {
-                    status_code: OCPIResponseStatusCode.status_2001,
-                    status_message: 'Unauthorized',
-                    timestamp: new Date().toISOString(),
-                },
-            };
-        }
-
-        const cpoAuthToken = authHeader.substring('Token '.length);
-        const partnerCredentials = await Utils.findPartnerCredentialsUsingCPOAuthToken(cpoAuthToken);
-
-        if (!partnerCredentials) {
-            return {
-                httpStatus: 401,
-                payload: {
-                    status_code: OCPIResponseStatusCode.status_2001,
-                    status_message: 'Unauthorized',
+                    status_code: OCPIResponseStatusCode.status_2000,
+                    status_message: 'Path parameters and CDR payload must match',
                     timestamp: new Date().toISOString(),
                 },
             };

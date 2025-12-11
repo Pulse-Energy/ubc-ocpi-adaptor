@@ -49,6 +49,8 @@ export default class OCPIv221LocationsModuleOutgoingRequestService {
                         cpoAuthToken,
                     ),
                 },
+                partnerId,
+                command: 'LOCATIONS_GET',
             });
 
             const payload = response.data as OCPILocationsResponse;
@@ -102,6 +104,8 @@ export default class OCPIv221LocationsModuleOutgoingRequestService {
                         cpoAuthToken,
                     ),
                 },
+                partnerId,
+                command: 'LOCATIONS_GET_ONE',
             });
 
             const payload = response.data as OCPILocationResponse;

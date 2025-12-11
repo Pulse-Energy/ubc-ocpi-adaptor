@@ -32,6 +32,7 @@ export default class OCPIv221CredentialsModuleOutgoingRequestService {
         token: string,
         url: string,
         roles: OCPICredentialsRoleClass[],
+        partnerId?: string,
     ): Promise<HttpResponse<OCPIResponsePayload<OCPICredentials>>> {
         const credentials: OCPICredentials = {
             token,
@@ -45,6 +46,8 @@ export default class OCPIv221CredentialsModuleOutgoingRequestService {
                 Authorization: `Token ${cpoAuthToken}`,
             },
             data: credentials,
+            partnerId,
+            command: 'CREDENTIALS_POST',
         });
 
         const payload = response as OCPIResponsePayload<OCPICredentials>;
@@ -64,12 +67,15 @@ export default class OCPIv221CredentialsModuleOutgoingRequestService {
     public static async sendGetCredentials(
         cpoUrl: string,
         cpoAuthToken: string,
+        partnerId?: string,
     ): Promise<HttpResponse<OCPIResponsePayload<OCPICredentials>>> {
         const response = await OCPIOutgoingRequestService.sendGetRequest({
             url: cpoUrl,
             headers: {
                 Authorization: `Token ${cpoAuthToken}`,
             },
+            partnerId,
+            command: 'CREDENTIALS_GET',
         });
 
         const payload = response.data as OCPIResponsePayload<OCPICredentials>;

@@ -68,6 +68,7 @@ export default class AdminCredentialsModule {
             token,
             url,
             roles,
+            partner.id,
         );
 
         await databaseService.prisma.oCPIPartnerCredentials.update({
@@ -126,6 +127,7 @@ export default class AdminCredentialsModule {
         const response = await OCPIv221CredentialsModuleOutgoingRequestService.sendGetCredentials(
             endpoint.url,
             creds.cpo_auth_token,
+            partner.id,
         );
 
         return {
