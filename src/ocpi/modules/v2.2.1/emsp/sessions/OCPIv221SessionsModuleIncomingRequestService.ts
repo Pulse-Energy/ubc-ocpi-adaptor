@@ -179,10 +179,9 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
 
         const existing = await prisma.session.findFirst({
             where: {
-                country_code,
-                party_id,
-                cpo_session_id: session_id,
+                authorization_reference: payload.authorization_reference,
                 partner_id: partnerCredentials.partner_id,
+                deleted: false,
             },
         });
 
