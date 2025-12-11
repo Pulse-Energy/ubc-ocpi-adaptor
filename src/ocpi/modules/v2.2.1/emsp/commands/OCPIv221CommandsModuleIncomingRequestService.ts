@@ -82,11 +82,6 @@ export default class OCPIv221CommandsModuleIncomingRequestService {
                 status,
             },
         });
-        
-        await databaseService.prisma.session.update({
-            where: { id: session?.id },
-            data: { status },
-        });
 
         return {
             httpStatus: 200,

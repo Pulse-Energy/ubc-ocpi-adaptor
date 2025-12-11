@@ -245,24 +245,22 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
 
         const patch = req.body as OCPIPatchSession;
 
+        // Try finding the session by the session_id
         let existing = await prisma.session.findFirst({
             where: {
-                country_code,
-                party_id,
                 cpo_session_id: session_id,
                 deleted: false,
-                partner_id: partnerCredentials.partner_id,
+                partner_id: partnerCredentials.partner_id
             },
         });
 
         if (!existing) {
+            // Try finding using authorization_reference
             existing = await prisma.session.findFirst({
                 where: {
-                    status: OCPISessionStatus.ACTIVE,
+                    authorization_reference: patch.authorization_reference,
                     deleted: false,
-                    partner_id: partnerCredentials.partner_id,
-                    evse_uid: patch.evse_uid,
-                    location_id: patch.location_id,
+                    partner_id: partnerCredentials.partner_id
                 },
             });
         }
