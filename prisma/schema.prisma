@@ -217,7 +217,7 @@ model Session {
   kwh                               Decimal?     @db.Decimal(10, 3)
   cdr_token                         Json? // OCPICdrToken
   auth_method                       String? // OCPIAuthMethod enum
-  authorization_reference           String? // EMSP session ID
+  authorization_reference           String?      @unique // EMSP session ID
   location_id                       String?
   evse_uid                          String?
   connector_id                      String?
@@ -232,7 +232,7 @@ model Session {
   created_at                        DateTime     @default(now())
   updated_at                        DateTime     @updatedAt
   partner_id                        String?
-  partner                           OCPIPartner?  @relation(fields: [partner_id], references: [id], onDelete: Cascade)
+  partner                           OCPIPartner? @relation(fields: [partner_id], references: [id], onDelete: Cascade)
   // Log relations (named to avoid ambiguity)
   ocpi_logs_session                 OCPILog[]    @relation("OCPILogSession")
   ocpi_logs_cpo_session             OCPILog[]    @relation("OCPILogCpoSession")
@@ -253,44 +253,44 @@ model Session {
 
 // OCPI 2.2.1 CDR Model
 model CDR {
-  id                      String      @id @default(uuid())
-  country_code            String
-  party_id                String
-  ocpi_cdr_id             String // OCPI id field
-  start_date_time         DateTime
-  end_date_time           DateTime
-  session_id              String?
-  cdr_token               Json // OCPICdrToken
-  auth_method             String // OCPIAuthMethod enum
-  authorization_reference String?
-  cdr_location            Json // OCPICdrLocation
-  meter_id                String?
-  currency                String
-  tariffs                 Json? // OCPITariff[]
-  charging_periods        Json // OCPIChargingPeriod[]
-  signed_data             Json? // OCPISignedData
-  total_cost              Json // OCPIPrice
-  total_fixed_cost        Json? // OCPIPrice
-  total_energy            Decimal     @db.Decimal(10, 3)
-  total_energy_cost       Json? // OCPIPrice
-  total_time              BigInt
-  total_time_cost         Json? // OCPIPrice
-  total_parking_time      BigInt?
-  total_parking_cost      Json? // OCPIPrice
-  total_reservation_cost  Json? // OCPIPrice
-  remark                  String?
-  invoice_reference_id    String?
-  credit                  Boolean?
-  credit_reference_id     String?
+  id                              String      @id @default(uuid())
+  country_code                    String
+  party_id                        String
+  ocpi_cdr_id                     String // OCPI id field
+  start_date_time                 DateTime
+  end_date_time                   DateTime
+  session_id                      String?
+  cdr_token                       Json // OCPICdrToken
+  auth_method                     String // OCPIAuthMethod enum
+  authorization_reference         String?
+  cdr_location                    Json // OCPICdrLocation
+  meter_id                        String?
+  currency                        String
+  tariffs                         Json? // OCPITariff[]
+  charging_periods                Json // OCPIChargingPeriod[]
+  signed_data                     Json? // OCPISignedData
+  total_cost                      Json // OCPIPrice
+  total_fixed_cost                Json? // OCPIPrice
+  total_energy                    Decimal     @db.Decimal(10, 3)
+  total_energy_cost               Json? // OCPIPrice
+  total_time                      BigInt
+  total_time_cost                 Json? // OCPIPrice
+  total_parking_time              BigInt?
+  total_parking_cost              Json? // OCPIPrice
+  total_reservation_cost          Json? // OCPIPrice
+  remark                          String?
+  invoice_reference_id            String?
+  credit                          Boolean?
+  credit_reference_id             String?
   // home_charging_compensation Boolean?
-  remarks                 String?
-  last_updated            DateTime
-  deleted                 Boolean     @default(false)
-  deleted_at              DateTime?
-  created_at              DateTime    @default(now())
-  updated_at              DateTime    @updatedAt
-  partner_id              String
-  partner                 OCPIPartner @relation(fields: [partner_id], references: [id], onDelete: Cascade)
+  remarks                         String?
+  last_updated                    DateTime
+  deleted                         Boolean     @default(false)
+  deleted_at                      DateTime?
+  created_at                      DateTime    @default(now())
+  updated_at                      DateTime    @updatedAt
+  partner_id                      String
+  partner                         OCPIPartner @relation(fields: [partner_id], references: [id], onDelete: Cascade)
 
   @@unique([country_code, party_id, ocpi_cdr_id])
   @@index([country_code, party_id])
