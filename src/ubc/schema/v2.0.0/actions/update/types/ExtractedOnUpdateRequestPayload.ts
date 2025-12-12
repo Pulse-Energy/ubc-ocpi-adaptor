@@ -1,11 +1,8 @@
 import { ChargingSessionStatus } from "../../../enums/ChargingSessionStatus";
-import { BecknRequestMetadata } from "../../select/types/ExtractedSelectRequestBody";
 
-
-export type ExtractedOnUpdateRequestPayload = {
-    metadata: BecknRequestMetadata,
-    payload: {
-        beckn_order_id: string,
-        session_status: ChargingSessionStatus,
-    },
+export type ExtractedOnUpdateRequestBody = {
+    beckn_order_id: string,
+    session_status: ChargingSessionStatus,
+    beckn_transaction_id: string,
+    
 };
