@@ -51,7 +51,8 @@ model Location {
   ocpilogs   OCPILog[]
 
   @@unique([country_code, party_id, ocpi_location_id])
-  @@index([country_code, party_id])
+  // Optimizes lookups by OCPI location id scoped to partner
+  @@index([ocpi_location_id, partner_id])
   @@index([partner_id])
   @@map("location")
 }
@@ -88,7 +89,6 @@ model EVSE {
   ocpilogs        OCPILog[]
 
   @@unique([location_id, uid])
-  @@index([uid])
   @@index([location_id])
   @@map("evse")
 }
@@ -120,6 +120,8 @@ model EVSEConnector {
 
   @@unique([evse_id, connector_id])
   @@index([evse_id])
+  // Optimizes getByConnectorId lookups
+  @@index([connector_id])
   @@index([partner_id])
   @@map("evse_connector")
 }
@@ -151,6 +153,8 @@ model Tariff {
   @@unique([country_code, party_id, ocpi_tariff_id])
   @@index([country_code, party_id])
   @@index([ocpi_tariff_id])
+  // Optimizes partner-scoped tariff queries
+  @@index([partner_id, country_code, party_id])
   @@index([partner_id])
   @@map("tariff")
 }
@@ -238,6 +242,11 @@ model Session {
   @@index([country_code, party_id])
   @@index([location_id])
   @@index([status])
+  // Optimizes lookups by authorization_reference and CPO session id
+  @@index([authorization_reference, partner_id])
+  @@index([cpo_session_id, partner_id])
+  // Optimizes partner-scoped session listings ordered by last_updated
+  @@index([partner_id, last_updated(sort: Desc)])
   @@index([partner_id])
   @@map("session")
 }
@@ -286,8 +295,8 @@ model CDR {
   @@unique([country_code, party_id, ocpi_cdr_id])
   @@index([country_code, party_id])
   @@index([ocpi_cdr_id])
-  @@index([session_id])
-  @@index([currency])
+  // Optimizes partner-scoped CDR listings ordered by last_updated
+  @@index([partner_id, last_updated(sort: Desc)])
   @@index([partner_id])
   @@map("cdr")
 }
@@ -319,8 +328,8 @@ model Token {
   @@unique([country_code, party_id, uid])
   @@index([country_code, party_id])
   @@index([uid])
-  @@index([contract_id])
-  @@index([valid])
+  // Optimizes partner-scoped token listings ordered by last_updated
+  @@index([partner_id, last_updated(sort: Desc)])
   @@index([partner_id])
   @@map("token")
 }
@@ -353,6 +362,8 @@ model OCPIPartner {
   additional_props Json?                   @default("{}") @db.Json
 
   @@unique([country_code, party_id])
+  // Optimizes lookups of EMSP/CPO by role + deleted flag
+  @@index([role, deleted])
   @@map("ocpi_partner")
 }
 
@@ -370,6 +381,9 @@ model OCPIPartnerCredentials {
   created_at      DateTime    @default(now())
   updated_at      DateTime    @updatedAt
 
+  // Optimizes auth-token based lookups
+  @@index([cpo_auth_token])
+  @@index([emsp_auth_token])
   @@map("ocpi_partner_credentials")
 }
 
@@ -387,6 +401,8 @@ model OCPIPartnerEndpoint {
   created_at DateTime    @default(now())
   updated_at DateTime    @updatedAt
 
+  // Optimizes endpoint discovery by partner/module/role/version
+  @@index([partner_id, module, role, version])
   @@index([partner_id])
   @@map("ocpi_partner_endpoint")
 }
@@ -453,6 +469,10 @@ model OCPILog {
   cpo_session                     Session?       @relation("OCPILogCpoSession", fields: [cpo_session_id], references: [id], onDelete: Cascade)
   created_on                      DateTime       @default(now())
 
+  // Optimizes log exploration by partner and time
+  @@index([partner_id, created_on(sort: Desc)])
+  @@index([command])
+  @@index([sender_type])
   @@map(name: "ocpi_log")
 }
 
