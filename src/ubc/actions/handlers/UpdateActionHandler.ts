@@ -23,7 +23,7 @@ import { ChargingAction } from '../../schema/v2.0.0/enums/ChargingAction';
  * Handler for update action
  */
 export default class UpdateActionHandler {
-    public static async handleBppInitAction(
+    public static async handleBppUpdateAction(
         req: Request
     ): Promise<HttpResponse<BecknActionResponse>> {
         const payload = req.body as UBCUpdateRequestPayload;

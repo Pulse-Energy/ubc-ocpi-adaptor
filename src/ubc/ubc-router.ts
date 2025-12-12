@@ -79,11 +79,11 @@ router.post(`/${BecknAction.init}`, ubcAuth, async (req: Request, res: Response,
 );
 
 router.post(`/${BecknAction.confirm}`, ubcAuth, async (req: Request, res: Response, next: NextFunction) =>
-    handleRequest(req, res, next, ConfirmActionHandler.handleConfirm)
+    handleRequest(req, res, next, ConfirmActionHandler.handleBppConfirmAction)
 );
 
 router.post(`/${BecknAction.update}`, ubcAuth, async (req: Request, res: Response, next: NextFunction) =>
-    handleRequest(req, res, next, UpdateActionHandler.handleUpdate)
+    handleRequest(req, res, next, UpdateActionHandler.handleBppUpdateAction)
 );
 
 router.post(`/${BecknAction.on_status}`, ubcAuth, async (req: Request, res: Response, next: NextFunction) =>

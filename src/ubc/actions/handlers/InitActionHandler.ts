@@ -29,6 +29,7 @@ import { BecknPaymentStatus } from '../../schema/v2.0.0/enums/PaymentStatus';
 import { EvseConnectorDbService } from '../../../db-services/EvseConnectorDbService';
 import OCPIPartnerDbService from '../../../db-services/OCPIPartnerDbService';
 import { OCPIPartnerAdditionalProps } from '../../../types/OCPIPartner';
+import OnStatusActionHandler from './OnStatusActionHandler';
 
 export default class InitActionHandler {
     public static async handleBppInitAction(
@@ -94,6 +95,13 @@ export default class InitActionHandler {
                 `🟢 [${reqId}] Sent on_init call to Beckn ONIX in handleEVChargingUBCBppInitAction`,
                 { data: { response } }
             );
+
+            setTimeout(() => {
+                OnStatusActionHandler.handleEVChargingUBCBppOnStatusAction({
+                    authorization_reference: ubcOnInitPayload.message.order['beckn:payment']['beckn:txnRef'],
+                    payment_status: BecknPaymentStatus.COMPLETED,
+                });
+            }, 10000);
 
             // return the response
             return ubcOnInitPayload;
