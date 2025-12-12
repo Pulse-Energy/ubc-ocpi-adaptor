@@ -237,7 +237,6 @@ model Session {
   ocpi_logs_session                 OCPILog[]    @relation("OCPILogSession")
   ocpi_logs_cpo_session             OCPILog[]    @relation("OCPILogCpoSession")
   ocpi_logs_authorization_reference OCPILog[]    @relation("OCPILogAuthorizationReferenceSession")
-  payment_txns                      PaymentTxn[] @relation("PaymentTxnAuthorizationReferenceSession")
 
   @@index([country_code, party_id])
   @@index([location_id])
@@ -478,10 +477,9 @@ model OCPILog {
 
 model PaymentTxn {
   id                              String      @id @default(uuid())
-  authorization_reference         String
-  authorization_reference_session Session?    @relation("PaymentTxnAuthorizationReferenceSession", fields: [authorization_reference], references: [id], onDelete: Cascade)
+  authorization_reference         String      
   amount                          Decimal     @db.Decimal(10, 2)
-  payment_link                    String
+  payment_link                    String?
   payment_breakdown               Json        @default("{}") @db.Json
   status                          String
   requested_energy_units          Decimal     @db.Decimal(10, 3)
