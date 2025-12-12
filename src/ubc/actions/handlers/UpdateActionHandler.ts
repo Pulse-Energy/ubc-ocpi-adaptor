@@ -10,7 +10,6 @@ import BecknLogDbService from '../../../db-services/BecknLogDbService';
 import { BecknDomain } from '../../schema/v2.0.0/enums/BecknDomain';
 import { Prisma } from '@prisma/client';
 import Utils from '../../../utils/Utils';
-import CPOBackendRequestService from '../../services/CPOBackendRequestService';
 import { ChargingSessionStatus } from '../../schema/v2.0.0/enums/ChargingSessionStatus';
 import { OrderStatus } from '../../schema/v2.0.0/enums/OrderStatus';
 import { UBCOnUpdateRequestPayload } from '../../schema/v2.0.0/actions/update/types/OnUpdatePayload';

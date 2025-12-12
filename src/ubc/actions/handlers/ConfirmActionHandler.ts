@@ -9,9 +9,12 @@ import { UBCOnConfirmRequestPayload } from '../../schema/v2.0.0/actions/confirm/
 import BppOnixRequestService from '../../services/BppOnixRequestService';
 import { BecknDomain } from '../../schema/v2.0.0/enums/BecknDomain';
 import Utils from '../../../utils/Utils';
-import CPOBackendRequestService from '../../services/CPOBackendRequestService';
 import { ExtractedConfirmRequestBody } from '../../schema/v2.0.0/actions/confirm/types/ExtractedConfirmRequestPayload';
-import { ExtractedOnConfirmResponseBody } from '../../schema/v2.0.0/actions/confirm/types/ExtractedOnConfirmResponsePayload';
+import { ExtractedOnConfirmResponsePayload } from '../../schema/v2.0.0/actions/confirm/types/ExtractedOnConfirmResponsePayload';
+import { OrderStatus } from '../../schema/v2.0.0/enums/OrderStatus';
+import PaymentTxnDbService from '../../../db-services/PaymentTxnDbService';
+import { BecknPaymentStatus } from '../../schema/v2.0.0/enums/PaymentStatus';
+import { PaymentTxnAdditionalProps } from '../../../types/PaymentTxn';
 
 /**
  * Handler for confirm action
@@ -55,7 +58,7 @@ export default class ConfirmActionHandler {
                 `🟡 [${reqId}] Sending confirm call to backend in handleEVChargingUBCBppConfirmAction`,
                 { data: { backendConfirmPayload } }
             );
-            const ExtractedOnConfirmResponseBody: ExtractedOnConfirmResponseBody =
+            const ExtractedOnConfirmResponseBody: ExtractedOnConfirmResponsePayload =
                 await ConfirmActionHandler.sendConfirmCallToBackend(backendConfirmPayload);
             logger.debug(
                 `🟢 [${reqId}] Received confirm response from backend in handleEVChargingUBCBppConfirmAction`,
@@ -134,22 +137,34 @@ export default class ConfirmActionHandler {
 
     public static async sendConfirmCallToBackend(
         payload: ExtractedConfirmRequestBody
-    ): Promise<ExtractedOnConfirmResponseBody> {
+    ): Promise<ExtractedOnConfirmResponsePayload> {
         /**
          * @todo @gaganpulse: Need to change
          */
-        const backendHost = Utils.getBPPClientHost();
-        const response = await CPOBackendRequestService.sendPostRequest({
-            url: `${backendHost}/${BecknAction.confirm}`,
-            data: payload,
-            headers: {},
+        
+        const becknOrderId = payload.payload.beckn_order_id;
+        const paymentTxn = await PaymentTxnDbService.getFirstByFilter({
+            where: {
+                beckn_transaction_id: becknOrderId,
+                status: BecknPaymentStatus.COMPLETED,
+            },
         });
-        return response.data as ExtractedOnConfirmResponseBody;
+        // if (!paymentTxn) {
+        //     throw new Error('No completed payment txn found');
+        // }
+
+        const paymentAdditionalProps = paymentTxn?.additional_props as PaymentTxnAdditionalProps;
+        const paymentReceivedAt = paymentAdditionalProps?.payment_received_at;
+        
+        return {
+            order_status: OrderStatus.CONFIRMED,
+            payment_received_at: paymentReceivedAt ?? new Date().toISOString(),
+        };
     }
 
     public static translateBackendToUBC(
         backendConfirmPayload: UBCConfirmRequestPayload,
-        ExtractedOnConfirmResponseBody: ExtractedOnConfirmResponseBody
+        ExtractedOnConfirmResponseBody: ExtractedOnConfirmResponsePayload
     ): UBCOnConfirmRequestPayload {
         const ubcOnConfirmPayload: UBCOnConfirmRequestPayload = {
             context: {
@@ -159,10 +174,10 @@ export default class ConfirmActionHandler {
             message: {
                 order: {
                     ...backendConfirmPayload.message.order,
-                    'beckn:orderStatus': ExtractedOnConfirmResponseBody.payload.order_status,
+                    'beckn:orderStatus': ExtractedOnConfirmResponseBody.order_status,
                     'beckn:payment': {
                         ...backendConfirmPayload.message.order['beckn:payment'],
-                        'beckn:paidAt': ExtractedOnConfirmResponseBody.payload.payment_received_at,
+                        'beckn:paidAt': ExtractedOnConfirmResponseBody.payment_received_at,
                     },
                 },
             },
