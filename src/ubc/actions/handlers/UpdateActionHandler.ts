@@ -1,30 +1,276 @@
-import { Request } from "express";
-import { HttpResponse } from "../../../types/responses";
-import { logger } from "../../../services/logger.service";
-import UBCResponseService from "../../services/UBCResponseService";
-import { UBCUpdateRequestPayload } from "../../schema/v2.0.0/actions/update/types/UpdatePayload";
-import { BecknActionResponse } from "../../schema/v2.0.0/types/AckResponse";
+import { Request } from 'express';
+import { HttpResponse } from '../../../types/responses';
+import { logger } from '../../../services/logger.service';
+import { UBCUpdateRequestPayload } from '../../schema/v2.0.0/actions/update/types/UpdatePayload';
+import { BecknActionResponse } from '../../schema/v2.0.0/types/AckResponse';
+import { BecknAction } from '../../schema/v2.0.0/enums/BecknAction';
+import InitActionHandler from './InitActionHandler';
+import OnixBppController from '../../controller/OnixBppController';
+import BecknLogDbService from '../../../db-services/BecknLogDbService';
+import { BecknDomain } from '../../schema/v2.0.0/enums/BecknDomain';
+import { Prisma } from '@prisma/client';
+import Utils from '../../../utils/Utils';
+import CPOBackendRequestService from '../../services/CPOBackendRequestService';
+import { ChargingSessionStatus } from '../../schema/v2.0.0/enums/ChargingSessionStatus';
+import { OrderStatus } from '../../schema/v2.0.0/enums/OrderStatus';
+import { UBCOnUpdateRequestPayload } from '../../schema/v2.0.0/actions/update/types/OnUpdatePayload';
+import BppOnixRequestService from '../../services/BppOnixRequestService';
+import { ExtractedUpdateRequestBody } from '../../schema/v2.0.0/actions/update/types/ExtractedUpdateRequestPayload';
+import { ExtractedOnUpdateResponseBody } from '../../schema/v2.0.0/actions/update/types/ExtractedOnUpdateResponsePayload';
+import { ChargingAction } from '../../schema/v2.0.0/enums/ChargingAction';
 
 /**
  * Handler for update action
  */
 export default class UpdateActionHandler {
-    public static async handleUpdate(req: Request): Promise<HttpResponse<BecknActionResponse>> {
-        try {
-            const payload = req.body as UBCUpdateRequestPayload;
-            
-            logger.info('Handling update action', {
-                context: payload.context,
-                messageId: payload.context.message_id,
-                transactionId: payload.context.transaction_id,
-            });
+    public static async handleBppInitAction(
+        req: Request
+    ): Promise<HttpResponse<BecknActionResponse>> {
+        const payload = req.body as UBCUpdateRequestPayload;
 
-            // TODO: Implement update action logic
-            return UBCResponseService.ack();
-        } catch (error: any) {
-            logger.error('Error handling update action', error);
-            return UBCResponseService.nack();
+        return OnixBppController.requestWrapper(BecknAction.update, req, () => {
+            InitActionHandler.handleEVChargingUBCBppInitAction(payload)
+                .then((ubcOnUpdateResponsePayload: UBCOnUpdateRequestPayload) => {
+                    logger.debug(`🟢 Sending select response in handleBppSelectRequest`, {
+                        data: ubcOnUpdateResponsePayload,
+                    });
+                })
+                .catch((e: Error) => {
+                    logger.error(`🔴 Error in handleBppSelectRequest: 'Something went wrong'`, e);
+                });
+        });
+    }
+
+    public static async handleEVChargingUBCBppUpdateAction(
+        reqPayload: UBCUpdateRequestPayload
+    ): Promise<UBCOnUpdateRequestPayload> {
+        const reqId = reqPayload.context?.message_id || 'unknown';
+        const logData = { action: 'update', messageId: reqId };
+
+        try {
+            // translate BAP schema to CPO's BE server
+            logger.debug(
+                `🟡 [${reqId}] Translating UBC to Backend payload in handleEVChargingUBCBppUpdateAction`,
+                { data: { logData, reqPayload } }
+            );
+            const backendUpdatePayload: ExtractedUpdateRequestBody =
+                UpdateActionHandler.translateUBCToBackendPayload(reqPayload);
+
+            // make a request to CPO BE server
+            logger.debug(
+                `🟡 [${reqId}] Sending update call to backend in handleEVChargingUBCBppUpdateAction`,
+                { data: { backendUpdatePayload } }
+            );
+            const ExtractedOnUpdateResponseBody: ExtractedOnUpdateResponseBody =
+                await UpdateActionHandler.sendUpdateCallToBackend(backendUpdatePayload);
+            logger.debug(
+                `🟢 [${reqId}] Received update response from backend in handleEVChargingUBCBppUpdateAction`,
+                { data: { ExtractedOnUpdateResponseBody } }
+            );
+
+            // translate CPO's BE Server response to UBC Schema
+            logger.debug(
+                `🟡 [${reqId}] Translating Backend to UBC payload in handleEVChargingUBCBppUpdateAction`,
+                { data: { reqPayload, ExtractedOnUpdateResponseBody } }
+            );
+            const ubcOnUpdatePayload: UBCOnUpdateRequestPayload =
+                UpdateActionHandler.translateBackendToUBC(
+                    reqPayload,
+                    ExtractedOnUpdateResponseBody
+                );
+
+            // Call BAP on_select
+            logger.debug(
+                `🟡 [${reqId}] Sending on_update call to Beckn ONIX in handleEVChargingUBCBppUpdateAction`,
+                { data: { ubcOnUpdatePayload } }
+            );
+            const response =
+                await UpdateActionHandler.sendOnUpdateCallToBecknONIX(ubcOnUpdatePayload);
+            logger.debug(
+                `🟢 [${reqId}] Sent on_update call to Beckn ONIX in handleEVChargingUBCBppUpdateAction`,
+                { data: { response } }
+            );
+
+            // return the response
+            return ubcOnUpdatePayload;
+        } 
+        catch (e: any) {
+            logger.error(
+                `🔴 [${reqId}] Error in UBCBppActionService.handleEVChargingUBCBppUpdateAction: ${e?.toString()}`,
+                e,
+                {
+                    data: { logData },
+                }
+            );
+
+            // Send error response to BAP side so the stitched response can be resolved
+            // This prevents the request from getting stuck in REQUESTS_STORE waiting for a callback
+            // try {
+            //     await UpdateActionHandler.sendErrorOnUpdateResponse(reqPayload, e instanceof Error ? e : new Error(e?.toString() || 'Unknown error'));
+            // }
+            // catch (sendError: any) {
+            //     logger.error(`🔴 [${reqId}] Error sending error on_update response`, {
+            //         data: { message: 'Failed to send error response' },
+            //         error: sendError
+            //     });
+            // }
+
+            throw e;
         }
     }
-}
 
+    public static async fetchExistingBppOnUpdateResponse(
+        transactionId: string
+    ): Promise<UBCOnUpdateRequestPayload | null> {
+        /**
+         * If beckn transaction id is provided, check if the on update response for this transaction id is already present in the database.
+         * if yes, return the response from the database. if no, then proceed to the next step.
+         */
+        const becknLogs = await BecknLogDbService.getByFilters({
+            where: {
+                transaction_id: transactionId,
+                action: `bpp.out.request.${BecknAction.on_update}`,
+                domain: BecknDomain.EVChargingUBC,
+            },
+            select: {
+                payload: true,
+            },
+            orderBy: {
+                created_on: Prisma.SortOrder.desc,
+            },
+            take: 1,
+        });
+
+        if (becknLogs?.records && becknLogs.records.length > 0) {
+            return becknLogs.records[0].payload as UBCOnUpdateRequestPayload;
+        }
+
+        return null;
+    }
+
+    public static translateUBCToBackendPayload(
+        payload: UBCUpdateRequestPayload
+    ): ExtractedUpdateRequestBody {
+        const backendUpdatePayload: ExtractedUpdateRequestBody = {
+            metadata: {
+                domain: BecknDomain.EVChargingUBC,
+                bpp_id: payload.context.bpp_id,
+                bpp_uri: payload.context.bpp_uri,
+                beckn_transaction_id: payload.context.transaction_id,
+                bap_id: payload.context.bap_id,
+                bap_uri: payload.context.bap_uri,
+            },
+            payload: {
+                beckn_order_id: payload.message.order['beckn:orderNumber'],
+                /**
+                 * If the session status is pending or active, then start charging.
+                 * If the session status is completed, then stop charging.
+                 */
+                charging_action:
+                    payload.message.order['beckn:fulfillment']['beckn:deliveryAttributes'][
+                        'sessionStatus'
+                    ] === ChargingSessionStatus.PENDING ||
+                    payload.message.order['beckn:fulfillment']['beckn:deliveryAttributes'][
+                        'sessionStatus'
+                    ] === ChargingSessionStatus.ACTIVE
+                        ? ChargingAction.StartCharging
+                        : ChargingAction.StopCharging,
+            },
+        };
+        return backendUpdatePayload;
+    }
+
+    public static async sendUpdateCallToBackend(
+        payload: ExtractedUpdateRequestBody
+    ): Promise<ExtractedOnUpdateResponseBody> {
+        /**
+         * @todo @gaganpulse: Need to change
+         */
+        const backendHost = Utils.getBPPClientHost();
+        const response = await CPOBackendRequestService.sendPostRequest({
+            url: `${backendHost}/${BecknAction.update}`,
+            data: payload,
+            headers: {},
+        });
+        return response.data as ExtractedOnUpdateResponseBody;
+    }
+
+    public static translateBackendToUBC(
+        backendUpdatePayload: UBCUpdateRequestPayload,
+        ExtractedOnUpdateResponseBody: ExtractedOnUpdateResponseBody
+    ): UBCOnUpdateRequestPayload {
+        const context = Utils.getBPPContext({
+            ...backendUpdatePayload.context,
+            action: BecknAction.on_update,
+        });
+
+        const ubcOnUpdatePayload: UBCOnUpdateRequestPayload = {
+            context: context,
+            message: {
+                order: {
+                    ...backendUpdatePayload.message.order,
+                    'beckn:orderStatus':
+                        ExtractedOnUpdateResponseBody.payload.session_status ===
+                            ChargingSessionStatus.ACTIVE ||
+                        ExtractedOnUpdateResponseBody.payload.session_status ===
+                            ChargingSessionStatus.COMPLETED
+                            ? OrderStatus.COMPLETED
+                            : backendUpdatePayload.message.order['beckn:orderStatus'],
+                    'beckn:fulfillment': {
+                        ...backendUpdatePayload.message.order['beckn:fulfillment'],
+                        'beckn:deliveryAttributes': {
+                            ...backendUpdatePayload.message.order['beckn:fulfillment'][
+                                'beckn:deliveryAttributes'
+                            ],
+                            sessionStatus: ExtractedOnUpdateResponseBody.payload.session_status,
+                        },
+                    },
+                },
+            },
+        };
+        return ubcOnUpdatePayload;
+    }
+
+    /**
+     * Sends on_update response to beckn-ONIX (BPP)
+     * Internet <- BPP's beckn-ONIX <- BPP's provider (CPO)
+     */
+    static async sendOnUpdateCallToBecknONIX(payload: UBCOnUpdateRequestPayload): Promise<any> {
+        const bppHost = Utils.getBPPClientHost();
+        return await BppOnixRequestService.sendPostRequest(
+            {
+                url: `${bppHost}/${BecknAction.on_update}`,
+                data: payload,
+            },
+            BecknDomain.EVChargingUBC
+        );
+    }
+
+    static async sendErrorOnUpdateResponse(
+        originalRequest: UBCUpdateRequestPayload,
+        error: Error
+    ): Promise<void> {
+        // Create new context with action changed to 'on_update' (response action)
+        const context = Utils.getBPPContext({
+            ...originalRequest.context,
+            action: BecknAction.on_update,
+        });
+
+        // Send back the same request payload, just change the action in context
+        // This allows BAP to resolve the stitched response even on error
+        const errorOnUpdatePayload: UBCOnUpdateRequestPayload = {
+            context: context,
+            message: originalRequest.message,
+        };
+
+        logger.debug(`🟡 Sending error on_update response due to processing failure`, {
+            data: {
+                messageId: context.message_id,
+                error: error.message,
+            },
+        });
+
+        // Send the error response to BPP ONIX, which will forward it to BAP
+        await this.sendOnUpdateCallToBecknONIX(errorOnUpdatePayload);
+    }
+}
