@@ -191,7 +191,7 @@ export default class InitActionHandler {
         payload: ExtractedInitRequestBody
     ): Promise<ExtractedOnInitResponseBody> {
         const finalAmount = payload.payload.amount;
-        const evseConnector = await EvseConnectorDbService.getByConnectorId(
+        const evseConnector = await EvseConnectorDbService.getById(
             payload.payload.charge_point_connector_id
         );
         const authorizationReference = Utils.generateUUID();
@@ -246,6 +246,13 @@ export default class InitActionHandler {
         payload: GeneratePaymentLinkRequestPayload,
         partnerId: string
     ): Promise<GeneratePaymentLinkResponsePayload> {
+
+        return {
+            payment_link: 'https://www.google.com',
+            authorization_reference: payload.authorization_reference,
+        }
+
+        
         const ocpiPartner = await OCPIPartnerDbService.getById(partnerId);
         const ocpiPartnerAdditionalProps =
             ocpiPartner?.additional_props as OCPIPartnerAdditionalProps;
@@ -267,6 +274,7 @@ export default class InitActionHandler {
             data: payload,
             headers: headers,
         });
+        
         return response.data as GeneratePaymentLinkResponsePayload;
     }
 
