@@ -160,7 +160,7 @@ export default class SelectActionHandler {
             power_rating,
         } = reqPayload;
         const chargingOptionUnit = Number(charging_option_unit)/1000; // Convert kWh to Wh
-        const evseConnector = await EvseConnectorDbService.getByConnectorId(
+        const evseConnector = await EvseConnectorDbService.getById(
             charge_point_connector_id
         );
         if (!evseConnector) {
