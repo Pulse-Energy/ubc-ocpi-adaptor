@@ -4,7 +4,6 @@ import { logger } from '../../../services/logger.service';
 import { UBCUpdateRequestPayload } from '../../schema/v2.0.0/actions/update/types/UpdatePayload';
 import { BecknActionResponse } from '../../schema/v2.0.0/types/AckResponse';
 import { BecknAction } from '../../schema/v2.0.0/enums/BecknAction';
-import InitActionHandler from './InitActionHandler';
 import OnixBppController from '../../controller/OnixBppController';
 import BecknLogDbService from '../../../db-services/BecknLogDbService';
 import { BecknDomain } from '../../schema/v2.0.0/enums/BecknDomain';
@@ -15,11 +14,13 @@ import { OrderStatus } from '../../schema/v2.0.0/enums/OrderStatus';
 import { UBCOnUpdateRequestPayload } from '../../schema/v2.0.0/actions/update/types/OnUpdatePayload';
 import BppOnixRequestService from '../../services/BppOnixRequestService';
 import { ExtractedUpdateRequestBody } from '../../schema/v2.0.0/actions/update/types/ExtractedUpdateRequestPayload';
-import { ExtractedOnUpdateResponseBody } from '../../schema/v2.0.0/actions/update/types/ExtractedOnUpdateResponsePayload';
+import { ExtractedOnUpdateResponsePayload } from '../../schema/v2.0.0/actions/update/types/ExtractedOnUpdateResponsePayload';
 import { ChargingAction } from '../../schema/v2.0.0/enums/ChargingAction';
 import AdminCommandsModule from '../../../admin/modules/AdminCommandsModule';
 import { SessionDbService } from '../../../db-services/SessionDbService';
 import { EvseConnectorDbService } from '../../../db-services/EvseConnectorDbService';
+import { OCPICommandResponseResponse } from '../../../ocpi/schema/modules/commands/types/responses';
+import { OCPICommandResponseType } from '../../../ocpi/schema/modules/commands/enums';
 
 /**
  * Handler for update action
@@ -63,7 +64,7 @@ export default class UpdateActionHandler {
                 `🟡 [${reqId}] Sending update call to backend in handleEVChargingUBCBppUpdateAction`,
                 { data: { backendUpdatePayload } }
             );
-            const ExtractedOnUpdateResponseBody: ExtractedOnUpdateResponseBody =
+            const ExtractedOnUpdateResponseBody: ExtractedOnUpdateResponsePayload =
                 await UpdateActionHandler.sendUpdateCallToBackend(backendUpdatePayload);
             logger.debug(
                 `🟢 [${reqId}] Received update response from backend in handleEVChargingUBCBppUpdateAction`,
@@ -186,51 +187,57 @@ export default class UpdateActionHandler {
 
     public static async sendUpdateCallToBackend(
         payload: ExtractedUpdateRequestBody
-    ): Promise<ExtractedOnUpdateResponseBody> {
+    ): Promise<ExtractedOnUpdateResponsePayload> {
 
         const { beckn_order_id, charging_action, charge_point_connector_id } = payload.payload;
-        const evseConnector = await EvseConnectorDbService.getById(charge_point_connector_id, {
-            include: {
-                evse: {
-                    select: {
-                        partner_id: true,
-                        evse_id: true,
-                        location: {
-                            select: {
-                                ocpi_location_id: true,
+        
+        
+        if (charging_action === ChargingAction.StartCharging) {
+            const evseConnector = await EvseConnectorDbService.getById(charge_point_connector_id, {
+                include: {
+                    evse: {
+                        select: {
+                            partner_id: true,
+                            evse_id: true,
+                            location: {
+                                select: {
+                                    ocpi_location_id: true,
+                                },
                             },
                         },
                     },
                 },
-            },
-        });
-        if (!evseConnector) {
-            throw new Error('EVSE Connector not found');
-        }
+            });
+            if (!evseConnector) {
+                throw new Error('EVSE Connector not found');
+            }
+    
+            const req = {
+                body: {
+                    partner_id: evseConnector.partner_id,
+                    location_id: evseConnector.evse?.location?.ocpi_location_id ?? '',
+                    evse_uid: evseConnector.evse?.evse_id ?? '',
+                    connector_id: evseConnector.connector_id,
+                    transaction_id: beckn_order_id,
+                },
+            } as Request;
 
-        const req = {
-            body: {
-                partner_id: evseConnector.partner_id,
-                location_id: evseConnector.evse?.location?.ocpi_location_id ?? '',
-                evse_uid: evseConnector.evse?.evse_id ?? '',
-                connector_id: evseConnector.connector_id,
-                transaction_id: beckn_order_id,
-            },
-        } as Request;
-
-        await SessionDbService.create({
-            data: {
-                country_code: 'IN',
-                partner_id: evseConnector.partner_id,
-                location_id: evseConnector.evse?.location?.ocpi_location_id ?? '',
-                evse_uid: evseConnector.evse?.evse_id ?? '',
-                connector_id: charge_point_connector_id,
-                authorization_reference: beckn_order_id,
-            },
-        });
-        if (charging_action === ChargingAction.StartCharging) {
+            
+            await SessionDbService.create({
+                data: {
+                    country_code: 'IN',
+                    partner_id: evseConnector.partner_id,
+                    location_id: evseConnector.evse?.location?.ocpi_location_id ?? '',
+                    evse_uid: evseConnector.evse?.evse_id ?? '',
+                    connector_id: charge_point_connector_id,
+                    authorization_reference: beckn_order_id,
+                },
+            });
             const response = await AdminCommandsModule.startCharging(req);
-            return response.payload.data as ExtractedOnUpdateResponseBody;
+            const ocpiCommandResponse = response.payload.data as OCPICommandResponseResponse;
+            return {
+                session_status: ocpiCommandResponse.data?.result === OCPICommandResponseType.ACCEPTED ? ChargingSessionStatus.ACTIVE : ChargingSessionStatus.COMPLETED,
+            };
         } 
         else if (charging_action === ChargingAction.StopCharging) {
             const session = await SessionDbService.getByAuthorizationReference(beckn_order_id);
@@ -239,12 +246,15 @@ export default class UpdateActionHandler {
             }
             const req = {
                 body: {
-                    partner_id: evseConnector.partner_id,
+                    partner_id: session.partner_id,
                     session_id: session.cpo_session_id,
                 },
             } as Request;
             const response = await AdminCommandsModule.stopCharging(req);
-            return response.payload.data as ExtractedOnUpdateResponseBody;
+            const ocpiCommandResponse = response.payload.data as OCPICommandResponseResponse;
+            return {
+                session_status: ocpiCommandResponse.data?.result === OCPICommandResponseType.ACCEPTED ? ChargingSessionStatus.COMPLETED : ChargingSessionStatus.INTERRUPTED,
+            };
         }
         else {
             throw new Error('Invalid charging action');
@@ -253,7 +263,7 @@ export default class UpdateActionHandler {
 
     public static translateBackendToUBC(
         backendUpdatePayload: UBCUpdateRequestPayload,
-        ExtractedOnUpdateResponseBody: ExtractedOnUpdateResponseBody
+        ExtractedOnUpdateResponseBody: ExtractedOnUpdateResponsePayload
     ): UBCOnUpdateRequestPayload {
         const context = Utils.getBPPContext({
             ...backendUpdatePayload.context,
@@ -266,9 +276,9 @@ export default class UpdateActionHandler {
                 order: {
                     ...backendUpdatePayload.message.order,
                     'beckn:orderStatus':
-                        ExtractedOnUpdateResponseBody.payload.session_status ===
+                        ExtractedOnUpdateResponseBody.session_status ===
                             ChargingSessionStatus.ACTIVE ||
-                        ExtractedOnUpdateResponseBody.payload.session_status ===
+                        ExtractedOnUpdateResponseBody.session_status ===
                             ChargingSessionStatus.COMPLETED
                             ? OrderStatus.COMPLETED
                             : backendUpdatePayload.message.order['beckn:orderStatus'],
@@ -278,7 +288,7 @@ export default class UpdateActionHandler {
                             ...backendUpdatePayload.message.order['beckn:fulfillment'][
                                 'beckn:deliveryAttributes'
                             ],
-                            sessionStatus: ExtractedOnUpdateResponseBody.payload.session_status,
+                            sessionStatus: ExtractedOnUpdateResponseBody.session_status,
                         },
                     },
                 },
