@@ -10,8 +10,14 @@ import { logger } from '../../../services/logger.service';
 import { UBCOnInitRequestPayload } from '../../schema/v2.0.0/actions/init/types/OnInitPayload';
 import BecknLogDbService from '../../../db-services/BecknLogDbService';
 import { ChargingSessionStatus } from '../../schema/v2.0.0/enums/ChargingSessionStatus';
-import { ExtractedInitRequestBody, GeneratePaymentLinkRequestPayload } from '../../schema/v2.0.0/actions/init/types/ExtractedInitRequestPayload';
-import { ExtractedOnInitResponseBody, GeneratePaymentLinkResponsePayload } from '../../schema/v2.0.0/actions/init/types/ExtractedOnInitResponsePayload';
+import {
+    ExtractedInitRequestBody,
+    GeneratePaymentLinkRequestPayload,
+} from '../../schema/v2.0.0/actions/init/types/ExtractedInitRequestPayload';
+import {
+    ExtractedOnInitResponseBody,
+    GeneratePaymentLinkResponsePayload,
+} from '../../schema/v2.0.0/actions/init/types/ExtractedOnInitResponsePayload';
 import { ObjectType } from '../../schema/v2.0.0/enums/ObjectType';
 import BppOnixRequestService from '../../services/BppOnixRequestService';
 import Utils from '../../../utils/Utils';
@@ -177,7 +183,9 @@ export default class InitActionHandler {
         payload: ExtractedInitRequestBody
     ): Promise<ExtractedOnInitResponseBody> {
         const finalAmount = payload.payload.amount;
-        const evseConnector = await EvseConnectorDbService.getByConnectorId(payload.payload.charge_point_connector_id);
+        const evseConnector = await EvseConnectorDbService.getByConnectorId(
+            payload.payload.charge_point_connector_id
+        );
         const authorizationReference = Utils.generateUUID();
         const paymentStatus = BecknPaymentStatus.PENDING;
         const orderValueComponents = payload.payload.orderValueComponents;
@@ -191,16 +199,20 @@ export default class InitActionHandler {
             },
             status: paymentStatus,
             requested_energy_units: payload.payload.charging_option_unit,
-            partner_id: evseConnector?.partner_id ?? '', 
+            partner_id: evseConnector?.partner_id ?? '',
             beckn_transaction_id: payload.metadata.beckn_transaction_id,
-        }; 
+        };
         const paymentTxn = await PaymentTxnDbService.create({
             data: paymentTxnData,
         });
-        const generatePaymentLinkResponse = await InitActionHandler.sendGeneratePaymentLinkCallToBackend({
-            amount: finalAmount,
-            authorization_reference: authorizationReference,
-        }, paymentTxn.partner_id);
+        const generatePaymentLinkResponse =
+            await InitActionHandler.sendGeneratePaymentLinkCallToBackend(
+                {
+                    amount: finalAmount,
+                    authorization_reference: authorizationReference,
+                },
+                paymentTxn.partner_id
+            );
         PaymentTxnDbService.update(paymentTxn.id, {
             payment_link: generatePaymentLinkResponse.payment_link,
             authorization_reference: generatePaymentLinkResponse.authorization_reference,
@@ -223,19 +235,22 @@ export default class InitActionHandler {
     }
 
     public static async sendGeneratePaymentLinkCallToBackend(
-        payload: GeneratePaymentLinkRequestPayload, partnerId: string
+        payload: GeneratePaymentLinkRequestPayload,
+        partnerId: string
     ): Promise<GeneratePaymentLinkResponsePayload> {
         const ocpiPartner = await OCPIPartnerDbService.getById(partnerId);
-        const ocpiPartnerAdditionalProps = ocpiPartner?.additional_props as OCPIPartnerAdditionalProps;
-        const generatePaymentLink = ocpiPartnerAdditionalProps?.communication_urls?.generate_payment_link;
+        const ocpiPartnerAdditionalProps =
+            ocpiPartner?.additional_props as OCPIPartnerAdditionalProps;
+        const generatePaymentLink =
+            ocpiPartnerAdditionalProps?.communication_urls?.generate_payment_link;
         if (!generatePaymentLink) {
             throw new Error('Generate payment link endpoint not found');
         }
         const generatePaymentLinkUrl = generatePaymentLink.url;
         const generatePaymentLinkAuthToken = generatePaymentLink.auth_token;
-        const headers: Record<string, string> =  {
-           'Content-Type': 'application/json',
-        } 
+        const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+        };
         if (generatePaymentLinkAuthToken) {
             headers['Authorization'] = `${generatePaymentLinkAuthToken}`;
         }
@@ -349,4 +364,3 @@ export default class InitActionHandler {
         await this.sendOnInitCallToBecknONIX(errorOnInitPayload);
     }
 }
-
