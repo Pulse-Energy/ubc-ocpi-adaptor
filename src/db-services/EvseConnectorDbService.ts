@@ -1,4 +1,4 @@
-import { Tariff, Prisma, EVSEConnector } from '@prisma/client';
+import { Tariff, Prisma, EVSEConnector, EVSE, Location } from '@prisma/client';
 import { databaseService } from '../services/database.service';
 
 export type TariffWithRelations = Tariff;
@@ -58,7 +58,7 @@ export class EvseConnectorDbService {
     public static async getByConnectorId(
         connectorId: string,
         args: Prisma.EVSEConnectorFindFirstArgs = {}
-    ): Promise<EVSEConnector | null> {
+    ): Promise<(EVSEConnector & { evse?: EVSE & { location?: Location } }) | null> {
         const evseConnector = await databaseService.prisma.eVSEConnector.findFirst({
             where: {
                 connector_id: connectorId,

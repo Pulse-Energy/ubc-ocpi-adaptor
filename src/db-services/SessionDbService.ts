@@ -107,13 +107,13 @@ export class SessionDbService {
 
     // ==================== Mutations ====================
 
-    public static async createEndpoint(
+    public static async create(
         data: Prisma.SessionCreateArgs,
     ): Promise<Session> {
         return databaseService.prisma.session.create(data);
     }
 
-    public static async updateEndpoint(
+    public static async update(
         id: string,
         updateFields: Prisma.SessionUpdateInput,
     ): Promise<Session> {
@@ -123,9 +123,15 @@ export class SessionDbService {
         });
     }
 
-    public static async deleteEndpoint(id: string): Promise<Session> {
+    public static async delete(id: string): Promise<Session> {
         return databaseService.prisma.session.delete({
             where: { id },
+        });
+    }
+
+    public static async getByAuthorizationReference(authorization_reference: string): Promise<Session | null> {
+        return databaseService.prisma.session.findUnique({
+            where: { authorization_reference: authorization_reference },
         });
     }
 }

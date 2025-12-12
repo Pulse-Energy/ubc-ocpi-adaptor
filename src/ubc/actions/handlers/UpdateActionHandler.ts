@@ -18,6 +18,9 @@ import BppOnixRequestService from '../../services/BppOnixRequestService';
 import { ExtractedUpdateRequestBody } from '../../schema/v2.0.0/actions/update/types/ExtractedUpdateRequestPayload';
 import { ExtractedOnUpdateResponseBody } from '../../schema/v2.0.0/actions/update/types/ExtractedOnUpdateResponsePayload';
 import { ChargingAction } from '../../schema/v2.0.0/enums/ChargingAction';
+import AdminCommandsModule from '../../../admin/modules/AdminCommandsModule';
+import { SessionDbService } from '../../../db-services/SessionDbService';
+import { EvseConnectorDbService } from '../../../db-services/EvseConnectorDbService';
 
 /**
  * Handler for update action
@@ -161,6 +164,8 @@ export default class UpdateActionHandler {
                 bap_uri: payload.context.bap_uri,
             },
             payload: {
+                charge_point_connector_id:
+                    payload.message.order['beckn:orderItems'][0]['beckn:orderedItem'],
                 beckn_order_id: payload.message.order['beckn:orderNumber'],
                 /**
                  * If the session status is pending or active, then start charging.
@@ -183,16 +188,68 @@ export default class UpdateActionHandler {
     public static async sendUpdateCallToBackend(
         payload: ExtractedUpdateRequestBody
     ): Promise<ExtractedOnUpdateResponseBody> {
-        /**
-         * @todo @gaganpulse: Need to change
-         */
-        const backendHost = Utils.getBPPClientHost();
-        const response = await CPOBackendRequestService.sendPostRequest({
-            url: `${backendHost}/${BecknAction.update}`,
-            data: payload,
-            headers: {},
+
+        const { beckn_order_id, charging_action, charge_point_connector_id } = payload.payload;
+        const evseConnector = await EvseConnectorDbService.getByConnectorId(charge_point_connector_id, {
+            include: {
+                evse: {
+                    select: {
+                        partner_id: true,
+                        evse_id: true,
+                        location: {
+                            select: {
+                                ocpi_location_id: true,
+                            },
+                        },
+                    },
+                },
+            },
         });
-        return response.data as ExtractedOnUpdateResponseBody;
+        if (!evseConnector) {
+            throw new Error('EVSE Connector not found');
+        }
+
+        const req = {
+            body: {
+                partner_id: evseConnector.partner_id,
+                location_id: evseConnector.evse?.location?.ocpi_location_id ?? '',
+                evse_uid: evseConnector.evse?.evse_id ?? '',
+                connector_id: charge_point_connector_id,
+                transaction_id: beckn_order_id,
+            },
+        } as Request;
+
+        await SessionDbService.create({
+            data: {
+                country_code: 'IN',
+                partner_id: evseConnector.partner_id,
+                location_id: evseConnector.evse?.location?.ocpi_location_id ?? '',
+                evse_uid: evseConnector.evse?.evse_id ?? '',
+                connector_id: charge_point_connector_id,
+                authorization_reference: beckn_order_id,
+            },
+        });
+        if (charging_action === ChargingAction.StartCharging) {
+            const response = await AdminCommandsModule.startCharging(req);
+            return response.payload.data as ExtractedOnUpdateResponseBody;
+        } 
+        else if (charging_action === ChargingAction.StopCharging) {
+            const session = await SessionDbService.getByAuthorizationReference(beckn_order_id);
+            if (!session) {
+                throw new Error('Session not found');
+            }
+            const req = {
+                body: {
+                    partner_id: evseConnector.partner_id,
+                    session_id: session.cpo_session_id,
+                },
+            } as Request;
+            const response = await AdminCommandsModule.stopCharging(req);
+            return response.payload.data as ExtractedOnUpdateResponseBody;
+        }
+        else {
+            throw new Error('Invalid charging action');
+        }
     }
 
     public static translateBackendToUBC(
