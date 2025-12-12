@@ -488,6 +488,7 @@ model PaymentTxn {
   partner_id                      String
   partner                         OCPIPartner @relation(fields: [partner_id], references: [id])
   beckn_transaction_id            String
+  additional_props                Json?       @default("{}") @db.Json
   created_at                      DateTime    @default(now())
   updated_at                      DateTime    @updatedAt
   deleted                         Boolean     @default(false)
