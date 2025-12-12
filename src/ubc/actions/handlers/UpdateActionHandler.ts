@@ -31,7 +31,7 @@ export default class UpdateActionHandler {
         const payload = req.body as UBCUpdateRequestPayload;
 
         return OnixBppController.requestWrapper(BecknAction.update, req, () => {
-            InitActionHandler.handleEVChargingUBCBppInitAction(payload)
+            UpdateActionHandler.handleEVChargingUBCBppUpdateAction(payload)
                 .then((ubcOnUpdateResponsePayload: UBCOnUpdateRequestPayload) => {
                     logger.debug(`🟢 Sending select response in handleBppSelectRequest`, {
                         data: ubcOnUpdateResponsePayload,
@@ -189,7 +189,7 @@ export default class UpdateActionHandler {
     ): Promise<ExtractedOnUpdateResponseBody> {
 
         const { beckn_order_id, charging_action, charge_point_connector_id } = payload.payload;
-        const evseConnector = await EvseConnectorDbService.getByConnectorId(charge_point_connector_id, {
+        const evseConnector = await EvseConnectorDbService.getById(charge_point_connector_id, {
             include: {
                 evse: {
                     select: {
@@ -213,7 +213,7 @@ export default class UpdateActionHandler {
                 partner_id: evseConnector.partner_id,
                 location_id: evseConnector.evse?.location?.ocpi_location_id ?? '',
                 evse_uid: evseConnector.evse?.evse_id ?? '',
-                connector_id: charge_point_connector_id,
+                connector_id: evseConnector.connector_id,
                 transaction_id: beckn_order_id,
             },
         } as Request;

@@ -44,12 +44,11 @@ export class EvseConnectorDbService {
 
     public static async getById(
         evseConnectorId: string,
-    ): Promise<EVSEConnector | null> {
-        const evseConnector = await databaseService.prisma.eVSEConnector.findUnique({
-            where: {
-                id: evseConnectorId,
-                deleted: false,
-            },
+        args: Prisma.EVSEConnectorFindFirstArgs = {}
+    ): Promise<(EVSEConnector & { evse?: EVSE & { location?: Location } }) | null> {
+        const evseConnector = await databaseService.prisma.eVSEConnector.findFirst({
+            where: { id: evseConnectorId, deleted: false },
+            ...args,
         });
 
         return evseConnector as EVSEConnector | null;
