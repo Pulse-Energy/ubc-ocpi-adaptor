@@ -1,5 +1,5 @@
 import { Request } from 'express';
-import { OCPIPartnerCredentials } from '@prisma/client';
+import { OCPIPartnerCredentials, Prisma } from '@prisma/client';
 import { HttpResponse } from '../../../../../types/responses';
 import {
     OCPILocation,
@@ -171,7 +171,6 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
         if (!payload || payload.uid !== evse_uid) {
             return OCPIResponseService.clientError<OCPIEVSE[]>([]);
         }
-
         const prismaLocation = await LocationDbService.findByOcpiLocationId(
             location_id,
             partnerCredentials.partner_id,
@@ -180,20 +179,104 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
             return OCPIResponseService.clientError<OCPIEVSE[]>([]);
         }
 
-        // Merge or replace EVSE within location and re-upsert the full location tree
-        const ocpiLocation = LocationDbService.mapPrismaLocationToOcpi(prismaLocation);
-        const evses = ocpiLocation.evses || [];
-        const filtered = evses.filter((e) => e.uid !== evse_uid);
-        const updatedLocation: OCPILocation = {
-            ...ocpiLocation,
-            evses: [...filtered, payload],
+        const prisma = databaseService.prisma;
+
+        const existingEvse = await prisma.eVSE.findFirst({
+            where: {
+                location_id: prismaLocation.id,
+                uid: evse_uid,
+                deleted: false,
+            },
+        });
+
+        const evseData: Prisma.EVSECreateInput = {
+            location: { connect: { id: prismaLocation.id } },
+            partner: { connect: { id: partnerCredentials.partner_id } },
+            uid: payload.uid,
+            evse_id: payload.evse_id ?? null,
+            status: String(payload.status),
+            status_schedule: payload.status_schedule
+                ? (payload.status_schedule as unknown as Prisma.InputJsonValue)
+                : [] as Prisma.InputJsonValue,
+            capabilities: payload.capabilities ?? [],
+            floor_level: payload.floor_level ?? null,
+            latitude: payload.coordinates?.latitude ?? prismaLocation.latitude,
+            longitude: payload.coordinates?.longitude ?? prismaLocation.longitude,
+            physical_reference: payload.physical_reference ?? null,
+            directions: payload.directions
+                ? (payload.directions as unknown as Prisma.InputJsonValue)
+                : [] as Prisma.InputJsonValue,
+            parking_restrictions: payload.parking_restrictions ?? [],
+            images: payload.images
+                ? (payload.images as unknown as Prisma.InputJsonValue)
+                : [] as Prisma.InputJsonValue,
+            status_errorcode: payload.status_errorcode ?? null,
+            status_errordescription: payload.status_errordescription ?? null,
+            last_updated: new Date(payload.last_updated ?? new Date().toISOString()),
         };
-        const stored = await LocationDbService.upsertFromOcpiLocation(
-            updatedLocation,
+
+        let evseRecord;
+        if (existingEvse) {
+            evseRecord = await prisma.eVSE.update({
+                where: { id: existingEvse.id },
+                data: evseData,
+            });
+        }
+        else {
+            evseRecord = await prisma.eVSE.create({ data: evseData });
+        }
+
+        // Connectors (if provided) – upsert by connector_id while keeping primary key stable
+        if (payload.connectors && payload.connectors.length > 0) {
+            for (const connector of payload.connectors) {
+                const existingConnector = await prisma.eVSEConnector.findFirst({
+                    where: {
+                        evse_id: evseRecord.id,
+                        connector_id: connector.id,
+                        deleted: false,
+                    },
+                });
+
+                const connectorData: Prisma.EVSEConnectorCreateInput = {
+                    evse: { connect: { id: evseRecord.id } },
+                    partner: { connect: { id: partnerCredentials.partner_id } },
+                    connector_id: connector.id,
+                    standard: String(connector.standard),
+                    format: String(connector.format),
+                    qr_code: connector.qr_code ?? null,
+                    power_type: String(connector.power_type),
+                    max_voltage: BigInt(connector.max_voltage),
+                    max_amperage: BigInt(connector.max_amperage),
+                    max_electric_power: connector.max_electric_power != null
+                        ? BigInt(connector.max_electric_power)
+                        : null,
+                    terms_and_conditions: connector.terms_and_conditions ?? null,
+                    last_updated: new Date(connector.last_updated),
+                    tariff_ids: connector.tariff_ids ?? [],
+                };
+
+                if (existingConnector) {
+                    await prisma.eVSEConnector.update({
+                        where: { id: existingConnector.id },
+                        data: connectorData,
+                    });
+                }
+                else {
+                    await prisma.eVSEConnector.create({ data: connectorData });
+                }
+            }
+        }
+
+        // Re-read location and return the single EVSE in OCPI form
+        const refreshedLocation = await LocationDbService.findByOcpiLocationId(
+            location_id,
             partnerCredentials.partner_id,
         );
-        const storedLocation = LocationDbService.mapPrismaLocationToOcpi(stored);
-        const resultEvses = (storedLocation.evses || []).filter((e) => e.uid === evse_uid);
+        if (!refreshedLocation) {
+            return OCPIResponseService.clientError<OCPIEVSE[]>([]);
+        }
+        const ocpiLocation = LocationDbService.mapPrismaLocationToOcpi(refreshedLocation);
+        const resultEvses = (ocpiLocation.evses || []).filter((e) => e.uid === evse_uid);
 
         return OCPIResponseService.success<OCPIEVSE[]>(resultEvses);
     }
@@ -214,7 +297,6 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
         if (!payload || payload.id !== connector_id) {
             return OCPIResponseService.clientError<OCPIConnector[]>([]);
         }
-
         const prismaLocation = await LocationDbService.findByOcpiLocationId(
             location_id,
             partnerCredentials.partner_id,
@@ -223,31 +305,66 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
             return OCPIResponseService.clientError<OCPIConnector[]>([]);
         }
 
-        const ocpiLocation = LocationDbService.mapPrismaLocationToOcpi(prismaLocation);
-        const evses = ocpiLocation.evses || [];
-        const updatedEvses: OCPIEVSE[] = evses.map((evse) => {
-            if (evse.uid !== evse_uid) {
-                return evse;
-            }
-            const connectors = evse.connectors || [];
-            const filtered = connectors.filter((c) => c.id !== connector_id);
-            return {
-                ...evse,
-                connectors: [...filtered, payload],
-            };
+        const prisma = databaseService.prisma;
+
+        const evseRecord = await prisma.eVSE.findFirst({
+            where: {
+                location_id: prismaLocation.id,
+                uid: evse_uid,
+                deleted: false,
+            },
         });
 
-        const updatedLocation: OCPILocation = {
-            ...ocpiLocation,
-            evses: updatedEvses,
+        if (!evseRecord) {
+            return OCPIResponseService.clientError<OCPIConnector[]>([]);
+        }
+
+        const existingConnector = await prisma.eVSEConnector.findFirst({
+            where: {
+                evse_id: evseRecord.id,
+                connector_id,
+                deleted: false,
+            },
+        });
+
+        const connectorData: Prisma.EVSEConnectorCreateInput = {
+            evse: { connect: { id: evseRecord.id } },
+            partner: { connect: { id: partnerCredentials.partner_id } },
+            connector_id: payload.id,
+            standard: String(payload.standard),
+            format: String(payload.format),
+            qr_code: payload.qr_code ?? null,
+            power_type: String(payload.power_type),
+            max_voltage: BigInt(payload.max_voltage),
+            max_amperage: BigInt(payload.max_amperage),
+            max_electric_power: payload.max_electric_power != null
+                ? BigInt(payload.max_electric_power)
+                : null,
+            terms_and_conditions: payload.terms_and_conditions ?? null,
+            last_updated: new Date(payload.last_updated),
+            tariff_ids: payload.tariff_ids ?? [],
         };
-        const stored = await LocationDbService.upsertFromOcpiLocation(
-            updatedLocation,
+
+        if (existingConnector) {
+            await prisma.eVSEConnector.update({
+                where: { id: existingConnector.id },
+                data: connectorData,
+            });
+        }
+        else {
+            await prisma.eVSEConnector.create({ data: connectorData });
+        }
+
+        const refreshedLocation = await LocationDbService.findByOcpiLocationId(
+            location_id,
             partnerCredentials.partner_id,
         );
-        const storedLocation = LocationDbService.mapPrismaLocationToOcpi(stored);
+        if (!refreshedLocation) {
+            return OCPIResponseService.clientError<OCPIConnector[]>([]);
+        }
+        const ocpiLocation = LocationDbService.mapPrismaLocationToOcpi(refreshedLocation);
         const resultConnectors: OCPIConnector[] =
-            (storedLocation.evses || [])
+            (ocpiLocation.evses || [])
                 .filter((e) => e.uid === evse_uid)
                 .flatMap((e) => (e.connectors || []).filter((c) => c.id === connector_id));
 
@@ -345,11 +462,9 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPIResponsePayload<unknown>>> {
         const { location_id, evse_uid } = req.params as { location_id: string; evse_uid: string };
-        type PatchConnectorWithId = OCPIPatchConnector & { id?: string };
-        type EVSEPatchWithConnectors = OCPIPatchEVSE & { connectors?: PatchConnectorWithId[] };
+        const patch = req.body as OCPIPatchEVSE;
 
-        const patch = req.body as EVSEPatchWithConnectors;
-
+        // Find location (to resolve internal location_id) scoped to partner
         const prismaLocation = await LocationDbService.findByOcpiLocationId(
             location_id,
             partnerCredentials.partner_id,
@@ -358,55 +473,81 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
             return OCPIResponseService.clientError<OCPIEVSE | null>(null);
         }
 
-        const currentLocation = LocationDbService.mapPrismaLocationToOcpi(prismaLocation);
-        const evses = currentLocation.evses || [];
+        const prisma = databaseService.prisma;
 
-        const updatedEvses: OCPIEVSE[] = evses.map((evse) => {
-            if (evse.uid !== evse_uid) {
-                return evse;
-            }
-            const { connectors: connectorPatches, ...evseFieldsPatch } = patch;
-
-            const mergedEvse: OCPIEVSE = {
-                ...evse,
-                ...evseFieldsPatch,
-                coordinates: evseFieldsPatch.coordinates ?? evse.coordinates,
-            };
-
-            // If connector patches are present, merge them by connector id
-            if (connectorPatches && connectorPatches.length > 0 && evse.connectors) {
-                const mergedConnectors: OCPIConnector[] = evse.connectors.map((connector) => {
-                    const connectorPatch = connectorPatches.find((cp) => cp.id === connector.id);
-                    if (!connectorPatch) {
-                        return connector;
-                    }
-
-                    const connectorFieldsPatch = { ...connectorPatch };
-                    delete (connectorFieldsPatch as { id?: string }).id;
-
-                    return {
-                        ...connector,
-                        ...connectorFieldsPatch,
-                    };
-                });
-
-                mergedEvse.connectors = mergedConnectors;
-            }
-
-            return mergedEvse;
+        // Find the concrete EVSE row; we will update it in-place instead of
+        // deleting/recreating, so its primary key remains stable.
+        const evseRecord = await prisma.eVSE.findFirst({
+            where: {
+                location_id: prismaLocation.id,
+                uid: evse_uid,
+                deleted: false,
+            },
         });
 
-        const updatedLocation: OCPILocation = {
-            ...currentLocation,
-            evses: updatedEvses,
-        };
-        const stored = await LocationDbService.upsertFromOcpiLocation(
-            updatedLocation,
+        if (!evseRecord) {
+            return OCPIResponseService.clientError<OCPIEVSE | null>(null);
+        }
+
+        const evseUpdate: Prisma.EVSEUpdateInput = {};
+
+        if (patch.status) {
+            evseUpdate.status = String(patch.status);
+        }
+        if (patch.status_schedule) {
+            evseUpdate.status_schedule = patch.status_schedule as unknown as Prisma.InputJsonValue;
+        }
+        if (patch.capabilities) {
+            evseUpdate.capabilities = patch.capabilities;
+        }
+        if (patch.floor_level !== undefined) {
+            evseUpdate.floor_level = patch.floor_level;
+        }
+        if (patch.coordinates) {
+            if (patch.coordinates.latitude) {
+                evseUpdate.latitude = patch.coordinates.latitude;
+            }
+            if (patch.coordinates.longitude) {
+                evseUpdate.longitude = patch.coordinates.longitude;
+            }
+        }
+        if (patch.physical_reference !== undefined) {
+            evseUpdate.physical_reference = patch.physical_reference;
+        }
+        if (patch.directions) {
+            evseUpdate.directions = patch.directions as unknown as Prisma.InputJsonValue;
+        }
+        if (patch.parking_restrictions) {
+            evseUpdate.parking_restrictions = patch.parking_restrictions;
+        }
+        if (patch.images) {
+            evseUpdate.images = patch.images as unknown as Prisma.InputJsonValue;
+        }
+        if (patch.last_updated) {
+            evseUpdate.last_updated = new Date(patch.last_updated);
+        }
+        if (patch.status_errorcode !== undefined) {
+            evseUpdate.status_errorcode = patch.status_errorcode;
+        }
+        if (patch.status_errordescription !== undefined) {
+            evseUpdate.status_errordescription = patch.status_errordescription;
+        }
+
+        await prisma.eVSE.update({
+            where: { id: evseRecord.id },
+            data: evseUpdate,
+        });
+
+        // Re-read location + relations and map back to OCPI
+        const refreshedLocation = await LocationDbService.findByOcpiLocationId(
+            location_id,
             partnerCredentials.partner_id,
         );
-        const storedLocation = LocationDbService.mapPrismaLocationToOcpi(stored);
-        const updatedEvse =
-            (storedLocation.evses || []).find((e) => e.uid === evse_uid) ?? undefined;
+        if (!refreshedLocation) {
+            return OCPIResponseService.clientError<OCPIEVSE | null>(null);
+        }
+        const ocpiLocation = LocationDbService.mapPrismaLocationToOcpi(refreshedLocation);
+        const updatedEvse = (ocpiLocation.evses || []).find((e) => e.uid === evse_uid);
 
         return OCPIResponseService.success<OCPIEVSE | undefined>(updatedEvse);
     }
