@@ -1,4 +1,4 @@
-import { Request } from 'express';
+import { Request, Response } from 'express';
 import { HttpResponse } from '../../../../../types/responses';
 import { OCPICommandResponseResponse } from '../../../../schema/modules/commands/types/responses';
 import { OCPICommandResult } from '../../../../schema/modules/commands/types/requests';
@@ -8,6 +8,8 @@ import { databaseService } from '../../../../../services/database.service';
 import { OCPIPartnerCredentials } from '@prisma/client';
 import { OCPISessionStatus } from '../../../../schema/modules/sessions/enums';
 import { OCPICommandResultType, OCPICommandType } from '../../../../schema/modules/commands/enums';
+import { OCPIRequestLogService } from '../../../../services/OCPIRequestLogService';
+import { OCPILogCommand } from '../../../../types';
 
 /**
  * OCPI 2.2.1 – Commands module (incoming, EMSP side).
@@ -25,8 +27,16 @@ export default class OCPIv221CommandsModuleIncomingRequestService {
      */
     public static async handlePostCommand(
         req: Request,
+        res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPICommandResponseResponse>> {
+        // Log incoming request
+        await OCPIRequestLogService.logRequest({
+            req,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.PostCommandResultReq,
+        });
+
         const { command_type, command_id } = req.params as {
             command_type?: string;
             command_id?: string;
@@ -66,13 +76,25 @@ export default class OCPIv221CommandsModuleIncomingRequestService {
         }
 
         if (!session) {
-            return {
+            const response = {
                 httpStatus: 404,
                 payload: {
                     status_code: OCPIResponseStatusCode.status_2001,
                     timestamp: new Date().toISOString(),
                 },
             };
+
+            // Log outgoing response
+            await OCPIRequestLogService.logResponse({
+                req,
+                res,
+                responseBody: response.payload,
+                statusCode: response.httpStatus,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.PostCommandResultRes,
+            });
+
+            return response;
         }
         
         // update the session status
@@ -83,12 +105,24 @@ export default class OCPIv221CommandsModuleIncomingRequestService {
             },
         });
 
-        return {
+        const response = {
             httpStatus: 200,
             payload: {
                 status_code: OCPIResponseStatusCode.status_1000,
                 timestamp: new Date().toISOString(),
             },
         };
+
+        // Log outgoing response
+        await OCPIRequestLogService.logResponse({
+            req,
+            res,
+            responseBody: response.payload,
+            statusCode: response.httpStatus,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.PostCommandResultRes,
+        });
+
+        return response;
     }
 }

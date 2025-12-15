@@ -8,6 +8,7 @@ import { OCPISession, OCPIPatchSession } from '../../../../schema/modules/sessio
 import OCPIOutgoingRequestService from '../../../../services/OCPIOutgoingRequestService';
 import Utils from '../../../../../utils/Utils';
 import { OCPIResponsePayload } from '../../../../schema/general/types/responses';
+import { OCPILogCommand } from '../../../../types';
 
 /**
  * OCPI 2.2.1 – Sessions module (outgoing, EMSP → CPO).
@@ -57,7 +58,7 @@ export default class OCPIv221SessionsModuleOutgoingRequestService {
             url,
             headers: OCPIv221SessionsModuleOutgoingRequestService.getAuthHeaders(cpoAuthToken),
             partnerId,
-            command: 'SESSIONS_GET',
+            command: OCPILogCommand.SendGetSessionsReq,
         });
 
         const payload = response.data as OCPISessionsResponse;
@@ -94,7 +95,7 @@ export default class OCPIv221SessionsModuleOutgoingRequestService {
             url,
             headers: OCPIv221SessionsModuleOutgoingRequestService.getAuthHeaders(cpoAuthToken),
             partnerId,
-            command: 'SESSIONS_GET_ONE',
+            command: OCPILogCommand.SendGetSessionOneReq,
         });
 
         const payload = response.data as OCPISessionResponse;
@@ -130,7 +131,7 @@ export default class OCPIv221SessionsModuleOutgoingRequestService {
             headers: OCPIv221SessionsModuleOutgoingRequestService.getAuthHeaders(cpoAuthToken),
             data: payload,
             partnerId,
-            command: 'SESSIONS_PUT',
+            command: OCPILogCommand.SendPutSessionReq,
         });
 
         const payloadOut = response as OCPIResponsePayload<OCPISession>;
@@ -166,7 +167,7 @@ export default class OCPIv221SessionsModuleOutgoingRequestService {
             headers: OCPIv221SessionsModuleOutgoingRequestService.getAuthHeaders(cpoAuthToken),
             data: patch,
             partnerId,
-            command: 'SESSIONS_PATCH',
+            command: OCPILogCommand.SendPatchSessionReq,
         });
 
         const payloadOut = response as OCPIResponsePayload<OCPISession>;

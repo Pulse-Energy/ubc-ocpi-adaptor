@@ -1,10 +1,12 @@
-import { Request } from 'express';
+import { Request, Response } from 'express';
 import { CDR as PrismaCDR, Prisma, OCPIPartnerCredentials } from '@prisma/client';
 import { HttpResponse } from '../../../../../types/responses';
 import { OCPICDRResponse, OCPICDRsResponse } from '../../../../schema/modules/cdrs/types/responses';
 import { OCPICDR } from '../../../../schema/modules/cdrs/types';
 import { databaseService } from '../../../../../services/database.service';
 import { OCPIResponseStatusCode } from '../../../../schema/general/enum';
+import { OCPIRequestLogService } from '../../../../services/OCPIRequestLogService';
+import { OCPILogCommand } from '../../../../types';
 // NOTE: Utils import removed – not used in this module.
 
 /**
@@ -24,8 +26,16 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
      */
     public static async handleGetCDRs(
         req: Request,
+        res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPICDRsResponse>> {
+        // Log incoming request
+        await OCPIRequestLogService.logRequest({
+            req,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.GetCdrReq,
+        });
+
         const prisma = databaseService.prisma;
 
         const {
@@ -79,7 +89,7 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
             OCPIv221CDRsModuleIncomingRequestService.mapPrismaCdrToOcpi,
         );
 
-        return {
+        const response = {
             httpStatus: 200,
             payload: {
                 data,
@@ -87,6 +97,18 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
                 timestamp: new Date().toISOString(),
             },
         };
+
+        // Log outgoing response
+        await OCPIRequestLogService.logResponse({
+            req,
+            res,
+            responseBody: response.payload,
+            statusCode: response.httpStatus,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.GetCdrRes,
+        });
+
+        return response;
     }
 
     /**
@@ -94,8 +116,16 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
      */
     public static async handleGetCDR(
         req: Request,
+        res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPICDRResponse>> {
+        // Log incoming request
+        await OCPIRequestLogService.logRequest({
+            req,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.GetCdrReq,
+        });
+
         const prisma = databaseService.prisma;
         const { country_code, party_id, cdr_id } = req.params as {
             country_code: string;
@@ -114,7 +144,7 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
         });
 
         if (!cdr) {
-            return {
+            const response = {
                 httpStatus: 404,
                 payload: {
                     status_code: OCPIResponseStatusCode.status_2001,
@@ -122,11 +152,23 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
                     timestamp: new Date().toISOString(),
                 },
             };
+
+            // Log outgoing response
+            await OCPIRequestLogService.logResponse({
+                req,
+                res,
+                responseBody: response.payload,
+                statusCode: response.httpStatus,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.GetCdrsRes,
+            });
+
+            return response;
         }
 
         const data = OCPIv221CDRsModuleIncomingRequestService.mapPrismaCdrToOcpi(cdr);
 
-        return {
+        const response = {
             httpStatus: 200,
             payload: {
                 data,
@@ -134,6 +176,18 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
                 timestamp: new Date().toISOString(),
             },
         };
+
+        // Log outgoing response
+        await OCPIRequestLogService.logResponse({
+            req,
+            res,
+            responseBody: response.payload,
+            statusCode: response.httpStatus,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.GetCdrRes,
+        });
+
+        return response;
     }
 
     /**
@@ -143,13 +197,21 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
      */
     public static async handlePostCDR(
         req: Request,
+        res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPICDRResponse>> {
+        // Log incoming request
+        await OCPIRequestLogService.logRequest({
+            req,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.PostCdrReq,
+        });
+
         const prisma = databaseService.prisma;
         const payload = req.body as OCPICDR;
 
         if (!payload) {
-            return {
+            const response = {
                 httpStatus: 400,
                 payload: {
                     status_code: OCPIResponseStatusCode.status_2000,
@@ -157,6 +219,18 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
                     timestamp: new Date().toISOString(),
                 },
             };
+
+            // Log outgoing response
+            await OCPIRequestLogService.logResponse({
+                req,
+                res,
+                responseBody: response.payload,
+                statusCode: response.httpStatus,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.PostCdrRes,
+            });
+
+            return response;
         }
 
         const partnerId = partnerCredentials.partner_id;
@@ -188,7 +262,7 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
 
         const data = OCPIv221CDRsModuleIncomingRequestService.mapPrismaCdrToOcpi(stored);
 
-        return {
+        const response = {
             httpStatus: 200,
             payload: {
                 data,
@@ -196,6 +270,18 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
                 timestamp: new Date().toISOString(),
             },
         };
+
+        // Log outgoing response
+        await OCPIRequestLogService.logResponse({
+            req,
+            res,
+            responseBody: response.payload,
+            statusCode: response.httpStatus,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.PostCdrRes,
+        });
+
+        return response;
     }
 
     private static mapPrismaCdrToOcpi(cdr: PrismaCDR): OCPICDR {

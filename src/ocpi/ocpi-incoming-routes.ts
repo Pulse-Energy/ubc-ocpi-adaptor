@@ -14,7 +14,6 @@ import VersionsModuleIncomingRequestService from './modules/v2.2.1/emsp/versions
 import { OCPIResponsePayload } from './schema/general/types/responses';
 import Utils from '../utils/Utils';
 import { OCPIPartnerCredentials } from '@prisma/client';
-import { OCPIRequestLogService } from './services/OCPIRequestLogService';
 
 const router = Router();
 
@@ -116,10 +115,11 @@ async function handleRequest<T>(
     req: Request,
     res: Response,
     next: NextFunction,
-    controller: (req: Request) => Promise<HttpResponse<OCPIResponsePayload<T>>>,
+    controller: (req: Request, res: Response, partnerCredentials?: OCPIPartnerCredentials) => Promise<HttpResponse<OCPIResponsePayload<T>>>,
+    partnerCredentials?: OCPIPartnerCredentials,
 ) {
     try {
-        const response = await controller(req);
+        const response = await controller(req, res, partnerCredentials);
 
         // Strip BigInt from payload so JSON.stringify does not fail
         const safePayload = JSON.parse(
@@ -128,21 +128,6 @@ async function handleRequest<T>(
                 (_key, value) => (typeof value === 'bigint' ? Number(value) : value),
             ),
         );
-
-        // Persist OCPI incoming log (best-effort; errors are not fatal)
-        try {
-            await OCPIRequestLogService.logIncoming({
-                req,
-                responsePayload: safePayload,
-                statusCode: response.httpStatus || 200,
-            });
-        }
-        catch (logError) {
-            logger.error('Failed to persist OCPI incoming log', logError as Error, {
-                path: req.path,
-                method: req.method,
-            });
-        }
 
         res.status(response.httpStatus || 200).json(safePayload);
         if (response.headers) {
@@ -164,7 +149,13 @@ router.get(
     '/versions',
     ocpiAuth,
     async (req: Request, res: Response, next: NextFunction) =>
-        handleRequest(req, res, next, VersionsModuleIncomingRequestService.handleGetVersions),
+        handleRequest(
+            req,
+            res,
+            next,
+            VersionsModuleIncomingRequestService.handleGetVersions,
+            (req as OCPIAuthedRequest).ocpiPartnerCredentials,
+        ),
 );
 
 // Version details for 2.2.1 – base URL of this EMSP interface
@@ -172,7 +163,13 @@ router.get(
     '/versions/2.2.1/details',
     ocpiAuth,
     async (req: Request, res: Response, next: NextFunction) =>
-        handleRequest(req, res, next, VersionsModuleIncomingRequestService.handleGetVersionDetails),
+        handleRequest(
+            req,
+            res,
+            next,
+            VersionsModuleIncomingRequestService.handleGetVersionDetails,
+            (req as OCPIAuthedRequest).ocpiPartnerCredentials,
+        ),
 );
 
 
@@ -186,11 +183,13 @@ router.post(
             req,
             res,
             next,
-            (innerReq: Request) =>
+            (innerReq: Request, innerRes: Response) =>
                 OCPIv221CredentialsModuleIncomingRequestService.handlePostCredentials(
                     innerReq,
+                    innerRes,
                     (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
                 ),
+            (req as OCPIAuthedRequest).ocpiPartnerCredentials,
         ),
 );
 
@@ -202,11 +201,13 @@ router.get(
             req,
             res,
             next,
-            (innerReq: Request) =>
+            (innerReq: Request, innerRes: Response) =>
                 OCPIv221CredentialsModuleIncomingRequestService.handleGetCredentials(
                     innerReq,
+                    innerRes,
                     (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
                 ),
+            (req as OCPIAuthedRequest).ocpiPartnerCredentials,
         ),
 );
 
@@ -218,11 +219,13 @@ router.put(
             req,
             res,
             next,
-            (innerReq: Request) =>
+            (innerReq: Request, innerRes: Response) =>
                 OCPIv221CredentialsModuleIncomingRequestService.handlePutCredentials(
                     innerReq,
+                    innerRes,
                     (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
                 ),
+            (req as OCPIAuthedRequest).ocpiPartnerCredentials,
         ),
 );
 
@@ -234,11 +237,13 @@ router.patch(
             req,
             res,
             next,
-            (innerReq: Request) =>
+            (innerReq: Request, innerRes: Response) =>
                 OCPIv221CredentialsModuleIncomingRequestService.handlePatchCredentials(
                     innerReq,
+                    innerRes,
                     (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
                 ),
+            (req as OCPIAuthedRequest).ocpiPartnerCredentials,
         ),
 );
 
@@ -252,11 +257,13 @@ router.get(
             req,
             res,
             next,
-            (innerReq: Request) =>
+            (innerReq: Request, innerRes: Response) =>
                 OCPIv221TokensModuleIncomingRequestService.handleGetTokens(
                     innerReq,
+                    innerRes,
                     (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
                 ),
+            (req as OCPIAuthedRequest).ocpiPartnerCredentials,
         ),
 );
 
@@ -268,11 +275,13 @@ router.get(
             req,
             res,
             next,
-            (innerReq: Request) =>
+            (innerReq: Request, innerRes: Response) =>
                 OCPIv221TokensModuleIncomingRequestService.handleGetToken(
                     innerReq,
+                    innerRes,
                     (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
                 ),
+            (req as OCPIAuthedRequest).ocpiPartnerCredentials,
         ),
 );
 
@@ -284,11 +293,13 @@ router.put(
             req,
             res,
             next,
-            (innerReq: Request) =>
+            (innerReq: Request, innerRes: Response) =>
                 OCPIv221TokensModuleIncomingRequestService.handlePutToken(
                     innerReq,
-                    (req as any).ocpiPartnerCredentials,
+                    innerRes,
+                    (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
                 ),
+            (req as OCPIAuthedRequest).ocpiPartnerCredentials,
         ),
 );
 
@@ -300,11 +311,13 @@ router.patch(
             req,
             res,
             next,
-            (innerReq: Request) =>
+            (innerReq: Request, innerRes: Response) =>
                 OCPIv221TokensModuleIncomingRequestService.handlePatchToken(
                     innerReq,
+                    innerRes,
                     (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
                 ),
+            (req as OCPIAuthedRequest).ocpiPartnerCredentials,
         ),
 );
 
@@ -316,11 +329,13 @@ router.post(
             req,
             res,
             next,
-            (innerReq: Request) =>
+            (innerReq: Request, innerRes: Response) =>
                 OCPIv221TokensModuleIncomingRequestService.handlePostAuthorizeToken(
                     innerReq,
+                    innerRes,
                     (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
                 ),
+            (req as OCPIAuthedRequest).ocpiPartnerCredentials,
         ),
 );
 
@@ -333,11 +348,13 @@ router.get(
             req,
             res,
             next,
-            (innerReq: Request) =>
+            (innerReq: Request, innerRes: Response) =>
                 OCPIv221SessionsModuleIncomingRequestService.handleGetSessions(
                     innerReq,
+                    innerRes,
                     (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
                 ),
+            (req as OCPIAuthedRequest).ocpiPartnerCredentials,
         ),
 );
 
@@ -349,11 +366,13 @@ router.get(
             req,
             res,
             next,
-            (innerReq: Request) =>
+            (innerReq: Request, innerRes: Response) =>
                 OCPIv221SessionsModuleIncomingRequestService.handleGetSession(
                     innerReq,
+                    innerRes,
                     (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
                 ),
+            (req as OCPIAuthedRequest).ocpiPartnerCredentials,
         ),
 );
 
@@ -365,11 +384,13 @@ router.put(
             req,
             res,
             next,
-            (innerReq: Request) =>
+            (innerReq: Request, innerRes: Response) =>
                 OCPIv221SessionsModuleIncomingRequestService.handlePutSession(
                     innerReq,
+                    innerRes,
                     (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
                 ),
+            (req as OCPIAuthedRequest).ocpiPartnerCredentials,
         ),
 );
 
@@ -381,11 +402,13 @@ router.patch(
             req,
             res,
             next,
-            (innerReq: Request) =>
+            (innerReq: Request, innerRes: Response) =>
                 OCPIv221SessionsModuleIncomingRequestService.handlePatchSession(
                     innerReq,
+                    innerRes,
                     (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
                 ),
+            (req as OCPIAuthedRequest).ocpiPartnerCredentials,
         ),
 );
 
@@ -398,11 +421,13 @@ router.get(
             req,
             res,
             next,
-            (innerReq: Request) =>
+            (innerReq: Request, innerRes: Response) =>
                 OCPIv221CDRsModuleIncomingRequestService.handleGetCDRs(
                     innerReq,
+                    innerRes,
                     (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
                 ),
+            (req as OCPIAuthedRequest).ocpiPartnerCredentials,
         ),
 );
 
@@ -414,27 +439,31 @@ router.get(
             req,
             res,
             next,
-            (innerReq: Request) =>
+            (innerReq: Request, innerRes: Response) =>
                 OCPIv221CDRsModuleIncomingRequestService.handleGetCDR(
                     innerReq,
+                    innerRes,
                     (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
                 ),
+            (req as OCPIAuthedRequest).ocpiPartnerCredentials,
         ),
 );
 
 router.post(
-    '/2.2.1/cdrs',
+    '/2.2.1/cdrs/:country_code/:party_id',
     ocpiAuth,
     async (req: Request, res: Response, next: NextFunction) =>
         handleRequest(
             req,
             res,
             next,
-            (innerReq: Request) =>
+            (innerReq: Request, innerRes: Response) =>
                 OCPIv221CDRsModuleIncomingRequestService.handlePostCDR(
                     innerReq,
+                    innerRes,
                     (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
                 ),
+            (req as OCPIAuthedRequest).ocpiPartnerCredentials,
         ),
 );
 
@@ -447,11 +476,13 @@ router.post(
             req,
             res,
             next,
-            (innerReq: Request) =>
+            (innerReq: Request, innerRes: Response) =>
                 OCPIv221CommandsModuleIncomingRequestService.handlePostCommand(
                     innerReq,
-                    (req as OCPIAuthedRequest).ocpiPartnerCredentials as OCPIPartnerCredentials,
+                    innerRes,
+                    (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
                 ),
+            (req as OCPIAuthedRequest).ocpiPartnerCredentials,
         ),
 );
 
@@ -465,11 +496,13 @@ router.get(
             req,
             res,
             next,
-            (innerReq: Request) =>
+            (innerReq: Request, innerRes: Response) =>
                 OCPIv221LocationsModuleIncomingRequestService.handleGetLocations(
                     innerReq,
+                    innerRes,
                     (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
                 ),
+            (req as OCPIAuthedRequest).ocpiPartnerCredentials,
         ),
 );
 router.get(
@@ -480,11 +513,13 @@ router.get(
             req,
             res,
             next,
-            (innerReq: Request) =>
+            (innerReq: Request, innerRes: Response) =>
                 OCPIv221LocationsModuleIncomingRequestService.handleGetLocation(
                     innerReq,
+                    innerRes,
                     (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
                 ),
+            (req as OCPIAuthedRequest).ocpiPartnerCredentials,
         ),
 );
 router.put(
@@ -495,11 +530,13 @@ router.put(
             req,
             res,
             next,
-            (innerReq: Request) =>
+            (innerReq: Request, innerRes: Response) =>
                 OCPIv221LocationsModuleIncomingRequestService.handlePutLocation(
                     innerReq,
+                    innerRes,
                     (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
                 ),
+            (req as OCPIAuthedRequest).ocpiPartnerCredentials,
         ),
 );
 router.patch(
@@ -510,11 +547,13 @@ router.patch(
             req,
             res,
             next,
-            (innerReq: Request) =>
+            (innerReq: Request, innerRes: Response) =>
                 OCPIv221LocationsModuleIncomingRequestService.handlePatchLocation(
                     innerReq,
+                    innerRes,
                     (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
                 ),
+            (req as OCPIAuthedRequest).ocpiPartnerCredentials,
         ),
 );
 
@@ -527,11 +566,13 @@ router.get(
             req,
             res,
             next,
-            (innerReq: Request) =>
+            (innerReq: Request, innerRes: Response) =>
                 OCPIv221LocationsModuleIncomingRequestService.handleGetEVSE(
                     innerReq,
+                    innerRes,
                     (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
                 ),
+            (req as OCPIAuthedRequest).ocpiPartnerCredentials,
         ),
 );
 router.put(
@@ -542,11 +583,13 @@ router.put(
             req,
             res,
             next,
-            (innerReq: Request) =>
+            (innerReq: Request, innerRes: Response) =>
                 OCPIv221LocationsModuleIncomingRequestService.handlePutEVSE(
                     innerReq,
+                    innerRes,
                     (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
                 ),
+            (req as OCPIAuthedRequest).ocpiPartnerCredentials,
         ),
 );
 router.patch(
@@ -557,11 +600,13 @@ router.patch(
             req,
             res,
             next,
-            (innerReq: Request) =>
+            (innerReq: Request, innerRes: Response) =>
                 OCPIv221LocationsModuleIncomingRequestService.handlePatchEVSE(
                     innerReq,
+                    innerRes,
                     (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
                 ),
+            (req as OCPIAuthedRequest).ocpiPartnerCredentials,
         ),
 );
 
@@ -574,11 +619,13 @@ router.get(
             req,
             res,
             next,
-            (innerReq: Request) =>
+            (innerReq: Request, innerRes: Response) =>
                 OCPIv221LocationsModuleIncomingRequestService.handleGetConnector(
                     innerReq,
+                    innerRes,
                     (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
                 ),
+            (req as OCPIAuthedRequest).ocpiPartnerCredentials,
         ),
 );
 router.put(
@@ -589,11 +636,13 @@ router.put(
             req,
             res,
             next,
-            (innerReq: Request) =>
+            (innerReq: Request, innerRes: Response) =>
                 OCPIv221LocationsModuleIncomingRequestService.handlePutConnector(
                     innerReq,
+                    innerRes,
                     (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
                 ),
+            (req as OCPIAuthedRequest).ocpiPartnerCredentials,
         ),
 );
 router.patch(
@@ -604,11 +653,13 @@ router.patch(
             req,
             res,
             next,
-            (innerReq: Request) =>
+            (innerReq: Request, innerRes: Response) =>
                 OCPIv221LocationsModuleIncomingRequestService.handlePatchConnector(
                     innerReq,
+                    innerRes,
                     (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
                 ),
+            (req as OCPIAuthedRequest).ocpiPartnerCredentials,
         ),
 );
 
@@ -621,11 +672,13 @@ router.get(
             req,
             res,
             next,
-            (innerReq: Request) =>
+            (innerReq: Request, innerRes: Response) =>
                 OCPIv221TariffsModuleIncomingRequestService.handleGetTariffs(
                     innerReq,
+                    innerRes,
                     (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
                 ),
+            (req as OCPIAuthedRequest).ocpiPartnerCredentials,
         ),
 );
 router.get(
@@ -636,11 +689,13 @@ router.get(
             req,
             res,
             next,
-            (innerReq: Request) =>
+            (innerReq: Request, innerRes: Response) =>
                 OCPIv221TariffsModuleIncomingRequestService.handleGetTariff(
                     innerReq,
+                    innerRes,
                     (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
                 ),
+            (req as OCPIAuthedRequest).ocpiPartnerCredentials,
         ),
 );
 router.put(
@@ -651,11 +706,13 @@ router.put(
             req,
             res,
             next,
-            (innerReq: Request) =>
+            (innerReq: Request, innerRes: Response) =>
                 OCPIv221TariffsModuleIncomingRequestService.handlePutTariff(
                     innerReq,
+                    innerRes,
                     (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
                 ),
+            (req as OCPIAuthedRequest).ocpiPartnerCredentials,
         ),
 );
 
@@ -667,11 +724,13 @@ router.patch(
             req,
             res,
             next,
-            (innerReq: Request) =>
+            (innerReq: Request, innerRes: Response) =>
                 OCPIv221TariffsModuleIncomingRequestService.handlePatchTariff(
                     innerReq,
+                    innerRes,
                     (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
                 ),
+            (req as OCPIAuthedRequest).ocpiPartnerCredentials,
         ),
 );
 
@@ -683,11 +742,13 @@ router.delete(
             req,
             res,
             next,
-            (innerReq: Request) =>
+            (innerReq: Request, innerRes: Response) =>
                 OCPIv221TariffsModuleIncomingRequestService.handleDeleteTariff(
                     innerReq,
+                    innerRes,
                     (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
                 ),
+            (req as OCPIAuthedRequest).ocpiPartnerCredentials,
         ),
 );
 

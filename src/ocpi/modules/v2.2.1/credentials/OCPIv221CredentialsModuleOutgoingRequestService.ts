@@ -5,6 +5,7 @@ import {
     OCPICredentialsRoleClass,
 } from '../../../schema/modules/credentials/types';
 import OCPIOutgoingRequestService from '../../../services/OCPIOutgoingRequestService';
+import { OCPILogCommand } from '../../../types';
 
 /**
  * OCPI 2.2.1 Credentials module (outgoing, EMSP side).
@@ -47,7 +48,7 @@ export default class OCPIv221CredentialsModuleOutgoingRequestService {
             },
             data: credentials,
             partnerId,
-            command: 'CREDENTIALS_POST',
+            command: OCPILogCommand.SendPostCredentialsReq,
         });
 
         const payload = response as OCPIResponsePayload<OCPICredentials>;
@@ -75,7 +76,7 @@ export default class OCPIv221CredentialsModuleOutgoingRequestService {
                 Authorization: `Token ${cpoAuthToken}`,
             },
             partnerId,
-            command: 'CREDENTIALS_GET',
+            command: OCPILogCommand.SendGetCredentialsReq,
         });
 
         const payload = response.data as OCPIResponsePayload<OCPICredentials>;

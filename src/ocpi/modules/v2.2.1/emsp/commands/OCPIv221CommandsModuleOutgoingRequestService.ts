@@ -11,6 +11,7 @@ import {
 import { OCPICommandType } from '../../../../schema/modules/commands/enums';
 import OCPIOutgoingRequestService from '../../../../services/OCPIOutgoingRequestService';
 import Utils from '../../../../../utils/Utils';
+import { OCPILogCommand } from '../../../../types';
 
 /**
  * OCPI 2.2.1 – Commands module (outgoing, EMSP → CPO).
@@ -40,6 +41,23 @@ export default class OCPIv221CommandsModuleOutgoingRequestService {
         };
     }
 
+    private static getLogCommandForCommandType(commandType: OCPICommandType): OCPILogCommand {
+        switch (commandType) {
+            case OCPICommandType.START_SESSION:
+                return OCPILogCommand.SendStartSessionPostCommandReq;
+            case OCPICommandType.STOP_SESSION:
+                return OCPILogCommand.SendStopSessionPostCommandReq;
+            case OCPICommandType.RESERVE_NOW:
+                return OCPILogCommand.PostStartSessionCommand; // Using existing enum
+            case OCPICommandType.CANCEL_RESERVATION:
+                return OCPILogCommand.PostStopSessionCommand; // Using existing enum
+            case OCPICommandType.UNLOCK_CONNECTOR:
+                return OCPILogCommand.PostStartSessionCommand; // Using existing enum
+            default:
+                return OCPILogCommand.PostStartSessionCommand; // Fallback
+        }
+    }
+
     private static async sendCommand(
         commandType: OCPICommandType,
         body: OCPICancelReservation | OCPIReserveNow | OCPIStartSession | OCPIStopSession | OCPIUnlockConnector,
@@ -51,12 +69,14 @@ export default class OCPIv221CommandsModuleOutgoingRequestService {
         );
         const url = `${baseUrl}/${commandType}`;
 
+        const logCommand = OCPIv221CommandsModuleOutgoingRequestService.getLogCommandForCommandType(commandType);
+
         const response = await OCPIOutgoingRequestService.sendPostRequest({
             url,
             headers: OCPIv221CommandsModuleOutgoingRequestService.getAuthHeaders(cpoAuthToken),
             data: body,
             partnerId,
-            command: commandType,
+            command: logCommand,
         });
 
         const payload = response as OCPICommandResponseResponse;

@@ -1,4 +1,4 @@
-import { Request } from 'express';
+import { Request, Response } from 'express';
 import { HttpResponse } from '../../../../../types/responses';
 import { AppError } from '../../../../../utils/errors';
 import { OCPIResponseStatusCode } from '../../../../schema/general/enum';
@@ -8,6 +8,9 @@ import { OCPIEndpointClass, OCPIv211EndpointClass, OCPIVersionClass } from '../.
 import { OCPIv211VersionDetailResponse, OCPIVersionDetailResponse } from '../../../../schema/modules/verisons/types/responses';
 import Utils from '../../../../../utils/Utils';
 import { databaseService } from '../../../../../services/database.service';
+import { OCPIRequestLogService } from '../../../../services/OCPIRequestLogService';
+import { OCPILogCommand } from '../../../../types';
+import { OCPIPartnerCredentials } from '@prisma/client';
 
 /**
  * OCPI Versions module (incoming, EMSP side, v2.2.1).
@@ -17,11 +20,22 @@ import { databaseService } from '../../../../../services/database.service';
  */
 export default class VersionsModuleIncomingRequestService {
 
-    public static async handleGetVersions(): Promise<HttpResponse<OCPIResponsePayload<OCPIVersionClass[]>>> {
+    public static async handleGetVersions(
+        req: Request,
+        res: Response,
+        partnerCredentials?: OCPIPartnerCredentials,
+    ): Promise<HttpResponse<OCPIResponsePayload<OCPIVersionClass[]>>> {
+        // Log incoming request
+        await OCPIRequestLogService.logRequest({
+            req,
+            partnerId: partnerCredentials?.partner_id,
+            command: OCPILogCommand.GetVersionReq,
+        });
+
         const emspPartner = await Utils.findEmspPartner();
 
         if (!emspPartner) {
-            return {
+            const response = {
                 httpStatus: 404,
                 payload: {
                     status_code: OCPIResponseStatusCode.status_2001,
@@ -29,6 +43,18 @@ export default class VersionsModuleIncomingRequestService {
                     timestamp: new Date().toISOString(),
                 },
             };
+
+            // Log outgoing response
+            await OCPIRequestLogService.logResponse({
+                req,
+                res,
+                responseBody: response.payload,
+                statusCode: response.httpStatus,
+                partnerId: partnerCredentials?.partner_id,
+                command: OCPILogCommand.GetVersionRes,
+            });
+
+            return response;
         }
 
         const ocpiVersions = await databaseService.prisma.oCPIVersion.findMany({
@@ -46,8 +72,7 @@ export default class VersionsModuleIncomingRequestService {
             url: v.version_url,
         }));
 
-
-        return {
+        const response = {
             httpStatus: 200,
             payload: {
                 data: versions,
@@ -55,17 +80,38 @@ export default class VersionsModuleIncomingRequestService {
                 timestamp: new Date().toISOString(),
             },
         };
+
+        // Log outgoing response
+        await OCPIRequestLogService.logResponse({
+            req,
+            res,
+            responseBody: response.payload,
+            statusCode: response.httpStatus,
+            partnerId: partnerCredentials?.partner_id,
+            command: OCPILogCommand.GetVersionRes,
+        });
+
+        return response;
     }
 
     public static async handleGetVersionDetails(
         req: Request,
+        res: Response,
+        partnerCredentials?: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPIResponsePayload<OCPIVersionDetailResponse | OCPIv211VersionDetailResponse>>> {
+        // Log incoming request
+        await OCPIRequestLogService.logRequest({
+            req,
+            partnerId: partnerCredentials?.partner_id,
+            command: OCPILogCommand.GetVersionDetailsReq,
+        });
+
         // For this EMSP implementation we currently only support 2.2.1 and the
         // interface is mounted at /ocpi/emsp/2.2.1, so this handler always
         // returns the 2.2.1 version details.
         
         const versionDetails = await VersionsModuleIncomingRequestService.handleGetVersionDetailsV221();
-        return {
+        const response = {
             httpStatus: 200,
             payload: {
                 data: versionDetails,
@@ -74,7 +120,17 @@ export default class VersionsModuleIncomingRequestService {
             },
         };
 
-        
+        // Log outgoing response
+        await OCPIRequestLogService.logResponse({
+            req,
+            res,
+            responseBody: response.payload,
+            statusCode: response.httpStatus,
+            partnerId: partnerCredentials?.partner_id,
+            command: OCPILogCommand.GetVersionDetailsRes,
+        });
+
+        return response;
     }
 
     private static async handleGetVersionDetailsV221(): Promise<OCPIVersionDetailResponse> {

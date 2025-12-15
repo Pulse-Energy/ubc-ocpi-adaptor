@@ -1,4 +1,4 @@
-import { Request } from 'express';
+import { Request, Response } from 'express';
 import { Session as PrismaSession, Prisma, OCPIPartnerCredentials } from '@prisma/client';
 import { HttpResponse } from '../../../../../types/responses';
 import {
@@ -10,6 +10,8 @@ import { databaseService } from '../../../../../services/database.service';
 import { OCPIResponseStatusCode } from '../../../../schema/general/enum';
 import { OCPISessionStatus } from '../../../../schema/modules/sessions/enums';
 import { OCPIAuthMethod } from '../../../../schema/modules/cdrs/enums';
+import { OCPIRequestLogService } from '../../../../services/OCPIRequestLogService';
+import { OCPILogCommand } from '../../../../types';
 
 /**
  * OCPI 2.2.1 – Sessions module (incoming, EMSP side).
@@ -29,8 +31,16 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
      */
     public static async handleGetSessions(
         req: Request,
+        res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPISessionsResponse>> {
+        // Log incoming request
+        await OCPIRequestLogService.logRequest({
+            req,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.GetSessionsReq,
+        });
+
         const prisma = databaseService.prisma;
 
         const {
@@ -84,7 +94,7 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
             OCPIv221SessionsModuleIncomingRequestService.mapPrismaSessionToOcpi,
         );
 
-        return {
+        const response = {
             httpStatus: 200,
             payload: {
                 data,
@@ -92,6 +102,18 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
                 timestamp: new Date().toISOString(),
             },
         };
+
+        // Log outgoing response
+        await OCPIRequestLogService.logResponse({
+            req,
+            res,
+            responseBody: response.payload,
+            statusCode: response.httpStatus,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.GetSessionsRes,
+        });
+
+        return response;
     }
 
     /**
@@ -99,8 +121,16 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
      */
     public static async handleGetSession(
         req: Request,
+        res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPISessionResponse>> {
+        // Log incoming request
+        await OCPIRequestLogService.logRequest({
+            req,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.GetSessionReq,
+        });
+
         const prisma = databaseService.prisma;
         const { country_code, party_id, session_id } = req.params as {
             country_code: string;
@@ -119,7 +149,7 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
         });
 
         if (!session) {
-            return {
+            const response = {
                 httpStatus: 404,
                 payload: {
                     status_code: OCPIResponseStatusCode.status_2001,
@@ -127,13 +157,25 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
                     timestamp: new Date().toISOString(),
                 },
             };
+
+            // Log outgoing response
+            await OCPIRequestLogService.logResponse({
+                req,
+                res,
+                responseBody: response.payload,
+                statusCode: response.httpStatus,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.GetSessionRes,
+            });
+
+            return response;
         }
 
         const data = OCPIv221SessionsModuleIncomingRequestService.mapPrismaSessionToOcpi(
             session,
         );
 
-        return {
+        const response = {
             httpStatus: 200,
             payload: {
                 data,
@@ -141,6 +183,18 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
                 timestamp: new Date().toISOString(),
             },
         };
+
+        // Log outgoing response
+        await OCPIRequestLogService.logResponse({
+            req,
+            res,
+            responseBody: response.payload,
+            statusCode: response.httpStatus,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.GetSessionRes,
+        });
+
+        return response;
     }
 
     /**
@@ -150,8 +204,16 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
      */
     public static async handlePutSession(
         req: Request,
+        res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPISessionResponse>> {
+        // Log incoming request
+        await OCPIRequestLogService.logRequest({
+            req,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.PutSessionReq,
+        });
+
         const prisma = databaseService.prisma;
         const { country_code, party_id, session_id } = req.params as {
             country_code: string;
@@ -167,7 +229,7 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
             payload.party_id !== party_id ||
             payload.id !== session_id
         ) {
-            return {
+            const response = {
                 httpStatus: 400,
                 payload: {
                     status_code: OCPIResponseStatusCode.status_2000,
@@ -175,6 +237,18 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
                     timestamp: new Date().toISOString(),
                 },
             };
+
+            // Log outgoing response
+            await OCPIRequestLogService.logResponse({
+                req,
+                res,
+                responseBody: response.payload,
+                statusCode: response.httpStatus,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.PutSessionRes,
+            });
+
+            return response;
         }
 
         const existing = await prisma.session.findFirst({
@@ -212,7 +286,7 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
         const data =
             OCPIv221SessionsModuleIncomingRequestService.mapPrismaSessionToOcpi(stored);
 
-        return {
+        const response = {
             httpStatus: 200,
             payload: {
                 data,
@@ -220,6 +294,18 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
                 timestamp: new Date().toISOString(),
             },
         };
+
+        // Log outgoing response
+        await OCPIRequestLogService.logResponse({
+            req,
+            res,
+            responseBody: response.payload,
+            statusCode: response.httpStatus,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.PutSessionRes,
+        });
+
+        return response;
     }
 
     /**
@@ -233,8 +319,16 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
      */
     public static async handlePatchSession(
         req: Request,
+        res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPISessionResponse>> {
+        // Log incoming request
+        await OCPIRequestLogService.logRequest({
+            req,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.PatchSessionReq,
+        });
+
         const prisma = databaseService.prisma;
         const { country_code, party_id, session_id } = req.params as {
             country_code: string;
@@ -265,13 +359,25 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
         }
 
         if (!existing) {
-            return {
+            const response = {
                 httpStatus: 404,
                 payload: {
                     status_code: OCPIResponseStatusCode.status_2001,
                     timestamp: new Date().toISOString(),
                 },
             };
+
+            // Log outgoing response
+            await OCPIRequestLogService.logResponse({
+                req,
+                res,
+                responseBody: response.payload,
+                statusCode: response.httpStatus,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.PatchSessionRes,
+            });
+
+            return response;
         }
 
         // Session exists, do a normal merge+update
@@ -298,7 +404,7 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
         const data =
             OCPIv221SessionsModuleIncomingRequestService.mapPrismaSessionToOcpi(stored);
 
-        return {
+        const response = {
             httpStatus: 200,
             payload: {
                 data,
@@ -306,6 +412,18 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
                 timestamp: new Date().toISOString(),
             },
         };
+
+        // Log outgoing response
+        await OCPIRequestLogService.logResponse({
+            req,
+            res,
+            responseBody: response.payload,
+            statusCode: response.httpStatus,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.PatchSessionRes,
+        });
+
+        return response;
     }
 
     private static mapPrismaSessionToOcpi(session: PrismaSession): OCPISession {

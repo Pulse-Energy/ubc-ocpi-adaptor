@@ -1,4 +1,4 @@
-import { Request } from 'express';
+import { Request, Response } from 'express';
 import { OCPIPartnerCredentials, Prisma } from '@prisma/client';
 import { HttpResponse } from '../../../../../types/responses';
 import {
@@ -13,6 +13,8 @@ import OCPIResponseService from '../../../../services/OCPIResponseService';
 import { OCPIResponsePayload } from '../../../../schema/general/types/responses';
 import { databaseService } from '../../../../../services/database.service';
 import { LocationDbService, LocationWithRelations } from '../../../../../db-services/LocationDbService';
+import { OCPIRequestLogService } from '../../../../services/OCPIRequestLogService';
+import { OCPILogCommand } from '../../../../types';
 
 /**
  * Handle all incoming requests for the Locations module from the CPO
@@ -23,8 +25,16 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
 
     public static async handleGetLocations(
         req: Request,
+        res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPIResponsePayload<unknown>>> {
+        // Log incoming request
+        await OCPIRequestLogService.logRequest({
+            req,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.SendGetLocationReq,
+        });
+
         const limit = req.query.limit ? Number(req.query.limit) : undefined;
         const offset = req.query.offset ? Number(req.query.offset) : undefined;
 
@@ -51,13 +61,33 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
             LocationDbService.mapPrismaLocationToOcpi(loc as LocationWithRelations),
         );
 
-        return OCPIResponseService.success<OCPILocation[]>(ocpiLocations);
+        const response = OCPIResponseService.success<OCPILocation[]>(ocpiLocations);
+
+        // Log outgoing response
+        await OCPIRequestLogService.logResponse({
+            req,
+            res,
+            responseBody: response.payload,
+            statusCode: response.httpStatus ?? 200,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.SendGetLocationRes,
+        });
+
+        return response;
     }
 
     public static async handleGetLocation(
         req: Request,
+        res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPIResponsePayload<unknown>>> {
+        // Log incoming request
+        await OCPIRequestLogService.logRequest({
+            req,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.SendGetLocationReq,
+        });
+
         const { location_id } = req.params as {
             country_code: string;
             party_id: string;
@@ -69,17 +99,47 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
             partnerCredentials.partner_id,
         );
         if (!prismaLocation) {
-            return OCPIResponseService.clientError<OCPILocation | null>(null);
+            const response = OCPIResponseService.clientError<OCPILocation | null>(null);
+            // Log outgoing response
+            await OCPIRequestLogService.logResponse({
+                req,
+                res,
+                responseBody: response.payload,
+                statusCode: response.httpStatus ?? 400,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.SendGetLocationRes,
+            });
+            return response;
         }
 
         const ocpiLocation = LocationDbService.mapPrismaLocationToOcpi(prismaLocation);
-        return OCPIResponseService.success<OCPILocation>(ocpiLocation);
+        const response = OCPIResponseService.success<OCPILocation>(ocpiLocation);
+
+        // Log outgoing response
+        await OCPIRequestLogService.logResponse({
+            req,
+            res,
+            responseBody: response.payload,
+            statusCode: response.httpStatus ?? 200,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.SendGetLocationRes,
+        });
+
+        return response;
     }
 
     public static async handleGetEVSE(
         req: Request,
+        res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPIResponsePayload<unknown>>> {
+        // Log incoming request
+        await OCPIRequestLogService.logRequest({
+            req,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.SendGetLocationReq,
+        });
+
         const { location_id, evse_uid } = req.params as {
             country_code: string;
             party_id: string;
@@ -92,19 +152,49 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
             partnerCredentials.partner_id,
         );
         if (!prismaLocation) {
-            return OCPIResponseService.clientError<OCPIEVSE[]>([]);
+            const response = OCPIResponseService.clientError<OCPIEVSE[]>([]);
+            // Log outgoing response
+            await OCPIRequestLogService.logResponse({
+                req,
+                res,
+                responseBody: response.payload,
+                statusCode: response.httpStatus ?? 400,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.SendGetLocationRes,
+            });
+            return response;
         }
 
         const ocpiLocation = LocationDbService.mapPrismaLocationToOcpi(prismaLocation);
         const evses = (ocpiLocation.evses || []).filter((evse) => evse.uid === evse_uid);
 
-        return OCPIResponseService.success<OCPIEVSE[]>(evses);
+        const response = OCPIResponseService.success<OCPIEVSE[]>(evses);
+
+        // Log outgoing response
+        await OCPIRequestLogService.logResponse({
+            req,
+            res,
+            responseBody: response.payload,
+            statusCode: response.httpStatus ?? 200,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.SendGetLocationRes,
+        });
+
+        return response;
     }
 
     public static async handleGetConnector(
         req: Request,
+        res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPIResponsePayload<unknown>>> {
+        // Log incoming request
+        await OCPIRequestLogService.logRequest({
+            req,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.SendGetLocationReq,
+        });
+
         const { location_id, evse_uid, connector_id } = req.params as {
             country_code: string;
             party_id: string;
@@ -118,7 +208,17 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
             partnerCredentials.partner_id,
         );
         if (!prismaLocation) {
-            return OCPIResponseService.clientError<OCPIConnector[]>([]);
+            const response = OCPIResponseService.clientError<OCPIConnector[]>([]);
+            // Log outgoing response
+            await OCPIRequestLogService.logResponse({
+                req,
+                res,
+                responseBody: response.payload,
+                statusCode: response.httpStatus ?? 400,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.SendGetLocationRes,
+            });
+            return response;
         }
 
         const ocpiLocation = LocationDbService.mapPrismaLocationToOcpi(prismaLocation);
@@ -127,15 +227,35 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
             (evse.connectors || []).filter((c) => c.id === connector_id),
         );
 
-        return OCPIResponseService.success<OCPIConnector[]>(connectors);
+        const response = OCPIResponseService.success<OCPIConnector[]>(connectors);
+
+        // Log outgoing response
+        await OCPIRequestLogService.logResponse({
+            req,
+            res,
+            responseBody: response.payload,
+            statusCode: response.httpStatus ?? 200,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.SendGetLocationRes,
+        });
+
+        return response;
     }
 
     // put requests
 
     public static async handlePutLocation(
         req: Request,
+        res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPIResponsePayload<unknown>>> {
+        // Log incoming request
+        await OCPIRequestLogService.logRequest({
+            req,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.PutLocationReq,
+        });
+
         const { location_id } = req.params as {
             country_code: string;
             party_id: string;
@@ -144,7 +264,17 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
         const payload = req.body as OCPILocation;
 
         if (!payload || payload.id !== location_id) {
-            return OCPIResponseService.clientError<OCPILocation | null>(null);
+            const response = OCPIResponseService.clientError<OCPILocation | null>(null);
+            // Log outgoing response
+            await OCPIRequestLogService.logResponse({
+                req,
+                res,
+                responseBody: response.payload,
+                statusCode: response.httpStatus ?? 400,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.PutLocationRes,
+            });
+            return response;
         }
 
         const stored = await LocationDbService.upsertFromOcpiLocation(
@@ -153,13 +283,33 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
         );
         const ocpiLocation = LocationDbService.mapPrismaLocationToOcpi(stored);
 
-        return OCPIResponseService.success<OCPILocation>(ocpiLocation);
+        const response = OCPIResponseService.success<OCPILocation>(ocpiLocation);
+
+        // Log outgoing response
+        await OCPIRequestLogService.logResponse({
+            req,
+            res,
+            responseBody: response.payload,
+            statusCode: response.httpStatus ?? 200,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.PutLocationRes,
+        });
+
+        return response;
     }
 
     public static async handlePutEVSE(
         req: Request,
+        res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPIResponsePayload<unknown>>> {
+        // Log incoming request
+        await OCPIRequestLogService.logRequest({
+            req,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.PutEVSEReq,
+        });
+
         const { location_id, evse_uid } = req.params as {
             country_code: string;
             party_id: string;
@@ -169,14 +319,34 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
         const payload = req.body as OCPIEVSE;
 
         if (!payload || payload.uid !== evse_uid) {
-            return OCPIResponseService.clientError<OCPIEVSE[]>([]);
+            const response = OCPIResponseService.clientError<OCPIEVSE[]>([]);
+            // Log outgoing response
+            await OCPIRequestLogService.logResponse({
+                req,
+                res,
+                responseBody: response.payload,
+                statusCode: response.httpStatus ?? 400,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.PutEVSERes,
+            });
+            return response;
         }
         const prismaLocation = await LocationDbService.findByOcpiLocationId(
             location_id,
             partnerCredentials.partner_id,
         );
         if (!prismaLocation) {
-            return OCPIResponseService.clientError<OCPIEVSE[]>([]);
+            const response = OCPIResponseService.clientError<OCPIEVSE[]>([]);
+            // Log outgoing response
+            await OCPIRequestLogService.logResponse({
+                req,
+                res,
+                responseBody: response.payload,
+                statusCode: response.httpStatus ?? 400,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.PutEVSERes,
+            });
+            return response;
         }
 
         const prisma = databaseService.prisma;
@@ -278,13 +448,33 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
         const ocpiLocation = LocationDbService.mapPrismaLocationToOcpi(refreshedLocation);
         const resultEvses = (ocpiLocation.evses || []).filter((e) => e.uid === evse_uid);
 
-        return OCPIResponseService.success<OCPIEVSE[]>(resultEvses);
+        const response = OCPIResponseService.success<OCPIEVSE[]>(resultEvses);
+
+        // Log outgoing response
+        await OCPIRequestLogService.logResponse({
+            req,
+            res,
+            responseBody: response.payload,
+            statusCode: response.httpStatus ?? 200,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.PutEVSERes,
+        });
+
+        return response;
     }
 
     public static async handlePutConnector(
         req: Request,
+        res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPIResponsePayload<unknown>>> {
+        // Log incoming request
+        await OCPIRequestLogService.logRequest({
+            req,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.PutConnectorReq,
+        });
+
         const { location_id, evse_uid, connector_id } = req.params as {
             country_code: string;
             party_id: string;
@@ -295,14 +485,34 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
         const payload = req.body as OCPIConnector;
 
         if (!payload || payload.id !== connector_id) {
-            return OCPIResponseService.clientError<OCPIConnector[]>([]);
+            const response = OCPIResponseService.clientError<OCPIConnector[]>([]);
+            // Log outgoing response
+            await OCPIRequestLogService.logResponse({
+                req,
+                res,
+                responseBody: response.payload,
+                statusCode: response.httpStatus ?? 400,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.PutConnectorRes,
+            });
+            return response;
         }
         const prismaLocation = await LocationDbService.findByOcpiLocationId(
             location_id,
             partnerCredentials.partner_id,
         );
         if (!prismaLocation) {
-            return OCPIResponseService.clientError<OCPIConnector[]>([]);
+            const response = OCPIResponseService.clientError<OCPIConnector[]>([]);
+            // Log outgoing response
+            await OCPIRequestLogService.logResponse({
+                req,
+                res,
+                responseBody: response.payload,
+                statusCode: response.httpStatus ?? 400,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.PutConnectorRes,
+            });
+            return response;
         }
 
         const prisma = databaseService.prisma;
@@ -316,7 +526,17 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
         });
 
         if (!evseRecord) {
-            return OCPIResponseService.clientError<OCPIConnector[]>([]);
+            const response = OCPIResponseService.clientError<OCPIConnector[]>([]);
+            // Log outgoing response
+            await OCPIRequestLogService.logResponse({
+                req,
+                res,
+                responseBody: response.payload,
+                statusCode: response.httpStatus ?? 400,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.PutConnectorRes,
+            });
+            return response;
         }
 
         const existingConnector = await prisma.eVSEConnector.findFirst({
@@ -368,15 +588,35 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
                 .filter((e) => e.uid === evse_uid)
                 .flatMap((e) => (e.connectors || []).filter((c) => c.id === connector_id));
 
-        return OCPIResponseService.success<OCPIConnector[]>(resultConnectors);
+        const response = OCPIResponseService.success<OCPIConnector[]>(resultConnectors);
+
+        // Log outgoing response
+        await OCPIRequestLogService.logResponse({
+            req,
+            res,
+            responseBody: response.payload,
+            statusCode: response.httpStatus ?? 200,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.PutConnectorRes,
+        });
+
+        return response;
     }
 
     // patch requests
 
     public static async handlePatchLocation(
         req: Request,
+        res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPIResponsePayload<unknown>>> {
+        // Log incoming request
+        await OCPIRequestLogService.logRequest({
+            req,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.PatchLocationReq,
+        });
+
         const { location_id } = req.params;
 
         type PatchConnectorWithId = OCPIPatchConnector & { id?: string };
@@ -390,7 +630,17 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
             partnerCredentials.partner_id,
         );
         if (!prismaLocation) {
-            return OCPIResponseService.clientError<OCPILocation | null>(null);
+            const response = OCPIResponseService.clientError<OCPILocation | null>(null);
+            // Log outgoing response
+            await OCPIRequestLogService.logResponse({
+                req,
+                res,
+                responseBody: response.payload,
+                statusCode: response.httpStatus ?? 400,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.PatchLocationRes,
+            });
+            return response;
         }
 
         const current = LocationDbService.mapPrismaLocationToOcpi(prismaLocation);
@@ -454,13 +704,33 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
         );
         const ocpiLocation = LocationDbService.mapPrismaLocationToOcpi(stored);
 
-        return OCPIResponseService.success<OCPILocation>(ocpiLocation);
+        const response = OCPIResponseService.success<OCPILocation>(ocpiLocation);
+
+        // Log outgoing response
+        await OCPIRequestLogService.logResponse({
+            req,
+            res,
+            responseBody: response.payload,
+            statusCode: response.httpStatus ?? 200,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.PatchLocationRes,
+        });
+
+        return response;
     }
 
     public static async handlePatchEVSE(
         req: Request,
+        res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPIResponsePayload<unknown>>> {
+        // Log incoming request
+        await OCPIRequestLogService.logRequest({
+            req,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.PatchEVSEReq,
+        });
+
         const { location_id, evse_uid } = req.params as { location_id: string; evse_uid: string };
         const patch = req.body as OCPIPatchEVSE;
 
@@ -470,7 +740,17 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
             partnerCredentials.partner_id,
         );
         if (!prismaLocation) {
-            return OCPIResponseService.clientError<OCPIEVSE | null>(null);
+            const response = OCPIResponseService.clientError<OCPIEVSE | null>(null);
+            // Log outgoing response
+            await OCPIRequestLogService.logResponse({
+                req,
+                res,
+                responseBody: response.payload,
+                statusCode: response.httpStatus ?? 400,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.PatchEVSERes,
+            });
+            return response;
         }
 
         const prisma = databaseService.prisma;
@@ -486,7 +766,17 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
         });
 
         if (!evseRecord) {
-            return OCPIResponseService.clientError<OCPIEVSE | null>(null);
+            const response = OCPIResponseService.clientError<OCPIEVSE | null>(null);
+            // Log outgoing response
+            await OCPIRequestLogService.logResponse({
+                req,
+                res,
+                responseBody: response.payload,
+                statusCode: response.httpStatus ?? 400,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.PatchEVSERes,
+            });
+            return response;
         }
 
         const evseUpdate: Prisma.EVSEUpdateInput = {};
@@ -549,13 +839,33 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
         const ocpiLocation = LocationDbService.mapPrismaLocationToOcpi(refreshedLocation);
         const updatedEvse = (ocpiLocation.evses || []).find((e) => e.uid === evse_uid);
 
-        return OCPIResponseService.success<OCPIEVSE | undefined>(updatedEvse);
+        const response = OCPIResponseService.success<OCPIEVSE | undefined>(updatedEvse);
+
+        // Log outgoing response
+        await OCPIRequestLogService.logResponse({
+            req,
+            res,
+            responseBody: response.payload,
+            statusCode: response.httpStatus ?? 200,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.PatchEVSERes,
+        });
+
+        return response;
     }
 
     public static async handlePatchConnector(
         req: Request,
+        res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPIResponsePayload<unknown>>> {
+        // Log incoming request
+        await OCPIRequestLogService.logRequest({
+            req,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.PatchConnectorReq,
+        });
+
         const { location_id, evse_uid, connector_id } = req.params as {
             location_id: string;
             evse_uid: string;
@@ -569,7 +879,17 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
         );
 
         if (!prismaLocation) {
-            return OCPIResponseService.clientError<OCPIConnector | null>(null);
+            const response = OCPIResponseService.clientError<OCPIConnector | null>(null);
+            // Log outgoing response
+            await OCPIRequestLogService.logResponse({
+                req,
+                res,
+                responseBody: response.payload,
+                statusCode: response.httpStatus ?? 400,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.PatchConnectorRes,
+            });
+            return response;
         }
 
         const currentLocation = LocationDbService.mapPrismaLocationToOcpi(prismaLocation);
@@ -612,7 +932,19 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
                 .flatMap((e) => e.connectors || [])
                 .find((c) => c.id === connector_id) ?? undefined;
 
-        return OCPIResponseService.success<OCPIConnector | undefined>(updatedConnector);
+        const response = OCPIResponseService.success<OCPIConnector | undefined>(updatedConnector);
+
+        // Log outgoing response
+        await OCPIRequestLogService.logResponse({
+            req,
+            res,
+            responseBody: response.payload,
+            statusCode: response.httpStatus ?? 200,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.PatchConnectorRes,
+        });
+
+        return response;
     }
 
 }

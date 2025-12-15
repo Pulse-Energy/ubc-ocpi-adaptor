@@ -1,4 +1,4 @@
-import { Request } from "express";
+import { Request, Response } from "express";
 import { OCPIPartnerCredentials } from "@prisma/client";
 import { HttpResponse } from "../../../../../types/responses";
 import {
@@ -10,6 +10,8 @@ import { TariffDbService } from "../../../../../db-services/TariffDbService";
 import { OCPITariff } from "../../../../schema/modules/tariffs/types";
 import { logger } from "../../../../../services/logger.service";
 import { OCPIResponseStatusCode } from "../../../../schema/general/enum";
+import { OCPIRequestLogService } from "../../../../services/OCPIRequestLogService";
+import { OCPILogCommand } from "../../../../types";
 
 /**
  * Handle all incoming requests for the Tariffs module from the CPO
@@ -20,8 +22,16 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
 
     public static async handleGetTariffs(
         req: Request,
+        res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPITariffsResponse>> {
+        // Log incoming request
+        await OCPIRequestLogService.logRequest({
+            req,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.GetTariffsReq,
+        });
+
         try {
             const limit = req.query.limit ? Number(req.query.limit) : undefined;
             const offset = req.query.offset ? Number(req.query.offset) : undefined;
@@ -88,27 +98,59 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
                 }
             }
 
-            return {
+            const response = {
                 httpStatus: 200,
                 payload: OCPIResponseService.success(ocpiTariffs).payload,
                 headers,
             };
+
+            // Log outgoing response
+            await OCPIRequestLogService.logResponse({
+                req,
+                res,
+                responseBody: response.payload,
+                statusCode: response.httpStatus,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.GetTariffsRes,
+            });
+
+            return response;
         } 
         catch (error) {
             logger.error('Error fetching tariffs', error as Error, {
                 query: req.query,
             });
-            return OCPIResponseService.serverError<unknown>({
+            const errorResponse = OCPIResponseService.serverError<unknown>({
                 message: 'Failed to fetch tariffs',
                 error: error instanceof Error ? error.message : String(error),
             }) as HttpResponse<OCPITariffsResponse>;
+
+            // Log outgoing response
+            await OCPIRequestLogService.logResponse({
+                req,
+                res,
+                responseBody: errorResponse.payload,
+                statusCode: errorResponse.httpStatus ?? 500,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.GetTariffsRes,
+            });
+
+            return errorResponse;
         }
     }
 
     public static async handleGetTariff(
         req: Request,
+        res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPITariffResponse>> {
+        // Log incoming request
+        await OCPIRequestLogService.logRequest({
+            req,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.GetTariffReq,
+        });
+
         try {
             const tariffId = req.params.tariff_id;
             const countryCode = (req.query.country_code as string) || (req.params.country_code as string);
@@ -130,13 +172,33 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
                 );
 
                 if (!tariff) {
-                    return OCPIResponseService.clientError<unknown>({
+                    const response = OCPIResponseService.clientError<unknown>({
                         message: 'Tariff not found',
                     }, OCPIResponseStatusCode.status_2003) as HttpResponse<OCPITariffResponse>;
+                    // Log outgoing response
+                    await OCPIRequestLogService.logResponse({
+                        req,
+                        res,
+                        responseBody: response.payload,
+                        statusCode: response.httpStatus ?? 404,
+                        partnerId: partnerCredentials.partner_id,
+                        command: OCPILogCommand.GetTariffRes,
+                    });
+                    return response;
                 }
 
                 const ocpiTariff = TariffDbService.mapPrismaTariffToOcpi(tariff);
-                return OCPIResponseService.success(ocpiTariff);
+                const response = OCPIResponseService.success(ocpiTariff);
+                // Log outgoing response
+                await OCPIRequestLogService.logResponse({
+                    req,
+                    res,
+                    responseBody: response.payload,
+                    statusCode: response.httpStatus ?? 200,
+                    partnerId: partnerCredentials.partner_id,
+                    command: OCPILogCommand.GetTariffRes,
+                });
+                return response;
             }
 
             // If country_code and party_id are not provided, try to find by tariff_id only
@@ -151,29 +213,69 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
             const matchingTariffs = tariffs.filter(t => t.ocpi_tariff_id === tariffId);
 
             if (matchingTariffs.length === 0) {
-                return OCPIResponseService.clientError<unknown>({
+                const response = OCPIResponseService.clientError<unknown>({
                     message: 'Tariff not found',
                 }, OCPIResponseStatusCode.status_2003) as HttpResponse<OCPITariffResponse>;
+                // Log outgoing response
+                await OCPIRequestLogService.logResponse({
+                    req,
+                    res,
+                    responseBody: response.payload,
+                    statusCode: response.httpStatus ?? 404,
+                    partnerId: partnerCredentials.partner_id,
+                    command: OCPILogCommand.GetTariffRes,
+                });
+                return response;
             }
 
             if (matchingTariffs.length > 1) {
-                return OCPIResponseService.clientError<unknown>({
+                const response = OCPIResponseService.clientError<unknown>({
                     message: 'Multiple tariffs found with the same ID. Please provide country_code and party_id',
                 }) as HttpResponse<OCPITariffResponse>;
+                // Log outgoing response
+                await OCPIRequestLogService.logResponse({
+                    req,
+                    res,
+                    responseBody: response.payload,
+                    statusCode: response.httpStatus ?? 400,
+                    partnerId: partnerCredentials.partner_id,
+                    command: OCPILogCommand.GetTariffRes,
+                });
+                return response;
             }
 
             const ocpiTariff = TariffDbService.mapPrismaTariffToOcpi(matchingTariffs[0]);
-            return OCPIResponseService.success(ocpiTariff);
+            const response = OCPIResponseService.success(ocpiTariff);
+            // Log outgoing response
+            await OCPIRequestLogService.logResponse({
+                req,
+                res,
+                responseBody: response.payload,
+                statusCode: response.httpStatus ?? 200,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.GetTariffRes,
+            });
+            return response;
         } 
         catch (error) {
             logger.error('Error fetching tariff', error as Error, {
                 params: req.params,
                 query: req.query,
             });
-            return OCPIResponseService.serverError<unknown>({
+            const errorResponse = OCPIResponseService.serverError<unknown>({
                 message: 'Failed to fetch tariff',
                 error: error instanceof Error ? error.message : String(error),
             }) as HttpResponse<OCPITariffResponse>;
+            // Log outgoing response
+            await OCPIRequestLogService.logResponse({
+                req,
+                res,
+                responseBody: errorResponse.payload,
+                statusCode: errorResponse.httpStatus ?? 500,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.GetTariffRes,
+            });
+            return errorResponse;
         }
     }
 
@@ -181,8 +283,16 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
 
     public static async handlePutTariff(
         req: Request,
+        res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPITariffResponse>> {
+        // Log incoming request
+        await OCPIRequestLogService.logRequest({
+            req,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.PutTariffReq,
+        });
+
         try {
             const tariffId = req.params.tariff_id;
             const countryCode = (req.params.country_code as string) || (req.query.country_code as string);
@@ -251,20 +361,44 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
             });
 
             // Return 201 for new tariffs, 200 for updates (OCPI 2.2.1 spec)
-            return {
+            const response = {
                 httpStatus: existingTariff ? 200 : 201,
                 payload: OCPIResponseService.success(responseTariff).payload,
             };
+
+            // Log outgoing response
+            await OCPIRequestLogService.logResponse({
+                req,
+                res,
+                responseBody: response.payload,
+                statusCode: response.httpStatus,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.PutTariffRes,
+            });
+
+            return response;
         } 
         catch (error) {
             logger.error('Error storing tariff', error as Error, {
                 params: req.params,
                 body: req.body,
             });
-            return OCPIResponseService.serverError<unknown>({
+            const errorResponse = OCPIResponseService.serverError<unknown>({
                 message: 'Failed to store tariff',
                 error: error instanceof Error ? error.message : String(error),
             }) as HttpResponse<OCPITariffResponse>;
+
+            // Log outgoing response
+            await OCPIRequestLogService.logResponse({
+                req,
+                res,
+                responseBody: errorResponse.payload,
+                statusCode: errorResponse.httpStatus ?? 500,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.PutTariffRes,
+            });
+
+            return errorResponse;
         }
     }
 
@@ -275,8 +409,16 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
      */
     public static async handlePatchTariff(
         req: Request,
+        res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPITariffResponse>> {
+        // Log incoming request
+        await OCPIRequestLogService.logRequest({
+            req,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.PatchTariffReq,
+        });
+
         try {
             const { country_code, party_id, tariff_id } = req.params as {
                 country_code: string;
@@ -293,9 +435,19 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
             );
 
             if (!existingTariff) {
-                return OCPIResponseService.clientError<unknown>({
+                const response = OCPIResponseService.clientError<unknown>({
                     message: 'Tariff not found',
                 }, OCPIResponseStatusCode.status_2003) as HttpResponse<OCPITariffResponse>;
+                // Log outgoing response
+                await OCPIRequestLogService.logResponse({
+                    req,
+                    res,
+                    responseBody: response.payload,
+                    statusCode: response.httpStatus ?? 404,
+                    partnerId: partnerCredentials.partner_id,
+                    command: OCPILogCommand.PatchTariffRes,
+                });
+                return response;
             }
 
             const current = TariffDbService.mapPrismaTariffToOcpi(existingTariff);
@@ -312,20 +464,44 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
             );
             const responseTariff = TariffDbService.mapPrismaTariffToOcpi(storedTariff);
 
-            return {
+            const response = {
                 httpStatus: 200,
                 payload: OCPIResponseService.success(responseTariff).payload,
             };
+
+            // Log outgoing response
+            await OCPIRequestLogService.logResponse({
+                req,
+                res,
+                responseBody: response.payload,
+                statusCode: response.httpStatus,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.PatchTariffRes,
+            });
+
+            return response;
         }
         catch (error) {
             logger.error('Error patching tariff', error as Error, {
                 params: req.params,
                 body: req.body,
             });
-            return OCPIResponseService.serverError<unknown>({
+            const errorResponse = OCPIResponseService.serverError<unknown>({
                 message: 'Failed to patch tariff',
                 error: error instanceof Error ? error.message : String(error),
             }) as HttpResponse<OCPITariffResponse>;
+
+            // Log outgoing response
+            await OCPIRequestLogService.logResponse({
+                req,
+                res,
+                responseBody: errorResponse.payload,
+                statusCode: errorResponse.httpStatus ?? 500,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.PatchTariffRes,
+            });
+
+            return errorResponse;
         }
     }
 
@@ -333,8 +509,16 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
 
     public static async handleDeleteTariff(
         req: Request,
+        res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPITariffResponse>> {
+        // Log incoming request
+        await OCPIRequestLogService.logRequest({
+            req,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.DeleteTariffReq,
+        });
+
         try {
             const tariffId = req.params.tariff_id;
             const countryCode = req.params.country_code as string;
@@ -377,18 +561,42 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
             });
 
             // Return success response (OCPI 2.2.1 spec: DELETE returns 200 OK with empty or success message)
-            return OCPIResponseService.success<unknown>({
+            const response = OCPIResponseService.success<unknown>({
                 message: 'Tariff deleted successfully',
             }) as HttpResponse<OCPITariffResponse>;
+
+            // Log outgoing response
+            await OCPIRequestLogService.logResponse({
+                req,
+                res,
+                responseBody: response.payload,
+                statusCode: response.httpStatus ?? 200,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.DeleteTariffRes,
+            });
+
+            return response;
         }
         catch (error) {
             logger.error('Error deleting tariff', error as Error, {
                 params: req.params,
             });
-            return OCPIResponseService.serverError<unknown>({
+            const errorResponse = OCPIResponseService.serverError<unknown>({
                 message: 'Failed to delete tariff',
                 error: error instanceof Error ? error.message : String(error),
             }) as HttpResponse<OCPITariffResponse>;
+
+            // Log outgoing response
+            await OCPIRequestLogService.logResponse({
+                req,
+                res,
+                responseBody: errorResponse.payload,
+                statusCode: errorResponse.httpStatus ?? 500,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.DeleteTariffRes,
+            });
+
+            return errorResponse;
         }
     }
 

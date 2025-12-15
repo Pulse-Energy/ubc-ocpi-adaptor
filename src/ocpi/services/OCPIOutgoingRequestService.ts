@@ -1,6 +1,7 @@
 import axios from "axios";
 import { logger } from "../../services/logger.service";
 import { OCPIRequestLogService } from "./OCPIRequestLogService";
+import { OCPILogCommand } from "../types";
 
 // TODO: move this somewhere else
 type OutgoingRequestConfig = {
@@ -16,7 +17,7 @@ type OutgoingRequestConfig = {
      * Optional logical command name for easier debugging (e.g. "LOCATIONS_GET").
      * If omitted, a generic "OUTGOING <METHOD> <url>" is used.
      */
-    command?: string;
+    command?: OCPILogCommand;
 }
 type OutgoingGetRequestConfig = OutgoingRequestConfig & {
 
@@ -55,9 +56,14 @@ export default class OCPIOutgoingRequestService {
             },
         });
 
-        /**
-         * @todo Add outgoing request DB log
-         */
+        // Log outgoing request (EMSP → CPO)
+        await OCPIRequestLogService.logOutgoingRequest({
+            url,
+            method: 'GET',
+            headers,
+            partnerId,
+            command,
+        });
 
         return axios.get(url, {
             headers: {
@@ -78,8 +84,8 @@ export default class OCPIOutgoingRequestService {
                     },
                 });
 
-                // Best-effort OCPI DB log
-                void OCPIRequestLogService.logOutgoing({
+                // Log incoming response (CPO → EMSP)
+                void OCPIRequestLogService.logOutgoingResponse({
                     url,
                     method: 'GET',
                     headers,
@@ -106,8 +112,8 @@ export default class OCPIOutgoingRequestService {
                     },
                 });
 
-                // Best-effort OCPI DB log (error)
-                void OCPIRequestLogService.logOutgoing({
+                // Log error response
+                void OCPIRequestLogService.logOutgoingResponse({
                     url,
                     method: 'GET',
                     headers,
@@ -145,9 +151,15 @@ export default class OCPIOutgoingRequestService {
             },
         });
 
-        /**
-         * @todo Add outgoing request DB log
-         */
+        // Log outgoing request (EMSP → CPO)
+        await OCPIRequestLogService.logOutgoingRequest({
+            url,
+            method: 'POST',
+            headers,
+            requestBody: data,
+            partnerId,
+            command,
+        });
 
         return axios.post(url, data, {
             headers: {
@@ -169,11 +181,11 @@ export default class OCPIOutgoingRequestService {
                     },
                 });
 
-                void OCPIRequestLogService.logOutgoing({
+                // Log incoming response (CPO → EMSP)
+                void OCPIRequestLogService.logOutgoingResponse({
                     url,
                     method: 'POST',
                     headers,
-                    requestBody: data,
                     responseBody: response.data ?? response,
                     statusCode: response.status,
                     partnerId,
@@ -197,11 +209,11 @@ export default class OCPIOutgoingRequestService {
                     },
                 });
 
-                void OCPIRequestLogService.logOutgoing({
+                // Log error response
+                void OCPIRequestLogService.logOutgoingResponse({
                     url,
                     method: 'POST',
                     headers,
-                    requestBody: data,
                     error: e,
                     partnerId,
                     command,
@@ -236,9 +248,15 @@ export default class OCPIOutgoingRequestService {
             },
         });
 
-        /**
-         * @todo Add outgoing request DB log
-         */
+        // Log outgoing request (EMSP → CPO)
+        await OCPIRequestLogService.logOutgoingRequest({
+            url,
+            method: 'PUT',
+            headers,
+            requestBody: data,
+            partnerId,
+            command,
+        });
 
         return axios.put(url, data, {
             headers: {
@@ -261,11 +279,11 @@ export default class OCPIOutgoingRequestService {
                     },
                 });
 
-                void OCPIRequestLogService.logOutgoing({
+                // Log incoming response (CPO → EMSP)
+                void OCPIRequestLogService.logOutgoingResponse({
                     url,
                     method: 'PUT',
                     headers,
-                    requestBody: data,
                     responseBody: response.data ?? response,
                     statusCode: response.status,
                     partnerId,
@@ -290,11 +308,11 @@ export default class OCPIOutgoingRequestService {
                     },
                 });
 
-                void OCPIRequestLogService.logOutgoing({
+                // Log error response
+                void OCPIRequestLogService.logOutgoingResponse({
                     url,
                     method: 'PUT',
                     headers,
-                    requestBody: data,
                     error: e,
                     partnerId,
                     command,
@@ -329,9 +347,15 @@ export default class OCPIOutgoingRequestService {
             },
         });
 
-        /**
-         * @todo Add outgoing request DB log
-         */
+        // Log outgoing request (EMSP → CPO)
+        await OCPIRequestLogService.logOutgoingRequest({
+            url,
+            method: 'PATCH',
+            headers,
+            requestBody: data,
+            partnerId,
+            command,
+        });
 
         return axios.patch(url, data, {
             headers: {
@@ -354,11 +378,11 @@ export default class OCPIOutgoingRequestService {
                     },
                 });
 
-                void OCPIRequestLogService.logOutgoing({
+                // Log incoming response (CPO → EMSP)
+                void OCPIRequestLogService.logOutgoingResponse({
                     url,
                     method: 'PATCH',
                     headers,
-                    requestBody: data,
                     responseBody: response.data ?? response,
                     statusCode: response.status,
                     partnerId,
@@ -383,11 +407,11 @@ export default class OCPIOutgoingRequestService {
                     },
                 });
 
-                void OCPIRequestLogService.logOutgoing({
+                // Log error response
+                void OCPIRequestLogService.logOutgoingResponse({
                     url,
                     method: 'PATCH',
                     headers,
-                    requestBody: data,
                     error: e,
                     partnerId,
                     command,
@@ -422,9 +446,15 @@ export default class OCPIOutgoingRequestService {
             },
         });
 
-        /**
-         * @todo Add outgoing request DB log
-         */
+        // Log outgoing request (EMSP → CPO)
+        await OCPIRequestLogService.logOutgoingRequest({
+            url,
+            method: 'DELETE',
+            headers,
+            requestBody: data,
+            partnerId,
+            command,
+        });
 
         return axios.delete(url, {
             headers: {
@@ -446,11 +476,11 @@ export default class OCPIOutgoingRequestService {
                     },
                 });
 
-                void OCPIRequestLogService.logOutgoing({
+                // Log incoming response (CPO → EMSP)
+                void OCPIRequestLogService.logOutgoingResponse({
                     url,
                     method: 'DELETE',
                     headers,
-                    requestBody: data,
                     responseBody: response.data ?? response,
                     statusCode: response.status,
                     partnerId,
@@ -475,11 +505,11 @@ export default class OCPIOutgoingRequestService {
                     },
                 });
 
-                void OCPIRequestLogService.logOutgoing({
+                // Log error response
+                void OCPIRequestLogService.logOutgoingResponse({
                     url,
                     method: 'DELETE',
                     headers,
-                    requestBody: data,
                     error: e,
                     partnerId,
                     command,
