@@ -14,7 +14,7 @@ import CancelActionHandler from './actions/handlers/CancelActionHandler';
 import RatingActionHandler from './actions/handlers/RatingActionHandler';
 import SupportActionHandler from './actions/handlers/SupportActionHandler';
 import InitActionHandler from './actions/handlers/InitActionHandler';
-import OnixBppPreReqLogger from '../utils/OnixBppPreReqLoggerMiddleware';
+import OnixBppPreReqLogger from '../utils/OnixBppPreReqLogger';
 
 const router = Router();
 
