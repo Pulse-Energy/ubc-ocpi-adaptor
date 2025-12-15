@@ -247,12 +247,6 @@ export default class InitActionHandler {
         partnerId: string
     ): Promise<GeneratePaymentLinkResponsePayload> {
 
-        return {
-            payment_link: 'https://www.google.com',
-            authorization_reference: payload.authorization_reference,
-        }
-
-        
         const ocpiPartner = await OCPIPartnerDbService.getById(partnerId);
         const ocpiPartnerAdditionalProps =
             ocpiPartner?.additional_props as OCPIPartnerAdditionalProps;

@@ -95,6 +95,10 @@ export default class OnStatusActionHandler {
             throw new Error('No payment txn found');
         }
         const paymentStatus = paymentTxn.status;
+        if (paymentStatus === BecknPaymentStatus.COMPLETED) {
+            return;
+        }
+
         if (paymentStatus !== BecknPaymentStatus.PENDING) {
             throw new Error('Payment txn is not pending');
         }
