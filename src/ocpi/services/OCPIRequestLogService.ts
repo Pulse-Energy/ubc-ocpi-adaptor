@@ -5,6 +5,21 @@ import { OCPILogCommand } from '../types';
 import { logger } from '../../services/logger.service';
 
 export class OCPIRequestLogService {
+    /**
+     * Safely execute a logging function without blocking or throwing errors
+     * This ensures logging failures never affect the main request/response flow
+     */
+    private static safeLog(logFn: () => Promise<void>): void {
+        // Execute asynchronously without blocking
+        Promise.resolve().then(() => {
+            return logFn();
+        }).catch((error) => {
+            // Double safety: catch any unhandled promise rejections
+            // The logging functions already have try-catch, but this is extra protection
+            logger.error('Unhandled error in logging function', error as Error);
+        });
+    }
+
     private static toSafeJson<T>(value: T): T {
         // Ensure payload is JSON-serializable (strip functions, undefined, etc.)
         return JSON.parse(
@@ -53,6 +68,7 @@ export class OCPIRequestLogService {
         } = {};
 
         // Extract location_id (from params or body)
+        // For EVSE and Connector requests, location_id is also in the path
         if (params.location_id) {
             result.location_id = params.location_id;
         }
@@ -61,19 +77,29 @@ export class OCPIRequestLogService {
         }
 
         // Extract evse_id (from params or body)
+        // For EVSE and Connector requests, evse_uid is in the path
         if (params.evse_uid) {
             result.evse_id = params.evse_uid;
         }
         else if (body.uid && (command.toString().includes('EVSE') || req.path.includes('/evses'))) {
             result.evse_id = body.uid;
         }
+        // Also check for evse_id in body (some CPOs might send it)
+        else if ((body as any).evse_id) {
+            result.evse_id = (body as any).evse_id;
+        }
 
         // Extract connector_id (from params or body)
+        // For Connector requests, connector_id is in the path
         if (params.connector_id) {
             result.connector_id = params.connector_id;
         }
         else if (body.id && (command.toString().includes('Connector') || req.path.includes('/connectors'))) {
             result.connector_id = body.id;
+        }
+        // Also check for connector_id in body (some CPOs might send it)
+        else if ((body as any).connector_id) {
+            result.connector_id = (body as any).connector_id;
         }
 
         // Extract session_id (from params)
@@ -176,8 +202,30 @@ export class OCPIRequestLogService {
                 senderType = 'EMSP';
             }
 
-            // Extract IDs from request
+            // Extract IDs from request (these are OCPI IDs, not internal DB IDs)
             const ids = this.extractIdsFromRequest(req, command);
+
+            // Build additional_props with OCPI IDs for easy debugging
+            const additionalProps: Record<string, any> = {
+                ...(ids.additional_props || {}),
+            };
+
+            // Store OCPI IDs in additional_props
+            if (ids.location_id) {
+                additionalProps.ocpi_location_id = ids.location_id;
+            }
+            if (ids.evse_id) {
+                additionalProps.ocpi_evse_uid = ids.evse_id;
+            }
+            if (ids.connector_id) {
+                additionalProps.ocpi_connector_id = ids.connector_id;
+            }
+            if (ids.authorization_reference) {
+                additionalProps.ocpi_authorization_reference = ids.authorization_reference;
+            }
+            if (ids.cpo_session_id) {
+                additionalProps.ocpi_cpo_session_id = ids.cpo_session_id;
+            }
 
             // Build log data with relations
             const logData: any = {
@@ -185,32 +233,122 @@ export class OCPIRequestLogService {
                 sender_type: senderType,
                 url,
                 payload,
-                authorization_reference: ids.authorization_reference,
-                cpo_session_id: ids.cpo_session_id,
-                additional_props: ids.additional_props,
+                additional_props: Object.keys(additionalProps).length > 0 ? additionalProps : undefined,
                 partner: {
                     connect: { id: resolvedPartnerId },
                 },
-            };
-
-            // Add location relation if location_id exists
-            if (ids.location_id) {
-                logData.location = { connect: { id: ids.location_id } };
             }
 
-            // Add EVSE relation if evse_id exists
-            if (ids.evse_id) {
-                logData.evse = { connect: { id: ids.evse_id } };
-            }
+            // Resolve internal database IDs from OCPI IDs for relations
+            // Only resolve if we have the necessary OCPI IDs and partner ID
+            if (resolvedPartnerId) {
+                const { databaseService } = await import('../../services/database.service');
 
-            // Add connector relation if connector_id exists
-            if (ids.connector_id) {
-                logData.connector = { connect: { id: ids.connector_id } };
-            }
+                // Resolve location internal ID
+                if (ids.location_id) {
+                    const location = await databaseService.prisma.location.findFirst({
+                        where: {
+                            ocpi_location_id: ids.location_id,
+                            partner_id: resolvedPartnerId,
+                            deleted: false,
+                        },
+                        select: { id: true },
+                    });
+                    if (location) {
+                        logData.location = { connect: { id: location.id } };
+                    }
+                }
 
-            // Add session relation if session_id exists
-            if (ids.session_id) {
-                logData.session = { connect: { id: ids.session_id } };
+                // Resolve EVSE internal ID (need location_id first)
+                if (ids.evse_id && ids.location_id) {
+                    const location = await databaseService.prisma.location.findFirst({
+                        where: {
+                            ocpi_location_id: ids.location_id,
+                            partner_id: resolvedPartnerId,
+                            deleted: false,
+                        },
+                        select: { id: true },
+                    });
+                    if (location) {
+                        const evse = await databaseService.prisma.eVSE.findFirst({
+                            where: {
+                                location_id: location.id,
+                                uid: ids.evse_id,
+                                partner_id: resolvedPartnerId,
+                                deleted: false,
+                            },
+                            select: { id: true },
+                        });
+                        if (evse) {
+                            logData.evse = { connect: { id: evse.id } };
+                        }
+                    }
+                }
+
+                // Resolve connector internal ID (need location_id and evse_id first)
+                if (ids.connector_id && ids.evse_id && ids.location_id) {
+                    const location = await databaseService.prisma.location.findFirst({
+                        where: {
+                            ocpi_location_id: ids.location_id,
+                            partner_id: resolvedPartnerId,
+                            deleted: false,
+                        },
+                        select: { id: true },
+                    });
+                    if (location) {
+                        const evse = await databaseService.prisma.eVSE.findFirst({
+                            where: {
+                                location_id: location.id,
+                                uid: ids.evse_id,
+                                partner_id: resolvedPartnerId,
+                                deleted: false,
+                            },
+                            select: { id: true },
+                        });
+                        if (evse) {
+                            const connector = await databaseService.prisma.eVSEConnector.findFirst({
+                                where: {
+                                    evse_id: evse.id,
+                                    connector_id: ids.connector_id,
+                                    partner_id: resolvedPartnerId,
+                                    deleted: false,
+                                },
+                                select: { id: true },
+                            });
+                            if (connector) {
+                                logData.connector = { connect: { id: connector.id } };
+                            }
+                        }
+                    }
+                }
+
+                // Resolve session internal ID
+                if (ids.session_id) {
+                    const session = await databaseService.prisma.session.findFirst({
+                        where: {
+                            id: ids.session_id,
+                            partner_id: resolvedPartnerId,
+                        },
+                        select: { id: true },
+                    });
+                    if (session) {
+                        logData.session = { connect: { id: session.id } };
+                    }
+                }
+
+                // Resolve cpo_session internal ID (using cpo_session_id from OCPI)
+                if (ids.cpo_session_id) {
+                    const cpoSession = await databaseService.prisma.session.findFirst({
+                        where: {
+                            cpo_session_id: ids.cpo_session_id,
+                            partner_id: resolvedPartnerId,
+                        },
+                        select: { id: true },
+                    });
+                    if (cpoSession) {
+                        logData.cpo_session = { connect: { id: cpoSession.id } };
+                    }
+                }
             }
 
             await OCPILogDbService.createLog(logData);
@@ -269,8 +407,30 @@ export class OCPIRequestLogService {
 
             const url = (req as any).originalUrl ?? req.url;
 
-            // Extract IDs from request
+            // Extract IDs from request (these are OCPI IDs, not internal DB IDs)
             const ids = this.extractIdsFromRequest(req, command);
+
+            // Build additional_props with OCPI IDs for easy debugging
+            const additionalProps: Record<string, any> = {
+                ...(ids.additional_props || {}),
+            };
+
+            // Store OCPI IDs in additional_props
+            if (ids.location_id) {
+                additionalProps.ocpi_location_id = ids.location_id;
+            }
+            if (ids.evse_id) {
+                additionalProps.ocpi_evse_uid = ids.evse_id;
+            }
+            if (ids.connector_id) {
+                additionalProps.ocpi_connector_id = ids.connector_id;
+            }
+            if (ids.authorization_reference) {
+                additionalProps.ocpi_authorization_reference = ids.authorization_reference;
+            }
+            if (ids.cpo_session_id) {
+                additionalProps.ocpi_cpo_session_id = ids.cpo_session_id;
+            }
 
             // Build log data with relations
             const logData: any = {
@@ -278,32 +438,128 @@ export class OCPIRequestLogService {
                 sender_type: 'EMSP',
                 url,
                 payload,
-                authorization_reference: ids.authorization_reference,
-                cpo_session_id: ids.cpo_session_id,
-                additional_props: ids.additional_props,
+                additional_props: Object.keys(additionalProps).length > 0 ? additionalProps : undefined,
                 partner: {
                     connect: { id: resolvedPartnerId },
                 },
             };
 
-            // Add location relation if location_id exists
-            if (ids.location_id) {
-                logData.location = { connect: { id: ids.location_id } };
+            // Store OCPI cpo_session_id in additional_props for reference
+            if (ids.cpo_session_id) {
+                additionalProps.ocpi_cpo_session_id = ids.cpo_session_id;
+                logData.additional_props = additionalProps;
             }
 
-            // Add EVSE relation if evse_id exists
-            if (ids.evse_id) {
-                logData.evse = { connect: { id: ids.evse_id } };
-            }
+            // Resolve internal database IDs from OCPI IDs for relations
+            // Only resolve if we have the necessary OCPI IDs and partner ID
+            if (resolvedPartnerId) {
+                const { databaseService } = await import('../../services/database.service');
 
-            // Add connector relation if connector_id exists
-            if (ids.connector_id) {
-                logData.connector = { connect: { id: ids.connector_id } };
-            }
+                // Resolve location internal ID
+                if (ids.location_id) {
+                    const location = await databaseService.prisma.location.findFirst({
+                        where: {
+                            ocpi_location_id: ids.location_id,
+                            partner_id: resolvedPartnerId,
+                            deleted: false,
+                        },
+                        select: { id: true },
+                    });
+                    if (location) {
+                        logData.location = { connect: { id: location.id } };
+                    }
+                }
 
-            // Add session relation if session_id exists
-            if (ids.session_id) {
-                logData.session = { connect: { id: ids.session_id } };
+                // Resolve EVSE internal ID (need location_id first)
+                if (ids.evse_id && ids.location_id) {
+                    const location = await databaseService.prisma.location.findFirst({
+                        where: {
+                            ocpi_location_id: ids.location_id,
+                            partner_id: resolvedPartnerId,
+                            deleted: false,
+                        },
+                        select: { id: true },
+                    });
+                    if (location) {
+                        const evse = await databaseService.prisma.eVSE.findFirst({
+                            where: {
+                                location_id: location.id,
+                                uid: ids.evse_id,
+                                partner_id: resolvedPartnerId,
+                                deleted: false,
+                            },
+                            select: { id: true },
+                        });
+                        if (evse) {
+                            logData.evse = { connect: { id: evse.id } };
+                        }
+                    }
+                }
+
+                // Resolve connector internal ID (need location_id and evse_id first)
+                if (ids.connector_id && ids.evse_id && ids.location_id) {
+                    const location = await databaseService.prisma.location.findFirst({
+                        where: {
+                            ocpi_location_id: ids.location_id,
+                            partner_id: resolvedPartnerId,
+                            deleted: false,
+                        },
+                        select: { id: true },
+                    });
+                    if (location) {
+                        const evse = await databaseService.prisma.eVSE.findFirst({
+                            where: {
+                                location_id: location.id,
+                                uid: ids.evse_id,
+                                partner_id: resolvedPartnerId,
+                                deleted: false,
+                            },
+                            select: { id: true },
+                        });
+                        if (evse) {
+                            const connector = await databaseService.prisma.eVSEConnector.findFirst({
+                                where: {
+                                    evse_id: evse.id,
+                                    connector_id: ids.connector_id,
+                                    partner_id: resolvedPartnerId,
+                                    deleted: false,
+                                },
+                                select: { id: true },
+                            });
+                            if (connector) {
+                                logData.connector = { connect: { id: connector.id } };
+                            }
+                        }
+                    }
+                }
+
+                // Resolve session internal ID
+                if (ids.session_id) {
+                    const session = await databaseService.prisma.session.findFirst({
+                        where: {
+                            id: ids.session_id,
+                            partner_id: resolvedPartnerId,
+                        },
+                        select: { id: true },
+                    });
+                    if (session) {
+                        logData.session = { connect: { id: session.id } };
+                    }
+                }
+
+                // Resolve cpo_session internal ID (using cpo_session_id from OCPI)
+                if (ids.cpo_session_id) {
+                    const cpoSession = await databaseService.prisma.session.findFirst({
+                        where: {
+                            cpo_session_id: ids.cpo_session_id,
+                            partner_id: resolvedPartnerId,
+                        },
+                        select: { id: true },
+                    });
+                    if (cpoSession) {
+                        logData.cpo_session = { connect: { id: cpoSession.id } };
+                    }
+                }
             }
 
             await OCPILogDbService.createLog(logData);
@@ -455,6 +711,117 @@ export class OCPIRequestLogService {
     }
 
     /**
+     * Helper method to resolve internal database IDs from OCPI IDs and add relations to logData
+     */
+    private static async resolveIdsAndAddRelations(
+        logData: any,
+        ids: {
+            location_id?: string;
+            evse_id?: string;
+            connector_id?: string;
+            session_id?: string;
+            authorization_reference?: string;
+            cpo_session_id?: string;
+        },
+        partnerId: string,
+    ): Promise<void> {
+        const { databaseService } = await import('../../services/database.service');
+
+        // Cache location lookup to avoid multiple queries
+        let locationInternalId: string | null = null;
+
+        // Resolve location internal ID (needed for EVSE and connector lookups)
+        if (ids.location_id) {
+            const location = await databaseService.prisma.location.findFirst({
+                where: {
+                    ocpi_location_id: ids.location_id,
+                    partner_id: partnerId,
+                    deleted: false,
+                },
+                select: { id: true },
+            });
+            if (location) {
+                locationInternalId = location.id;
+                logData.location = { connect: { id: location.id } };
+            }
+        }
+
+        // Resolve EVSE internal ID (requires location)
+        if (ids.evse_id && locationInternalId) {
+            const evse = await databaseService.prisma.eVSE.findFirst({
+                where: {
+                    location_id: locationInternalId,
+                    uid: ids.evse_id,
+                    partner_id: partnerId,
+                    deleted: false,
+                },
+                select: { id: true },
+            });
+            if (evse) {
+                logData.evse = { connect: { id: evse.id } };
+
+                // Resolve connector internal ID (requires EVSE)
+                if (ids.connector_id) {
+                    const connector = await databaseService.prisma.eVSEConnector.findFirst({
+                        where: {
+                            evse_id: evse.id,
+                            connector_id: ids.connector_id,
+                            partner_id: partnerId,
+                            deleted: false,
+                        },
+                        select: { id: true },
+                    });
+                    if (connector) {
+                        logData.connector = { connect: { id: connector.id } };
+                    }
+                }
+            }
+        }
+
+        // Resolve session internal ID
+        if (ids.session_id) {
+            const session = await databaseService.prisma.session.findFirst({
+                where: {
+                    id: ids.session_id,
+                    partner_id: partnerId,
+                },
+                select: { id: true },
+            });
+            if (session) {
+                logData.session = { connect: { id: session.id } };
+            }
+        }
+
+        // Resolve authorization_reference_session (find session by authorization_reference)
+        if (ids.authorization_reference) {
+            const authRefSession = await databaseService.prisma.session.findFirst({
+                where: {
+                    authorization_reference: ids.authorization_reference,
+                    partner_id: partnerId,
+                },
+                select: { id: true },
+            });
+            if (authRefSession) {
+                logData.authorization_reference_session = { connect: { id: authRefSession.id } };
+            }
+        }
+
+        // Resolve cpo_session internal ID (using cpo_session_id from OCPI)
+        if (ids.cpo_session_id) {
+            const cpoSession = await databaseService.prisma.session.findFirst({
+                where: {
+                    cpo_session_id: ids.cpo_session_id,
+                    partner_id: partnerId,
+                },
+                select: { id: true },
+            });
+            if (cpoSession) {
+                logData.cpo_session = { connect: { id: cpoSession.id } };
+            }
+        }
+    }
+
+    /**
      * Log outgoing request (EMSP → CPO) - called before sending the request
      */
     public static async logOutgoingRequest(params: {
@@ -487,8 +854,32 @@ export class OCPIRequestLogService {
                 requestBody,
             });
 
-            // Extract IDs from outgoing request
+            // Extract IDs from outgoing request (these are OCPI IDs, not internal DB IDs)
             const ids = this.extractIdsFromOutgoingRequest(url, requestBody, command);
+
+            // Build additional_props with OCPI IDs for easy debugging
+            const additionalProps: Record<string, any> = {
+                ...(ids.additional_props || {}),
+            };
+
+            // Store OCPI IDs in additional_props
+            if (ids.location_id) {
+                additionalProps.ocpi_location_id = ids.location_id;
+            }
+            if (ids.evse_id) {
+                additionalProps.ocpi_evse_uid = ids.evse_id;
+            }
+            if (ids.connector_id) {
+                additionalProps.ocpi_connector_id = ids.connector_id;
+            }
+
+            // Store OCPI IDs in additional_props
+            if (ids.authorization_reference) {
+                additionalProps.ocpi_authorization_reference = ids.authorization_reference;
+            }
+            if (ids.cpo_session_id) {
+                additionalProps.ocpi_cpo_session_id = ids.cpo_session_id;
+            }
 
             // Build log data with relations
             const logData: any = {
@@ -496,33 +887,14 @@ export class OCPIRequestLogService {
                 sender_type: 'EMSP',
                 url,
                 payload,
-                authorization_reference: ids.authorization_reference,
-                cpo_session_id: ids.cpo_session_id,
-                additional_props: ids.additional_props,
+                additional_props: Object.keys(additionalProps).length > 0 ? additionalProps : undefined,
                 partner: {
                     connect: { id: partnerId },
                 },
             };
 
-            // Add location relation if location_id exists
-            if (ids.location_id) {
-                logData.location = { connect: { id: ids.location_id } };
-            }
-
-            // Add EVSE relation if evse_id exists
-            if (ids.evse_id) {
-                logData.evse = { connect: { id: ids.evse_id } };
-            }
-
-            // Add connector relation if connector_id exists
-            if (ids.connector_id) {
-                logData.connector = { connect: { id: ids.connector_id } };
-            }
-
-            // Add session relation if session_id exists
-            if (ids.session_id) {
-                logData.session = { connect: { id: ids.session_id } };
-            }
+            // Resolve internal database IDs from OCPI IDs for relations
+            await this.resolveIdsAndAddRelations(logData, ids, partnerId);
 
             await OCPILogDbService.createLog(logData);
         }
@@ -583,39 +955,42 @@ export class OCPIRequestLogService {
             // Also try to extract from response body if available
             const ids = this.extractIdsFromOutgoingRequest(url, responseBody?.data || responseBody, command);
 
+            // Build additional_props with OCPI IDs for easy debugging
+            const additionalProps: Record<string, any> = {
+                ...(ids.additional_props || {}),
+            };
+
+            // Store OCPI IDs in additional_props
+            if (ids.location_id) {
+                additionalProps.ocpi_location_id = ids.location_id;
+            }
+            if (ids.evse_id) {
+                additionalProps.ocpi_evse_uid = ids.evse_id;
+            }
+            if (ids.connector_id) {
+                additionalProps.ocpi_connector_id = ids.connector_id;
+            }
+            if (ids.authorization_reference) {
+                additionalProps.ocpi_authorization_reference = ids.authorization_reference;
+            }
+            if (ids.cpo_session_id) {
+                additionalProps.ocpi_cpo_session_id = ids.cpo_session_id;
+            }
+
             // Build log data with relations
             const logData: any = {
                 command: (responseCommand ?? `OUTGOING ${method} ${url} RESPONSE`) as OCPILogCommand,
                 sender_type: 'EMSP',
                 url,
                 payload,
-                authorization_reference: ids.authorization_reference,
-                cpo_session_id: ids.cpo_session_id,
-                additional_props: ids.additional_props,
+                additional_props: Object.keys(additionalProps).length > 0 ? additionalProps : undefined,
                 partner: {
                     connect: { id: partnerId },
                 },
             };
 
-            // Add location relation if location_id exists
-            if (ids.location_id) {
-                logData.location = { connect: { id: ids.location_id } };
-            }
-
-            // Add EVSE relation if evse_id exists
-            if (ids.evse_id) {
-                logData.evse = { connect: { id: ids.evse_id } };
-            }
-
-            // Add connector relation if connector_id exists
-            if (ids.connector_id) {
-                logData.connector = { connect: { id: ids.connector_id } };
-            }
-
-            // Add session relation if session_id exists
-            if (ids.session_id) {
-                logData.session = { connect: { id: ids.session_id } };
-            }
+            // Resolve internal database IDs from OCPI IDs for relations
+            await this.resolveIdsAndAddRelations(logData, ids, partnerId);
 
             await OCPILogDbService.createLog(logData);
         }

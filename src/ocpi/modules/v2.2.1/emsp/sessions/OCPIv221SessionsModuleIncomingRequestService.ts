@@ -34,8 +34,8 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
         res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPISessionsResponse>> {
-        // Log incoming request
-        await OCPIRequestLogService.logRequest({
+        // Log incoming request (non-blocking)
+        OCPIRequestLogService.logRequest({
             req,
             partnerId: partnerCredentials.partner_id,
             command: OCPILogCommand.GetSessionsReq,
@@ -103,8 +103,8 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
             },
         };
 
-        // Log outgoing response
-        await OCPIRequestLogService.logResponse({
+        // Log outgoing response (non-blocking)
+        OCPIRequestLogService.logResponse({
             req,
             res,
             responseBody: response.payload,
@@ -124,8 +124,8 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
         res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPISessionResponse>> {
-        // Log incoming request
-        await OCPIRequestLogService.logRequest({
+        // Log incoming request (non-blocking)
+        OCPIRequestLogService.logRequest({
             req,
             partnerId: partnerCredentials.partner_id,
             command: OCPILogCommand.GetSessionReq,
@@ -158,8 +158,8 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
                 },
             };
 
-            // Log outgoing response
-            await OCPIRequestLogService.logResponse({
+            // Log outgoing response (non-blocking)
+            OCPIRequestLogService.logResponse({
                 req,
                 res,
                 responseBody: response.payload,
@@ -184,8 +184,8 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
             },
         };
 
-        // Log outgoing response
-        await OCPIRequestLogService.logResponse({
+        // Log outgoing response (non-blocking)
+        OCPIRequestLogService.logResponse({
             req,
             res,
             responseBody: response.payload,
@@ -207,8 +207,8 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
         res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPISessionResponse>> {
-        // Log incoming request
-        await OCPIRequestLogService.logRequest({
+        // Log incoming request (non-blocking)
+        OCPIRequestLogService.logRequest({
             req,
             partnerId: partnerCredentials.partner_id,
             command: OCPILogCommand.PutSessionReq,
@@ -238,8 +238,8 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
                 },
             };
 
-            // Log outgoing response
-            await OCPIRequestLogService.logResponse({
+            // Log outgoing response (non-blocking)
+            OCPIRequestLogService.logResponse({
                 req,
                 res,
                 responseBody: response.payload,
@@ -295,8 +295,8 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
             },
         };
 
-        // Log outgoing response
-        await OCPIRequestLogService.logResponse({
+        // Log outgoing response (non-blocking)
+        OCPIRequestLogService.logResponse({
             req,
             res,
             responseBody: response.payload,
@@ -322,8 +322,8 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
         res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPISessionResponse>> {
-        // Log incoming request
-        await OCPIRequestLogService.logRequest({
+        // Log incoming request (non-blocking)
+        OCPIRequestLogService.logRequest({
             req,
             partnerId: partnerCredentials.partner_id,
             command: OCPILogCommand.PatchSessionReq,
@@ -367,8 +367,8 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
                 },
             };
 
-            // Log outgoing response
-            await OCPIRequestLogService.logResponse({
+            // Log outgoing response (non-blocking)
+            OCPIRequestLogService.logResponse({
                 req,
                 res,
                 responseBody: response.payload,
@@ -413,8 +413,8 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
             },
         };
 
-        // Log outgoing response
-        await OCPIRequestLogService.logResponse({
+        // Log outgoing response (non-blocking)
+        OCPIRequestLogService.logResponse({
             req,
             res,
             responseBody: response.payload,

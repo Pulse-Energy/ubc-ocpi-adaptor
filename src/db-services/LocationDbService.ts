@@ -28,6 +28,10 @@ export type LocationWithRelations = Location & {
     evses: (EVSE & { evse_connectors: EVSEConnector[] })[];
 };
 
+export type EVSEWithRelations = EVSE & {
+    evse_connectors: EVSEConnector[];
+};
+
 export class LocationDbService {
     public static async findByOcpiLocationId(
         locationId: string,
@@ -143,40 +147,7 @@ export class LocationDbService {
             },
             related_locations: (location.related_locations as OCPIAdditionalGeoLocation[] | null) ?? undefined,
             parking_type: (location.parking_type as OCPIParkingType | null) ?? undefined,
-            evses: location.evses.map((evse) => ({
-                uid: evse.uid,
-                evse_id: evse.evse_id ?? undefined,
-                status: evse.status as OCPIStatus,
-                status_schedule: (evse.status_schedule as OCPIStatusSchedule[] | null) ?? undefined,
-                capabilities: evse.capabilities as OCPICapability[] | undefined,
-                connectors: evse.evse_connectors.map((connector) => ({
-                    id: connector.connector_id,
-                    standard: connector.standard as OCPIConnectorType,
-                    format: connector.format as OCPIConnectorFormat,
-                    qr_code: connector.qr_code ?? undefined,
-                    power_type: connector.power_type as OCPIPowerType,
-                    max_voltage: BigInt(connector.max_voltage),
-                    max_amperage: BigInt(connector.max_amperage),
-                    max_electric_power: connector.max_electric_power != null
-                        ? BigInt(connector.max_electric_power)
-                        : undefined,
-                    tariff_ids: connector.tariff_ids ?? undefined,
-                    terms_and_conditions: connector.terms_and_conditions ?? undefined,
-                    last_updated: connector.last_updated.toISOString(),
-                })),
-                floor_level: evse.floor_level ?? undefined,
-                coordinates: evse.latitude && evse.longitude ? {
-                    latitude: evse.latitude,
-                    longitude: evse.longitude,
-                } : undefined,
-                physical_reference: evse.physical_reference ?? undefined,
-                directions: evse.directions as OCPIDisplayText[] | undefined,
-                parking_restrictions: evse.parking_restrictions as OCPIParkingRestriction[] | undefined,
-                images: (evse.images as OCPIImageClass[] | null) ?? undefined,
-                last_updated: evse.last_updated.toISOString(),
-                status_errorcode: evse.status_errorcode ?? undefined,
-                status_errordescription: evse.status_errordescription ?? undefined,
-            })),
+            evses: location.evses.map((evse) => this.mapPrismaEVSEToOcpi(evse)),
             directions: location.directions as OCPIDisplayText[] | undefined,
             operator: (location.operator as OCPIBusinessDetailsClass | null) ?? undefined,
             suboperator: (location.suboperator as OCPIBusinessDetailsClass | null) ?? undefined,
@@ -189,6 +160,138 @@ export class LocationDbService {
             energy_mix: (location.energy_mix as OCPIEnergyMix | null) ?? undefined,
             last_updated: location.last_updated.toISOString(),
         };
+    }
+
+    public static mapPrismaEVSEToOcpi(evse: EVSE & { evse_connectors: EVSEConnector[] }): OCPIEVSE {
+        return {
+            uid: evse.uid,
+            evse_id: evse.evse_id ?? undefined,
+            status: evse.status as OCPIStatus,
+            status_schedule: (evse.status_schedule as OCPIStatusSchedule[] | null) ?? undefined,
+            capabilities: evse.capabilities as OCPICapability[] | undefined,
+            connectors: evse.evse_connectors.map((connector) => this.mapPrismaConnectorToOcpi(connector)),
+            floor_level: evse.floor_level ?? undefined,
+            coordinates: evse.latitude && evse.longitude ? {
+                latitude: evse.latitude,
+                longitude: evse.longitude,
+            } : undefined,
+            physical_reference: evse.physical_reference ?? undefined,
+            directions: evse.directions as OCPIDisplayText[] | undefined,
+            parking_restrictions: evse.parking_restrictions as OCPIParkingRestriction[] | undefined,
+            images: (evse.images as OCPIImageClass[] | null) ?? undefined,
+            last_updated: evse.last_updated.toISOString(),
+            status_errorcode: evse.status_errorcode ?? undefined,
+            status_errordescription: evse.status_errordescription ?? undefined,
+        };
+    }
+
+    public static mapPrismaConnectorToOcpi(connector: EVSEConnector): OCPIConnector {
+        return {
+            id: connector.connector_id,
+            standard: connector.standard as OCPIConnectorType,
+            format: connector.format as OCPIConnectorFormat,
+            qr_code: connector.qr_code ?? undefined,
+            power_type: connector.power_type as OCPIPowerType,
+            max_voltage: BigInt(connector.max_voltage),
+            max_amperage: BigInt(connector.max_amperage),
+            max_electric_power: connector.max_electric_power != null
+                ? BigInt(connector.max_electric_power)
+                : undefined,
+            tariff_ids: connector.tariff_ids ?? undefined,
+            terms_and_conditions: connector.terms_and_conditions ?? undefined,
+            last_updated: connector.last_updated.toISOString(),
+        };
+    }
+
+    /**
+     * Find EVSE directly by location OCPI ID and EVSE UID
+     */
+    public static async findEVSEByLocationAndUid(
+        ocpiLocationId: string,
+        evseUid: string,
+        partnerId: string,
+    ): Promise<EVSEWithRelations | null> {
+        // First find the location to get the internal location_id
+        const location = await databaseService.prisma.location.findFirst({
+            where: {
+                ocpi_location_id: ocpiLocationId,
+                partner_id: partnerId,
+                deleted: false,
+            },
+            select: {
+                id: true,
+            },
+        });
+
+        if (!location) {
+            return null;
+        }
+
+        // Then find the EVSE directly
+        return databaseService.prisma.eVSE.findFirst({
+            where: {
+                location_id: location.id,
+                uid: evseUid,
+                partner_id: partnerId,
+                deleted: false,
+            },
+            include: {
+                evse_connectors: true,
+            },
+        }) as Promise<EVSEWithRelations | null>;
+    }
+
+    /**
+     * Find Connector directly by location OCPI ID, EVSE UID, and connector ID
+     */
+    public static async findConnectorByLocationEvseAndConnectorId(
+        ocpiLocationId: string,
+        evseUid: string,
+        connectorId: string,
+        partnerId: string,
+    ): Promise<EVSEConnector | null> {
+        // First find the location to get the internal location_id
+        const location = await databaseService.prisma.location.findFirst({
+            where: {
+                ocpi_location_id: ocpiLocationId,
+                partner_id: partnerId,
+                deleted: false,
+            },
+            select: {
+                id: true,
+            },
+        });
+
+        if (!location) {
+            return null;
+        }
+
+        // Then find the EVSE to get the internal evse_id
+        const evse = await databaseService.prisma.eVSE.findFirst({
+            where: {
+                location_id: location.id,
+                uid: evseUid,
+                partner_id: partnerId,
+                deleted: false,
+            },
+            select: {
+                id: true,
+            },
+        });
+
+        if (!evse) {
+            return null;
+        }
+
+        // Finally find the connector directly
+        return databaseService.prisma.eVSEConnector.findFirst({
+            where: {
+                evse_id: evse.id,
+                connector_id: connectorId,
+                partner_id: partnerId,
+                deleted: false,
+            },
+        });
     }
 
     private static mapOcpiLocationToPrisma(ocpiLocation: OCPILocation) {

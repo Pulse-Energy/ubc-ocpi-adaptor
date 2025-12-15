@@ -25,8 +25,8 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
         res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPITariffsResponse>> {
-        // Log incoming request
-        await OCPIRequestLogService.logRequest({
+        // Log incoming request (non-blocking)
+        OCPIRequestLogService.logRequest({
             req,
             partnerId: partnerCredentials.partner_id,
             command: OCPILogCommand.GetTariffsReq,
@@ -104,8 +104,8 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
                 headers,
             };
 
-            // Log outgoing response
-            await OCPIRequestLogService.logResponse({
+            // Log outgoing response (non-blocking)
+            OCPIRequestLogService.logResponse({
                 req,
                 res,
                 responseBody: response.payload,
@@ -125,8 +125,8 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
                 error: error instanceof Error ? error.message : String(error),
             }) as HttpResponse<OCPITariffsResponse>;
 
-            // Log outgoing response
-            await OCPIRequestLogService.logResponse({
+            // Log outgoing response (non-blocking)
+            OCPIRequestLogService.logResponse({
                 req,
                 res,
                 responseBody: errorResponse.payload,
@@ -144,8 +144,8 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
         res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPITariffResponse>> {
-        // Log incoming request
-        await OCPIRequestLogService.logRequest({
+        // Log incoming request (non-blocking)
+        OCPIRequestLogService.logRequest({
             req,
             partnerId: partnerCredentials.partner_id,
             command: OCPILogCommand.GetTariffReq,
@@ -175,8 +175,8 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
                     const response = OCPIResponseService.clientError<unknown>({
                         message: 'Tariff not found',
                     }, OCPIResponseStatusCode.status_2003) as HttpResponse<OCPITariffResponse>;
-                    // Log outgoing response
-                    await OCPIRequestLogService.logResponse({
+                    // Log outgoing response (non-blocking)
+                    OCPIRequestLogService.logResponse({
                         req,
                         res,
                         responseBody: response.payload,
@@ -189,8 +189,8 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
 
                 const ocpiTariff = TariffDbService.mapPrismaTariffToOcpi(tariff);
                 const response = OCPIResponseService.success(ocpiTariff);
-                // Log outgoing response
-                await OCPIRequestLogService.logResponse({
+                // Log outgoing response (non-blocking)
+                OCPIRequestLogService.logResponse({
                     req,
                     res,
                     responseBody: response.payload,
@@ -216,8 +216,8 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
                 const response = OCPIResponseService.clientError<unknown>({
                     message: 'Tariff not found',
                 }, OCPIResponseStatusCode.status_2003) as HttpResponse<OCPITariffResponse>;
-                // Log outgoing response
-                await OCPIRequestLogService.logResponse({
+                // Log outgoing response (non-blocking)
+                OCPIRequestLogService.logResponse({
                     req,
                     res,
                     responseBody: response.payload,
@@ -232,8 +232,8 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
                 const response = OCPIResponseService.clientError<unknown>({
                     message: 'Multiple tariffs found with the same ID. Please provide country_code and party_id',
                 }) as HttpResponse<OCPITariffResponse>;
-                // Log outgoing response
-                await OCPIRequestLogService.logResponse({
+                // Log outgoing response (non-blocking)
+                OCPIRequestLogService.logResponse({
                     req,
                     res,
                     responseBody: response.payload,
@@ -246,8 +246,8 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
 
             const ocpiTariff = TariffDbService.mapPrismaTariffToOcpi(matchingTariffs[0]);
             const response = OCPIResponseService.success(ocpiTariff);
-            // Log outgoing response
-            await OCPIRequestLogService.logResponse({
+            // Log outgoing response (non-blocking)
+            OCPIRequestLogService.logResponse({
                 req,
                 res,
                 responseBody: response.payload,
@@ -266,8 +266,8 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
                 message: 'Failed to fetch tariff',
                 error: error instanceof Error ? error.message : String(error),
             }) as HttpResponse<OCPITariffResponse>;
-            // Log outgoing response
-            await OCPIRequestLogService.logResponse({
+            // Log outgoing response (non-blocking)
+            OCPIRequestLogService.logResponse({
                 req,
                 res,
                 responseBody: errorResponse.payload,
@@ -286,8 +286,8 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
         res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPITariffResponse>> {
-        // Log incoming request
-        await OCPIRequestLogService.logRequest({
+        // Log incoming request (non-blocking)
+        OCPIRequestLogService.logRequest({
             req,
             partnerId: partnerCredentials.partner_id,
             command: OCPILogCommand.PutTariffReq,
@@ -366,8 +366,8 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
                 payload: OCPIResponseService.success(responseTariff).payload,
             };
 
-            // Log outgoing response
-            await OCPIRequestLogService.logResponse({
+            // Log outgoing response (non-blocking)
+            OCPIRequestLogService.logResponse({
                 req,
                 res,
                 responseBody: response.payload,
@@ -388,8 +388,8 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
                 error: error instanceof Error ? error.message : String(error),
             }) as HttpResponse<OCPITariffResponse>;
 
-            // Log outgoing response
-            await OCPIRequestLogService.logResponse({
+            // Log outgoing response (non-blocking)
+            OCPIRequestLogService.logResponse({
                 req,
                 res,
                 responseBody: errorResponse.payload,
@@ -412,8 +412,8 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
         res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPITariffResponse>> {
-        // Log incoming request
-        await OCPIRequestLogService.logRequest({
+        // Log incoming request (non-blocking)
+        OCPIRequestLogService.logRequest({
             req,
             partnerId: partnerCredentials.partner_id,
             command: OCPILogCommand.PatchTariffReq,
@@ -438,8 +438,8 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
                 const response = OCPIResponseService.clientError<unknown>({
                     message: 'Tariff not found',
                 }, OCPIResponseStatusCode.status_2003) as HttpResponse<OCPITariffResponse>;
-                // Log outgoing response
-                await OCPIRequestLogService.logResponse({
+                // Log outgoing response (non-blocking)
+                OCPIRequestLogService.logResponse({
                     req,
                     res,
                     responseBody: response.payload,
@@ -469,8 +469,8 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
                 payload: OCPIResponseService.success(responseTariff).payload,
             };
 
-            // Log outgoing response
-            await OCPIRequestLogService.logResponse({
+            // Log outgoing response (non-blocking)
+            OCPIRequestLogService.logResponse({
                 req,
                 res,
                 responseBody: response.payload,
@@ -491,8 +491,8 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
                 error: error instanceof Error ? error.message : String(error),
             }) as HttpResponse<OCPITariffResponse>;
 
-            // Log outgoing response
-            await OCPIRequestLogService.logResponse({
+            // Log outgoing response (non-blocking)
+            OCPIRequestLogService.logResponse({
                 req,
                 res,
                 responseBody: errorResponse.payload,
@@ -512,8 +512,8 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
         res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPITariffResponse>> {
-        // Log incoming request
-        await OCPIRequestLogService.logRequest({
+        // Log incoming request (non-blocking)
+        OCPIRequestLogService.logRequest({
             req,
             partnerId: partnerCredentials.partner_id,
             command: OCPILogCommand.DeleteTariffReq,
@@ -565,8 +565,8 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
                 message: 'Tariff deleted successfully',
             }) as HttpResponse<OCPITariffResponse>;
 
-            // Log outgoing response
-            await OCPIRequestLogService.logResponse({
+            // Log outgoing response (non-blocking)
+            OCPIRequestLogService.logResponse({
                 req,
                 res,
                 responseBody: response.payload,
@@ -586,8 +586,8 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
                 error: error instanceof Error ? error.message : String(error),
             }) as HttpResponse<OCPITariffResponse>;
 
-            // Log outgoing response
-            await OCPIRequestLogService.logResponse({
+            // Log outgoing response (non-blocking)
+            OCPIRequestLogService.logResponse({
                 req,
                 res,
                 responseBody: errorResponse.payload,

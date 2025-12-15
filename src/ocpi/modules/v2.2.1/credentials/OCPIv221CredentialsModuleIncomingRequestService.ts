@@ -36,8 +36,8 @@ export default class OCPIv221CredentialsModuleIncomingRequestService {
         res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPIResponsePayload<OCPICredentials>>> {
-        // Log incoming request
-        await OCPIRequestLogService.logRequest({
+        // Log incoming request (non-blocking)
+        OCPIRequestLogService.logRequest({
             req,
             partnerId: partnerCredentials.partner_id,
             command: OCPILogCommand.PostCredentialsReq,
@@ -59,8 +59,8 @@ export default class OCPIv221CredentialsModuleIncomingRequestService {
             },
         };
 
-        // Log outgoing response
-        await OCPIRequestLogService.logResponse({
+        // Log outgoing response (non-blocking)
+        OCPIRequestLogService.logResponse({
             req,
             res,
             responseBody: response.payload,
@@ -83,8 +83,8 @@ export default class OCPIv221CredentialsModuleIncomingRequestService {
         res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPIResponsePayload<OCPICredentials>>> {
-        // Log incoming request
-        await OCPIRequestLogService.logRequest({
+        // Log incoming request (non-blocking)
+        OCPIRequestLogService.logRequest({
             req,
             partnerId: partnerCredentials.partner_id,
             command: OCPILogCommand.GetCredentialsReq,
@@ -106,8 +106,8 @@ export default class OCPIv221CredentialsModuleIncomingRequestService {
                 },
             };
 
-            // Log outgoing response
-            await OCPIRequestLogService.logResponse({
+            // Log outgoing response (non-blocking)
+            OCPIRequestLogService.logResponse({
                 req,
                 res,
                 responseBody: response.payload,
@@ -150,8 +150,8 @@ export default class OCPIv221CredentialsModuleIncomingRequestService {
             },
         };
 
-        // Log outgoing response
-        await OCPIRequestLogService.logResponse({
+        // Log outgoing response (non-blocking)
+        OCPIRequestLogService.logResponse({
             req,
             res,
             responseBody: response.payload,
@@ -174,8 +174,8 @@ export default class OCPIv221CredentialsModuleIncomingRequestService {
         res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPIResponsePayload<OCPICredentials>>> {
-        // Log incoming request
-        await OCPIRequestLogService.logRequest({
+        // Log incoming request (non-blocking)
+        OCPIRequestLogService.logRequest({
             req,
             partnerId: partnerCredentials.partner_id,
             command: OCPILogCommand.PutCredentialsReq,
@@ -197,8 +197,8 @@ export default class OCPIv221CredentialsModuleIncomingRequestService {
             },
         };
 
-        // Log outgoing response
-        await OCPIRequestLogService.logResponse({
+        // Log outgoing response (non-blocking)
+        OCPIRequestLogService.logResponse({
             req,
             res,
             responseBody: response.payload,
@@ -226,8 +226,8 @@ export default class OCPIv221CredentialsModuleIncomingRequestService {
         res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPIResponsePayload<OCPICredentials>>> {
-        // Log incoming request
-        await OCPIRequestLogService.logRequest({
+        // Log incoming request (non-blocking)
+        OCPIRequestLogService.logRequest({
             req,
             partnerId: partnerCredentials.partner_id,
             command: OCPILogCommand.PatchCredentialsReq,
@@ -357,8 +357,8 @@ export default class OCPIv221CredentialsModuleIncomingRequestService {
             },
         };
 
-            // Log outgoing response
-            await OCPIRequestLogService.logResponse({
+            // Log outgoing response (non-blocking)
+            OCPIRequestLogService.logResponse({
                 req,
                 res,
                 responseBody: response.payload,

@@ -222,17 +222,21 @@ export default class UpdateActionHandler {
                 },
             } as Request;
 
-            
-            await SessionDbService.create({
-                data: {
-                    country_code: 'IN',
-                    partner_id: evseConnector.partner_id,
-                    location_id: evseConnector.evse?.location?.ocpi_location_id ?? '',
-                    evse_uid: evseConnector.evse?.evse_id ?? '',
-                    connector_id: charge_point_connector_id,
-                    authorization_reference: beckn_order_id,
-                },
-            });
+            // Check if session already exists (update action can be called multiple times)
+            let session = await SessionDbService.getByAuthorizationReference(beckn_order_id);
+            if (!session) {
+                // Only create if it doesn't exist
+                session = await SessionDbService.create({
+                    data: {
+                        country_code: 'IN',
+                        partner_id: evseConnector.partner_id,
+                        location_id: evseConnector.evse?.location?.ocpi_location_id ?? '',
+                        evse_uid: evseConnector.evse?.evse_id ?? '',
+                        connector_id: charge_point_connector_id,
+                        authorization_reference: beckn_order_id,
+                    },
+                });
+            }
             const response = await AdminCommandsModule.startCharging(req);
             const ocpiCommandResponse = response.payload.data as OCPICommandResponseResponse;
             return {

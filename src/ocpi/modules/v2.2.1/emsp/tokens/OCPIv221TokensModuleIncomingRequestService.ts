@@ -38,8 +38,8 @@ export default class OCPIv221TokensModuleIncomingRequestService {
         res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPITokensResponse>> {
-        // Log incoming request
-        await OCPIRequestLogService.logRequest({
+        // Log incoming request (non-blocking)
+        OCPIRequestLogService.logRequest({
             req,
             partnerId: partnerCredentials.partner_id,
             command: OCPILogCommand.GetTokensReq,
@@ -84,8 +84,8 @@ export default class OCPIv221TokensModuleIncomingRequestService {
             },
         };
 
-        // Log outgoing response
-        await OCPIRequestLogService.logResponse({
+        // Log outgoing response (non-blocking)
+        OCPIRequestLogService.logResponse({
             req,
             res,
             responseBody: response.payload,
@@ -107,8 +107,8 @@ export default class OCPIv221TokensModuleIncomingRequestService {
         res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPITokenResponse>> {
-        // Log incoming request
-        await OCPIRequestLogService.logRequest({
+        // Log incoming request (non-blocking)
+        OCPIRequestLogService.logRequest({
             req,
             partnerId: partnerCredentials.partner_id,
             command: OCPILogCommand.GetTokenReq,
@@ -140,8 +140,8 @@ export default class OCPIv221TokensModuleIncomingRequestService {
                 },
             };
 
-            // Log outgoing response
-            await OCPIRequestLogService.logResponse({
+            // Log outgoing response (non-blocking)
+            OCPIRequestLogService.logResponse({
                 req,
                 res,
                 responseBody: response.payload,
@@ -166,8 +166,8 @@ export default class OCPIv221TokensModuleIncomingRequestService {
             },
         };
 
-        // Log outgoing response
-        await OCPIRequestLogService.logResponse({
+        // Log outgoing response (non-blocking)
+        OCPIRequestLogService.logResponse({
             req,
             res,
             responseBody: response.payload,
@@ -192,8 +192,8 @@ export default class OCPIv221TokensModuleIncomingRequestService {
         res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPIAuthorizationInfoResponse>> {
-        // Log incoming request
-        await OCPIRequestLogService.logRequest({
+        // Log incoming request (non-blocking)
+        OCPIRequestLogService.logRequest({
             req,
             partnerId: partnerCredentials.partner_id,
             command: OCPILogCommand.PostAuthorizeTokenReq,
@@ -243,8 +243,8 @@ export default class OCPIv221TokensModuleIncomingRequestService {
                 },
             };
 
-            // Log outgoing response
-            await OCPIRequestLogService.logResponse({
+            // Log outgoing response (non-blocking)
+            OCPIRequestLogService.logResponse({
                 req,
                 res,
                 responseBody: response.payload,
@@ -275,8 +275,8 @@ export default class OCPIv221TokensModuleIncomingRequestService {
             },
         };
 
-        // Log outgoing response
-        await OCPIRequestLogService.logResponse({
+        // Log outgoing response (non-blocking)
+        OCPIRequestLogService.logResponse({
             req,
             res,
             responseBody: response.payload,
@@ -298,8 +298,8 @@ export default class OCPIv221TokensModuleIncomingRequestService {
         res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPITokenResponse>> {
-        // Log incoming request
-        await OCPIRequestLogService.logRequest({
+        // Log incoming request (non-blocking)
+        OCPIRequestLogService.logRequest({
             req,
             partnerId: partnerCredentials.partner_id,
             command: OCPILogCommand.PutTokenReq,
@@ -332,8 +332,8 @@ export default class OCPIv221TokensModuleIncomingRequestService {
                 },
             };
 
-            // Log outgoing response
-            await OCPIRequestLogService.logResponse({
+            // Log outgoing response (non-blocking)
+            OCPIRequestLogService.logResponse({
                 req,
                 res,
                 responseBody: response.payload,
@@ -377,8 +377,8 @@ export default class OCPIv221TokensModuleIncomingRequestService {
             },
         };
 
-        // Log outgoing response
-        await OCPIRequestLogService.logResponse({
+        // Log outgoing response (non-blocking)
+        OCPIRequestLogService.logResponse({
             req,
             res,
             responseBody: response.payload,
@@ -400,8 +400,8 @@ export default class OCPIv221TokensModuleIncomingRequestService {
         res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPITokenResponse>> {
-        // Log incoming request
-        await OCPIRequestLogService.logRequest({
+        // Log incoming request (non-blocking)
+        OCPIRequestLogService.logRequest({
             req,
             partnerId: partnerCredentials.partner_id,
             command: OCPILogCommand.PatchTokenReq,
@@ -436,8 +436,8 @@ export default class OCPIv221TokensModuleIncomingRequestService {
                 },
             };
 
-            // Log outgoing response
-            await OCPIRequestLogService.logResponse({
+            // Log outgoing response (non-blocking)
+            OCPIRequestLogService.logResponse({
                 req,
                 res,
                 responseBody: response.payload,
@@ -478,8 +478,8 @@ export default class OCPIv221TokensModuleIncomingRequestService {
             },
         };
 
-        // Log outgoing response
-        await OCPIRequestLogService.logResponse({
+        // Log outgoing response (non-blocking)
+        OCPIRequestLogService.logResponse({
             req,
             res,
             responseBody: response.payload,
