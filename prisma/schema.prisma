@@ -448,8 +448,9 @@ model BecknLog {
 model OCPILog {
   id                              String         @id @default(uuid())
   aiid                            BigInt         @default(autoincrement())
-  command                         String
+  command                         String // OCPILogCommand enum
   sender_type                     String // CPO | EMSP
+  url                             String
   payload                         Json           @db.Json
   additional_props                Json?          @default("{}") @db.Json
   partner_id                      String
