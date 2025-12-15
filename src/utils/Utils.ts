@@ -91,41 +91,12 @@ export default class Utils {
         return randomUUID();
     }
 
-    // BAP /*
 
-    public static getBapId(): string {
-        return GLOBAL_VARS.EV_CHARGING_UBC_BAP_ID;
-    }
 
-    /**
-     * The URL to which the request is made
-     */
-    public static getBAPClientHost(): string {
-        return `${GLOBAL_VARS.EV_CHARGING_UBC_BAP_CLIENT_HOST}/bap/caller`;
-    }
-
-    /**
-     * The URL to which the request is made
-     */
-    public static getBAPNetworkHost(): string {
-        return `${GLOBAL_VARS.EV_CHARGING_UBC_BAP_NETWORK_HOST}/bap/receiver`;
-    }
-
-    /**
-     * This is the URL that goes in `context.bap_uri`
-     * Since its `context.bap_uri`, it will always end with receiver as its facing the network side
-     */
-    public static getBAPContextURI(): string {
-        return `${GLOBAL_VARS.EV_CHARGING_UBC_CONTEXT_BAP_URI}/bap/receiver`;
-    }
 
     // BPP */
 
     // BPP /*
-
-    public static getBppId(): string {
-        return GLOBAL_VARS.EV_CHARGING_UBC_BPP_ID;
-    }
 
     /**
      * The URL to which the request is made
@@ -134,70 +105,14 @@ export default class Utils {
         return `${GLOBAL_VARS.EV_CHARGING_UBC_BPP_CLIENT_HOST}/bpp/caller`;
     }
 
-    /**
-     * The URL to which the request is made
-     */
-    public static getBPPNetworkHost(): string {
-        return `${GLOBAL_VARS.EV_CHARGING_UBC_BPP_NETWORK_HOST}/bpp/receiver`;
-    }
-
-    /**
-     * This is the URL that goes in `context.bpp_uri`
-     * Since its `context.bpp_uri`, it will always end with receiver as its facing the network side
-     */
-    public static getBPPContextURI(): string {
-        return `${GLOBAL_VARS.EV_CHARGING_UBC_CONTEXT_BPP_URI}/bpp/receiver`;
-    }
-
-    /**
-     * This should be the url of the backend server of the CPO i.e. pulse-central
-     */
-    public static getCPOBackendHost(): string {
-        return GLOBAL_VARS.EV_CHARGING_UBC_CPO_BACKEND_HOST;
-    }
-
-    /**
-     * This should be the url of the backend server of the app i.e. pulse-central
-     */
-        public static getAppBackendHost(): string {
-        return GLOBAL_VARS.EV_CHARGING_UBC_APP_BACKEND_HOST;
-    }
-
     public static getSubscriberId(domain?: BecknDomain): string {
-        return GLOBAL_VARS.EV_CHARGING_UBC_SUBSCRIBER_ID;
+        return GLOBAL_VARS.EV_CHARGING_UBC_BPP_ID;
     }
 
     public static getUniqueId(domain?: BecknDomain): string {
         return GLOBAL_VARS.EV_CHARGING_UBC_UNIQUE_ID;
     }
 
-    public static getBAPContext(params: {
-        action: BecknAction,
-        version: string,
-        domain: BecknDomain,
-        bap_id?: string,
-        bap_uri?: string,
-        bpp_id: string,
-        bpp_uri: string,
-        transaction_id: string,
-        message_id?: string,
-        timestamp?: string,
-    }): Context {
-        const { action, version, domain, bap_id, bap_uri, bpp_id, bpp_uri, transaction_id, message_id, timestamp } = params;
-
-        return {
-            domain: domain,
-            action: action,
-            version: version,
-            bap_id: bap_id ?? this.getBapId(),
-            bap_uri: bap_uri ?? this.getBAPNetworkHost(),
-            bpp_id: bpp_id,
-            bpp_uri: bpp_uri,
-            transaction_id: transaction_id,
-            message_id: message_id ?? this.generateUUID(),
-            timestamp: timestamp ?? new Date().toISOString(),
-        };
-    }
 
     public static getBPPContext(params: {
         action: BecknAction,
@@ -205,8 +120,8 @@ export default class Utils {
         domain: BecknDomain,
         bap_id?: string,
         bap_uri?: string,
-        bpp_id?: string,
-        bpp_uri?: string,
+        bpp_id: string,
+        bpp_uri: string,
         transaction_id: string,
         message_id: string,
         timestamp?: string,
@@ -217,8 +132,8 @@ export default class Utils {
             domain: domain,
             action: action,
             version: version,
-            bpp_id: bpp_id ?? this.getBppId(),
-            bpp_uri: bpp_uri ?? this.getBPPNetworkHost(),
+            bpp_id: bpp_id,
+            bpp_uri: bpp_uri,
             transaction_id: transaction_id,
             message_id: message_id,
             timestamp: timestamp ?? new Date().toISOString(),

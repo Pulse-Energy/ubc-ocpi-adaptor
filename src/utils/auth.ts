@@ -7,7 +7,6 @@ import Utils from './Utils';
 import { BecknDomain } from '../ubc/schema/v2.0.0/enums/BecknDomain';
 import * as _sodium from "libsodium-wrappers";
 import { base64_variants } from "libsodium-wrappers";
-import { getSubscriberDetails } from './lookup';
 
 export interface JWTPayload {
     email: string;
@@ -58,41 +57,7 @@ const signMessage = async (signingString: string, privateKey: string) => {
     return sodium.to_base64(signedMessage, base64_variants.ORIGINAL);
 };
 
-const removeQuotes = (value: string) => {
-    if (value.length >= 2 && value.charAt(0) === '"' && value.charAt(value.length - 1) === '"')
-        value = value.substring(1, value.length - 1);
-    return value;
-};
 
-const splitHeader = (header: string) => {
-    header = header.replace('Signature ', '');
-    const re = /\s*([^=]+)=([^,]+)[,]?/g;
-    let m;
-    const parts: Record<string, string> = {};
-    while ((m = re.exec(header)) !== null) {
-        if (m) {
-            parts[m[1]] = removeQuotes(m[2]);
-        }
-    }
-
-    return parts;
-};
-
-const verifyMessage = async (signedString: string, signingString: string, publicKey: string) => {
-    try {
-        await _sodium.ready;
-        const sodium = _sodium;
-        return sodium.crypto_sign_verify_detached(
-            sodium.from_base64(signedString, base64_variants.ORIGINAL),
-            signingString,
-            sodium.from_base64(publicKey, base64_variants.ORIGINAL)
-        );
-    }
-    catch (error:any) {
-        logger.error('Error verifying message', error);
-        return false;
-    }
-};
 
 const createSigningString = async (message: string, created?: string, expires?: string) => {
     if (!created) created = Math.floor(new Date().getTime() / 1000 - 1 * 60).toString();
@@ -116,24 +81,3 @@ export async function createAuthorizationHeader (message: any, domain?: BecknDom
     return header;
 }
 
-export async function verifyHeader(header: string, reqBody: any) {
-    try {
-        const parts: any = splitHeader(header);
-        if (!parts || Object.keys(parts).length === 0) 
-            return false;
-        const subscriberId = parts.keyId.split('|')[0];
-        const uniqueKeyId = parts.keyId.split('|')[1];
-        const subscriberDetails = await getSubscriberDetails(GLOBAL_VARS.BECKN_REGISTRY_URI, subscriberId, uniqueKeyId);
-        const publicKey = subscriberDetails.signing_public_key;
-        const { signingString } = await createSigningString(
-            JSON.stringify(reqBody),
-            parts.created,
-            parts.expires
-        );
-        return await verifyMessage(parts.signature, signingString, publicKey);
-    }
-    catch (error:any) {
-        logger.error('Error verifying header', error);
-        return false;
-    }
-}
