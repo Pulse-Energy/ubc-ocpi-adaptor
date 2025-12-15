@@ -7,6 +7,8 @@ Make sure you have:
 - Docker Compose v2.0+ installed
 - `.env` file configured (or use `.env.example`)
 
+You can find the postman collection here - /postman/UBC_Postman_Collection.postman_collection.json
+
 ## Step-by-Step Instructions
 
 ### 1. Verify Docker is Running

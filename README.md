@@ -118,9 +118,6 @@ curl http://localhost:6001/ocpi/versions
 ubc-ocpi-adaptor/
 ├── docs/                    # Documentation
 │   ├── SETUP.md            # Setup guide
-│   ├── OCPI_FLOWS.md       # OCPI flows
-│   ├── ARCHITECTURE.md     # Architecture docs
-│   └── TROUBLESHOOTING.md  # Troubleshooting
 ├── scripts/                 # Utility scripts
 │   ├── init-db.sh          # Database initialization
 │   └── healthcheck.sh      # Health check script

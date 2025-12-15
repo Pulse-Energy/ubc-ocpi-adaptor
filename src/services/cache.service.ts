@@ -3,14 +3,18 @@ import { redisConfig } from '../config/redis.config';
 import { logger } from './logger.service';
 
 class CacheService {
-    private client: Redis;
+    private client: Redis | null = null;
+    private enabled: boolean = false;
 
     constructor() {
-        this.client = new Redis(redisConfig);
-        this.setupEventHandlers();
+        // Redis is disabled - cache service is not used
+        // This prevents connection attempts
+        this.enabled = false;
     }
 
     private setupEventHandlers(): void {
+        if (!this.client) return;
+        
         this.client.on('connect', () => {
             logger.info('Redis client connected');
         });
@@ -25,6 +29,7 @@ class CacheService {
     }
 
     async get<T>(key: string): Promise<T | null> {
+        if (!this.enabled || !this.client) return null;
         try {
             const value = await this.client.get(key);
             if (!value) return null;
@@ -37,6 +42,7 @@ class CacheService {
     }
 
     async set(key: string, value: any, ttlSeconds?: number): Promise<boolean> {
+        if (!this.enabled || !this.client) return false;
         try {
             const serialized = JSON.stringify(value);
             if (ttlSeconds) {
@@ -54,6 +60,7 @@ class CacheService {
     }
 
     async delete(key: string): Promise<boolean> {
+        if (!this.enabled || !this.client) return false;
         try {
             await this.client.del(key);
             return true;
@@ -65,6 +72,7 @@ class CacheService {
     }
 
     async exists(key: string): Promise<boolean> {
+        if (!this.enabled || !this.client) return false;
         try {
             const result = await this.client.exists(key);
             return result === 1;
@@ -76,6 +84,7 @@ class CacheService {
     }
 
     async flush(): Promise<void> {
+        if (!this.enabled || !this.client) return;
         try {
             await this.client.flushdb();
             logger.info('Redis cache flushed');
@@ -86,7 +95,9 @@ class CacheService {
     }
 
     async disconnect(): Promise<void> {
-        await this.client.quit();
+        if (this.client) {
+            await this.client.quit();
+        }
     }
 }
 
