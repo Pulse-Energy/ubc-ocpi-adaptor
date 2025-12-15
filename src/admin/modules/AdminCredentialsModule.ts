@@ -302,7 +302,7 @@ export default class AdminCredentialsModule {
                     cpo_auth_token: cpoAuthToken,
                     cpo_url: cpoVersionsUrl,
                     emsp_auth_token: emspAuthToken ?? randomUUID(),
-                    emsp_url: emspVersionsUrl,
+                    emsp_url: emspPartner.versions_url,
                 };
                 credentials = await OCPIPartnerCredentialsDbService.createCredentials({ data: credentialsCreateFields });
             }
