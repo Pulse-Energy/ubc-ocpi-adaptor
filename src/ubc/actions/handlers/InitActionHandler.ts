@@ -96,14 +96,7 @@ export default class InitActionHandler {
                 { data: { response } }
             );
 
-            setTimeout(() => {
-                OnStatusActionHandler.handleEVChargingUBCBppOnStatusAction({
-                    authorization_reference: ubcOnInitPayload.message.order['beckn:payment']['beckn:txnRef'],
-                    payment_status: BecknPaymentStatus.COMPLETED,
-                });
-            }, 10000);
 
-            // return the response
             return ubcOnInitPayload;
         } 
         catch (e: any) {
