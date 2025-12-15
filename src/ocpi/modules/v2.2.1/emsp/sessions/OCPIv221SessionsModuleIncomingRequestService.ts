@@ -8,7 +8,6 @@ import {
 import { OCPISession, OCPIPatchSession } from '../../../../schema/modules/sessions/types';
 import { databaseService } from '../../../../../services/database.service';
 import { OCPIResponseStatusCode } from '../../../../schema/general/enum';
-import { OCPISessionStatus } from '../../../../schema/modules/sessions/enums';
 import { OCPIAuthMethod } from '../../../../schema/modules/cdrs/enums';
 
 /**
@@ -236,7 +235,7 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPISessionResponse>> {
         const prisma = databaseService.prisma;
-        const { country_code, party_id, session_id } = req.params as {
+        const { session_id } = req.params as {
             country_code: string;
             party_id: string;
             session_id: string;

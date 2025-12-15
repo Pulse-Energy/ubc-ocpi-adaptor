@@ -14,6 +14,7 @@ import CancelActionHandler from './actions/handlers/CancelActionHandler';
 import RatingActionHandler from './actions/handlers/RatingActionHandler';
 import SupportActionHandler from './actions/handlers/SupportActionHandler';
 import InitActionHandler from './actions/handlers/InitActionHandler';
+import OnixBppPreReqLogger from '../utils/OnixBppPreReqLoggerMiddleware';
 
 const router = Router();
 
@@ -21,6 +22,7 @@ const router = Router();
 const ubcAuth = (_req: Request, _res: Response, next: NextFunction) => {
     // TODO: Implement UBC authentication if required
     // For now, allow all requests
+    OnixBppPreReqLogger.logRequest(_req);
     next();
 };
 
