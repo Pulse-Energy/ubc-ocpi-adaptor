@@ -111,7 +111,17 @@ router.post(
     '/tariffs/fetch',
     ocpiApiAuth,
     async (req: Request, res: Response, next: NextFunction) =>
-        handleRequest(req, res, next, OCPIv221TariffsModuleOutgoingRequestService.sendGetTariffs),
+        handleRequest(
+            req,
+            res,
+            next,
+            (innerReq: Request) =>
+                OCPIv221TariffsModuleOutgoingRequestService.sendGetTariffs(
+                    innerReq,
+                    (req as OCPIAuthedRequest).ocpiPartnerCredentials?.cpo_auth_token ?? undefined,
+                    (req as OCPIAuthedRequest).ocpiPartnerCredentials?.partner_id,
+                ),
+        ),
 );
 
 // Get a single tariff from DB; if missing, fetch from CPO, store, then return (outgoing)
@@ -119,7 +129,17 @@ router.post(
     '/tariffs/:tariff_id/fetch',
     ocpiApiAuth,
     async (req: Request, res: Response, next: NextFunction) =>
-        handleRequest(req, res, next, OCPIv221TariffsModuleOutgoingRequestService.sendGetTariff),
+        handleRequest(
+            req,
+            res,
+            next,
+            (innerReq: Request) =>
+                OCPIv221TariffsModuleOutgoingRequestService.sendGetTariff(
+                    innerReq,
+                    (req as OCPIAuthedRequest).ocpiPartnerCredentials?.cpo_auth_token ?? undefined,
+                    (req as OCPIAuthedRequest).ocpiPartnerCredentials?.partner_id,
+                ),
+        ),
 );
 
 // Error handling for this router

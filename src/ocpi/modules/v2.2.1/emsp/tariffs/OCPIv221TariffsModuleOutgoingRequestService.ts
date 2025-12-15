@@ -3,7 +3,6 @@ import { HttpResponse } from '../../../../../types/responses';
 import { OCPITariffResponse, OCPITariffsResponse } from '../../../../schema/modules/tariffs/types/responses';
 import OCPIResponseService from '../../../../services/OCPIResponseService';
 import OCPIOutgoingRequestService from '../../../../services/OCPIOutgoingRequestService';
-import { getOcpiCpoAuthToken } from '../../../../utils/ocpi-auth-token';
 import Utils from '../../../../../utils/Utils';
 import { TariffDbService } from '../../../../../db-services/TariffDbService';
 import { OCPITariff } from '../../../../schema/modules/tariffs/types';
@@ -16,9 +15,11 @@ import { databaseService } from '../../../../../services/database.service';
  */
 export default class OCPIv221TariffsModuleOutgoingRequestService {
     public static async sendGetTariffs(
-        req: Request
+        req: Request,
+        cpoAuthToken: string | undefined,
+        partnerId?: string,
     ): Promise<HttpResponse<OCPITariffsResponse>> {
-        const baseUrl = await OCPIv221TariffsModuleOutgoingRequestService.getTariffsEndpointUrl('SENDER');
+        const baseUrl = await Utils.getOcpiEndpoint('tariffs', 'SENDER', partnerId);
 
         const limit = req.query.limit ? Number(req.query.limit) : undefined;
         const offset = req.query.offset ? Number(req.query.offset) : undefined;
@@ -34,14 +35,24 @@ export default class OCPIv221TariffsModuleOutgoingRequestService {
 
         try {
 
-            const authToken = getOcpiCpoAuthToken();
-            const partnerId = await OCPIv221TariffsModuleOutgoingRequestService.getTariffsPartnerId();
+            if (!cpoAuthToken) {
+                return OCPIResponseService.clientError<unknown>({
+                    message: 'CPO auth token is required',
+                }) as HttpResponse<OCPITariffsResponse>;
+            }
+
+            if (!partnerId) {
+                return OCPIResponseService.clientError<unknown>({
+                    message: 'Partner ID is required',
+                }) as HttpResponse<OCPITariffsResponse>;
+            }
+
             const response = await OCPIOutgoingRequestService.sendGetRequest({
                 url,
                 headers: {
                     Authorization: OCPIOutgoingRequestService.getAuthorizationHeader(
                         url,
-                        authToken,
+                        cpoAuthToken,
                     ),
                 },
                 partnerId,
@@ -238,13 +249,15 @@ export default class OCPIv221TariffsModuleOutgoingRequestService {
     }
 
     public static async sendGetTariff(
-        req: Request
+        req: Request,
+        cpoAuthToken: string | undefined,
+        partnerId?: string,
     ): Promise<HttpResponse<OCPITariffResponse>> {
         const tariffId = req.params.tariff_id;
         const countryCode = (req.params.country_code as string) || (req.query.country_code as string);
         const partyId = (req.params.party_id as string) || (req.query.party_id as string);
 
-        if (!tariffId) {
+        if (!tariffId || !cpoAuthToken || !partnerId) {
             return OCPIResponseService.clientError<unknown>({
                 message: 'tariff_id path parameter is required',
             }, OCPIResponseStatusCode.status_2000) as HttpResponse<OCPITariffResponse>;
@@ -262,14 +275,13 @@ export default class OCPIv221TariffsModuleOutgoingRequestService {
 
         try {
             // First, try to fetch from DB cache
-            const partnerIdForTariffs = await OCPIv221TariffsModuleOutgoingRequestService.getTariffsPartnerId();
 
             if (countryCode && partyId) {
                 const cachedTariff = await TariffDbService.findByOcpiTariffId(
                     countryCode,
                     partyId,
                     tariffId,
-                    partnerIdForTariffs,
+                    partnerId,
                 );
 
                 if (cachedTariff) {
@@ -282,7 +294,7 @@ export default class OCPIv221TariffsModuleOutgoingRequestService {
 
             // Not in DB, fetch from CPO
             // OCPI 2.2.1 requires country_code and party_id in URL path
-            const baseUrl = await OCPIv221TariffsModuleOutgoingRequestService.getTariffsEndpointUrl('SENDER');
+            const baseUrl = await Utils.getOcpiEndpoint('tariffs', 'SENDER', partnerId);
             let url: string;
             if (countryCode && partyId) {
                 // Use OCPI 2.2.1 compliant URL format
@@ -292,17 +304,16 @@ export default class OCPIv221TariffsModuleOutgoingRequestService {
                 // Fallback to tariff_id only (less ideal)
                 url = `${baseUrl}/${encodeURIComponent(tariffId)}`;
             }
-            const authToken = getOcpiCpoAuthToken();
 
             const response = await OCPIOutgoingRequestService.sendGetRequest({
                 url,
                 headers: {
                     Authorization: OCPIOutgoingRequestService.getAuthorizationHeader(
                         url,
-                        authToken,
+                        cpoAuthToken,
                     ),
                 },
-                partnerId: partnerIdForTariffs,
+                partnerId: partnerId,
                 command: 'TARIFF_GET',
             });
 
@@ -360,7 +371,7 @@ export default class OCPIv221TariffsModuleOutgoingRequestService {
                 }, OCPIResponseStatusCode.status_2000) as HttpResponse<OCPITariffResponse>;
             }
 
-            const stored = await TariffDbService.upsertFromOcpiTariff(payload.data, partnerIdForTariffs);
+            const stored = await TariffDbService.upsertFromOcpiTariff(payload.data, partnerId!);
             const ocpiTariff = TariffDbService.mapPrismaTariffToOcpi(stored);
 
             logger.info('Tariff fetched and stored from CPO', {
