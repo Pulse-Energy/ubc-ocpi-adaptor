@@ -6,6 +6,7 @@ import {
     OCPIv211VersionDetailResponse,
     OCPIVersionDetailResponse,
 } from '../../../../schema/modules/verisons/types/responses';
+import { OCPILogCommand } from '../../../../types';
 
 type VersionDetailUnion = OCPIVersionDetailResponse | OCPIv211VersionDetailResponse;
 
@@ -37,7 +38,7 @@ export default class OCPIv221VersionsModuleOutgoingRequestService {
                 Authorization: `Token ${cpoAuthToken}`,
             },
             partnerId,
-            command: 'VERSIONS_GET',
+            command: OCPILogCommand.SendGetVersionReq,
         });
 
         const payload = response.data as {
@@ -79,7 +80,7 @@ export default class OCPIv221VersionsModuleOutgoingRequestService {
                 Authorization: `Token ${cpoAuthToken}`,
             },
             partnerId,
-            command: 'VERSIONS_GET_DETAILS',
+            command: OCPILogCommand.SendGetVersionDetailsReq,
         });
 
         const payload = response.data as {

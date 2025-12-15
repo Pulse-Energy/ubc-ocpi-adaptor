@@ -13,6 +13,7 @@ import { OCPIProfileType } from '../ocpi/schema/modules/sessions/enums';
 import { OCPIEnergyContract } from '../ocpi/schema/modules/tokens/types';
 import { OCPIResponse } from '../ocpi/types';
 import { OCPICommandType } from '../ocpi/schema/modules/commands/enums';
+import { logger } from './logger.service';
 
 /**
  * Admin Commands module
@@ -104,14 +105,21 @@ export default class CommandsService {
             authorization_reference: transactionId,
         };
 
-        const cpoResponse =
+        try {
+            const cpoResponse =
             await OCPIv221CommandsModuleOutgoingRequestService.sendStartSessionCommand(
                 commandBody,
                 creds.cpo_auth_token,
                 partnerId,
             );
+            return cpoResponse;
+        }
+        catch (error) {
+            logger.error(`Error sending start session command to CPO: ${error}`);
+            throw new ValidationError('Error sending start session command to CPO');
+        }
 
-        return cpoResponse;
+        
     }
 
     /**

@@ -1,4 +1,4 @@
-import { Request } from 'express';
+import { Request, Response } from 'express';
 import { OCPIPartnerCredentials, Token } from '@prisma/client';
 import { HttpResponse } from '../../../../../types/responses';
 import {
@@ -10,6 +10,8 @@ import { databaseService } from '../../../../../services/database.service';
 import { OCPIAuthorizationInfo, OCPILocationReferences, OCPIToken } from '../../../../schema/modules/tokens/types';
 import { OCPIAllowedType } from '../../../../schema/modules/tokens/enums';
 import { OCPIResponseStatusCode } from '../../../../schema/general/enum';
+import { OCPIRequestLogService } from '../../../../services/OCPIRequestLogService';
+import { OCPILogCommand } from '../../../../types';
 
 /**
  * OCPI 2.2.1 – Tokens module (incoming, EMSP side).
@@ -33,8 +35,16 @@ export default class OCPIv221TokensModuleIncomingRequestService {
      */
     public static async handleGetTokens(
         req: Request,
+        res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPITokensResponse>> {
+        // Log incoming request (non-blocking)
+        OCPIRequestLogService.logRequest({
+            req,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.GetTokensReq,
+        });
+
         const { country_code, party_id } = req.query as {
             country_code?: string;
             party_id?: string;
@@ -65,7 +75,7 @@ export default class OCPIv221TokensModuleIncomingRequestService {
             OCPIv221TokensModuleIncomingRequestService.mapPrismaTokenToOcpi,
         );
 
-        return {
+        const response = {
             httpStatus: 200,
             payload: {
                 data,
@@ -73,6 +83,18 @@ export default class OCPIv221TokensModuleIncomingRequestService {
                 timestamp: new Date().toISOString(),
             },
         };
+
+        // Log outgoing response (non-blocking)
+        OCPIRequestLogService.logResponse({
+            req,
+            res,
+            responseBody: response.payload,
+            statusCode: response.httpStatus,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.GetTokensRes,
+        });
+
+        return response;
     }
 
     /**
@@ -82,8 +104,16 @@ export default class OCPIv221TokensModuleIncomingRequestService {
      */
     public static async handleGetToken(
         req: Request,
+        res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPITokenResponse>> {
+        // Log incoming request (non-blocking)
+        OCPIRequestLogService.logRequest({
+            req,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.GetTokenReq,
+        });
+
         const { country_code, party_id, token_uid } = req.params as {
             country_code: string;
             party_id: string;
@@ -101,7 +131,7 @@ export default class OCPIv221TokensModuleIncomingRequestService {
         });
 
         if (!prismaToken) {
-            return {
+            const response = {
                 httpStatus: 404,
                 payload: {
                     status_code: OCPIResponseStatusCode.status_2001,
@@ -109,13 +139,25 @@ export default class OCPIv221TokensModuleIncomingRequestService {
                     timestamp: new Date().toISOString(),
                 },
             };
+
+            // Log outgoing response (non-blocking)
+            OCPIRequestLogService.logResponse({
+                req,
+                res,
+                responseBody: response.payload,
+                statusCode: response.httpStatus,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.GetTokenRes,
+            });
+
+            return response;
         }
 
         const data = OCPIv221TokensModuleIncomingRequestService.mapPrismaTokenToOcpi(
             prismaToken,
         );
 
-        return {
+        const response = {
             httpStatus: 200,
             payload: {
                 data,
@@ -123,6 +165,18 @@ export default class OCPIv221TokensModuleIncomingRequestService {
                 timestamp: new Date().toISOString(),
             },
         };
+
+        // Log outgoing response (non-blocking)
+        OCPIRequestLogService.logResponse({
+            req,
+            res,
+            responseBody: response.payload,
+            statusCode: response.httpStatus,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.GetTokenRes,
+        });
+
+        return response;
     }
 
     /**
@@ -135,8 +189,16 @@ export default class OCPIv221TokensModuleIncomingRequestService {
      */
     public static async handlePostAuthorizeToken(
         req: Request,
+        res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPIAuthorizationInfoResponse>> {
+        // Log incoming request (non-blocking)
+        OCPIRequestLogService.logRequest({
+            req,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.PostAuthorizeTokenReq,
+        });
+
         const { country_code, party_id, token_uid } = req.params as {
             country_code: string;
             party_id: string;
@@ -172,7 +234,7 @@ export default class OCPIv221TokensModuleIncomingRequestService {
                 location: _location,
             };
 
-            return {
+            const response = {
                 httpStatus: 200,
                 payload: {
                     data: info,
@@ -180,6 +242,18 @@ export default class OCPIv221TokensModuleIncomingRequestService {
                     timestamp: new Date().toISOString(),
                 },
             };
+
+            // Log outgoing response (non-blocking)
+            OCPIRequestLogService.logResponse({
+                req,
+                res,
+                responseBody: response.payload,
+                statusCode: response.httpStatus,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.PostAuthorizeTokenRes,
+            });
+
+            return response;
         }
 
         const token = OCPIv221TokensModuleIncomingRequestService.mapPrismaTokenToOcpi(
@@ -192,7 +266,7 @@ export default class OCPIv221TokensModuleIncomingRequestService {
             location: _location,
         };
 
-        return {
+        const response = {
             httpStatus: 200,
             payload: {
                 data: info,
@@ -200,6 +274,18 @@ export default class OCPIv221TokensModuleIncomingRequestService {
                 timestamp: new Date().toISOString(),
             },
         };
+
+        // Log outgoing response (non-blocking)
+        OCPIRequestLogService.logResponse({
+            req,
+            res,
+            responseBody: response.payload,
+            statusCode: response.httpStatus,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.PostAuthorizeTokenRes,
+        });
+
+        return response;
     }
 
     /**
@@ -209,8 +295,16 @@ export default class OCPIv221TokensModuleIncomingRequestService {
      */
     public static async handlePutToken(
         req: Request,
+        res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPITokenResponse>> {
+        // Log incoming request (non-blocking)
+        OCPIRequestLogService.logRequest({
+            req,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.PutTokenReq,
+        });
+
         const { country_code, party_id, token_uid } = req.params as {
             country_code: string;
             party_id: string;
@@ -229,7 +323,7 @@ export default class OCPIv221TokensModuleIncomingRequestService {
         });
 
         if (!existing) {
-            return {
+            const response = {
                 httpStatus: 404,
                 payload: {
                     status_code: OCPIResponseStatusCode.status_2001,
@@ -237,6 +331,18 @@ export default class OCPIv221TokensModuleIncomingRequestService {
                     timestamp: new Date().toISOString(),
                 },
             };
+
+            // Log outgoing response (non-blocking)
+            OCPIRequestLogService.logResponse({
+                req,
+                res,
+                responseBody: response.payload,
+                statusCode: response.httpStatus,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.PutTokenRes,
+            });
+
+            return response;
         }
 
         const tokenData =
@@ -262,7 +368,7 @@ export default class OCPIv221TokensModuleIncomingRequestService {
             stored,
         );
 
-        return {
+        const response = {
             httpStatus: 200,
             payload: {
                 data,
@@ -270,6 +376,18 @@ export default class OCPIv221TokensModuleIncomingRequestService {
                 timestamp: new Date().toISOString(),
             },
         };
+
+        // Log outgoing response (non-blocking)
+        OCPIRequestLogService.logResponse({
+            req,
+            res,
+            responseBody: response.payload,
+            statusCode: response.httpStatus,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.PutTokenRes,
+        });
+
+        return response;
     }
 
     /**
@@ -279,8 +397,16 @@ export default class OCPIv221TokensModuleIncomingRequestService {
      */
     public static async handlePatchToken(
         req: Request,
+        res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPITokenResponse>> {
+        // Log incoming request (non-blocking)
+        OCPIRequestLogService.logRequest({
+            req,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.PatchTokenReq,
+        });
+
         const { country_code, party_id, token_uid } = req.params as {
             country_code: string;
             party_id: string;
@@ -301,7 +427,7 @@ export default class OCPIv221TokensModuleIncomingRequestService {
         });
 
         if (!existing) {
-            return {
+            const response = {
                 httpStatus: 404,
                 payload: {
                     status_code: OCPIResponseStatusCode.status_2001,
@@ -309,6 +435,18 @@ export default class OCPIv221TokensModuleIncomingRequestService {
                     timestamp: new Date().toISOString(),
                 },
             };
+
+            // Log outgoing response (non-blocking)
+            OCPIRequestLogService.logResponse({
+                req,
+                res,
+                responseBody: response.payload,
+                statusCode: response.httpStatus,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.PatchTokenRes,
+            });
+
+            return response;
         }
 
         const merged: OCPIToken = {
@@ -331,7 +469,7 @@ export default class OCPIv221TokensModuleIncomingRequestService {
             stored,
         );
 
-        return {
+        const response = {
             httpStatus: 200,
             payload: {
                 data,
@@ -339,6 +477,18 @@ export default class OCPIv221TokensModuleIncomingRequestService {
                 timestamp: new Date().toISOString(),
             },
         };
+
+        // Log outgoing response (non-blocking)
+        OCPIRequestLogService.logResponse({
+            req,
+            res,
+            responseBody: response.payload,
+            statusCode: response.httpStatus,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.PatchTokenRes,
+        });
+
+        return response;
     }
 
     private static mapPrismaTokenToOcpi(token: Token): OCPIToken {

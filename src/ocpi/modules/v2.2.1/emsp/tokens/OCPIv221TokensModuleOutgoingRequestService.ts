@@ -9,6 +9,7 @@ import { OCPIToken, OCPILocationReferences } from '../../../../schema/modules/to
 import OCPIOutgoingRequestService from '../../../../services/OCPIOutgoingRequestService';
 import Utils from '../../../../../utils/Utils';
 import { OCPIResponsePayload } from '../../../../schema/general/types/responses';
+import { OCPILogCommand } from '../../../../types';
 
 /**
  * OCPI 2.2.1 – Tokens module (outgoing, EMSP → CPO).
@@ -60,7 +61,7 @@ export default class OCPIv221TokensModuleOutgoingRequestService {
             url,
             headers: OCPIv221TokensModuleOutgoingRequestService.getAuthHeaders(cpoAuthToken),
             partnerId,
-            command: 'TOKENS_GET',
+            command: OCPILogCommand.SendGetTokensReq,
         });
 
         const payload = response.data as OCPITokensResponse;
@@ -98,7 +99,7 @@ export default class OCPIv221TokensModuleOutgoingRequestService {
             url,
             headers: OCPIv221TokensModuleOutgoingRequestService.getAuthHeaders(cpoAuthToken),
             partnerId,
-            command: 'TOKENS_GET_ONE',
+            command: OCPILogCommand.SendGetTokenReq,
         });
 
         const payload = response.data as OCPITokenResponse;
@@ -138,7 +139,7 @@ export default class OCPIv221TokensModuleOutgoingRequestService {
             headers: OCPIv221TokensModuleOutgoingRequestService.getAuthHeaders(cpoAuthToken),
             data: token,
             partnerId,
-            command: 'TOKENS_PUT',
+            command: OCPILogCommand.SendPutTokenReq,
         });
 
         const payload = response as OCPIResponsePayload<OCPIToken>;
@@ -168,7 +169,7 @@ export default class OCPIv221TokensModuleOutgoingRequestService {
             headers: OCPIv221TokensModuleOutgoingRequestService.getAuthHeaders(cpoAuthToken),
             data: token,
             partnerId,
-            command: 'TOKENS_PUT_DIRECT',
+            command: OCPILogCommand.SendPutTokenDirectReq,
         });
 
         const payload = response as OCPIResponsePayload<OCPIToken>;
@@ -208,7 +209,7 @@ export default class OCPIv221TokensModuleOutgoingRequestService {
             headers: OCPIv221TokensModuleOutgoingRequestService.getAuthHeaders(cpoAuthToken),
             data: patch,
             partnerId,
-            command: 'TOKENS_PATCH',
+            command: OCPILogCommand.SendPatchTokenReq,
         });
 
         const payload = response as OCPIResponsePayload<OCPIToken>;
@@ -248,7 +249,7 @@ export default class OCPIv221TokensModuleOutgoingRequestService {
             headers: OCPIv221TokensModuleOutgoingRequestService.getAuthHeaders(cpoAuthToken),
             data: location,
             partnerId,
-            command: 'TOKENS_AUTHORIZE',
+            command: OCPILogCommand.SendPostAuthorizeTokenReq,
         });
 
         const payload = response as OCPIAuthorizationInfoResponse;

@@ -7,6 +7,7 @@ import {
 import OCPIResponseService from '../../../../services/OCPIResponseService';
 import OCPIOutgoingRequestService from '../../../../services/OCPIOutgoingRequestService';
 import Utils from '../../../../../utils/Utils';
+import { OCPILogCommand } from '../../../../types';
 
 /**
  * Handle all outgoing requests for the Locations module to the CPO.
@@ -50,7 +51,7 @@ export default class OCPIv221LocationsModuleOutgoingRequestService {
                     ),
                 },
                 partnerId,
-                command: 'LOCATIONS_GET',
+                command: OCPILogCommand.SendGetLocationReq,
             });
 
             const payload = response.data as OCPILocationsResponse;
@@ -105,7 +106,7 @@ export default class OCPIv221LocationsModuleOutgoingRequestService {
                     ),
                 },
                 partnerId,
-                command: 'LOCATIONS_GET_ONE',
+                command: OCPILogCommand.SendGetLocationOneReq,
             });
 
             const payload = response.data as OCPILocationResponse;

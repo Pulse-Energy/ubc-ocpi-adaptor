@@ -1,6 +1,7 @@
 import axios from "axios";
 import { logger } from "../../services/logger.service";
 import { OCPIRequestLogService } from "./OCPIRequestLogService";
+import { OCPILogCommand } from "../types";
 
 // TODO: move this somewhere else
 type OutgoingRequestConfig = {
@@ -16,7 +17,7 @@ type OutgoingRequestConfig = {
      * Optional logical command name for easier debugging (e.g. "LOCATIONS_GET").
      * If omitted, a generic "OUTGOING <METHOD> <url>" is used.
      */
-    command?: string;
+    command?: OCPILogCommand;
 }
 type OutgoingGetRequestConfig = OutgoingRequestConfig & {
 
@@ -55,9 +56,17 @@ export default class OCPIOutgoingRequestService {
             },
         });
 
-        /**
-         * @todo Add outgoing request DB log
-         */
+        // Log outgoing request (EMSP → CPO) - Individual log entry (non-blocking)
+        OCPIRequestLogService.logOutgoingRequest({
+            url,
+            method: 'GET',
+            headers,
+            partnerId,
+            command,
+        }).catch((error) => {
+            // Logging errors should never affect the request flow
+            logger.error('Failed to log outgoing request', error as Error);
+        });
 
         return axios.get(url, {
             headers: {
@@ -78,15 +87,18 @@ export default class OCPIOutgoingRequestService {
                     },
                 });
 
-                // Best-effort OCPI DB log
-                void OCPIRequestLogService.logOutgoing({
+                // Log incoming response (CPO → EMSP) - Individual log entry (non-blocking)
+                OCPIRequestLogService.logOutgoingResponse({
                     url,
                     method: 'GET',
-                    headers,
+                    headers: response.headers as Record<string, string | number | boolean | undefined>,
                     responseBody: response.data ?? response,
                     statusCode: response.status,
                     partnerId,
                     command,
+                }).catch((error) => {
+                    // Logging errors should never affect the request flow
+                    logger.error('Failed to log outgoing response', error as Error);
                 });
 
                 return response;
@@ -106,14 +118,18 @@ export default class OCPIOutgoingRequestService {
                     },
                 });
 
-                // Best-effort OCPI DB log (error)
-                void OCPIRequestLogService.logOutgoing({
+                // Log error response - Individual log entry (non-blocking)
+                OCPIRequestLogService.logOutgoingResponse({
                     url,
                     method: 'GET',
                     headers,
-                    error: e,
+                    error: e.response?.data || e.message || e,
+                    statusCode: e.response?.status,
                     partnerId,
                     command,
+                }).catch((error) => {
+                    // Logging errors should never affect the request flow
+                    logger.error('Failed to log outgoing error response', error as Error);
                 });
 
                 return Promise.reject(e);
@@ -145,9 +161,18 @@ export default class OCPIOutgoingRequestService {
             },
         });
 
-        /**
-         * @todo Add outgoing request DB log
-         */
+        // Log outgoing request (EMSP → CPO) - Individual log entry (non-blocking)
+        OCPIRequestLogService.logOutgoingRequest({
+            url,
+            method: 'POST',
+            headers,
+            requestBody: data,
+            partnerId,
+            command,
+        }).catch((error) => {
+            // Logging errors should never affect the request flow
+            logger.error('Failed to log outgoing request', error as Error);
+        });
 
         return axios.post(url, data, {
             headers: {
@@ -165,19 +190,23 @@ export default class OCPIOutgoingRequestService {
                     data: {
                         url: url,
                         method: 'POST',
-                        payload: data,response: response.data ?? response,
+                        payload: data,
+                        response: response.data ?? response,
                     },
                 });
 
-                void OCPIRequestLogService.logOutgoing({
+                // Log incoming response (CPO → EMSP) - Individual log entry (non-blocking)
+                OCPIRequestLogService.logOutgoingResponse({
                     url,
                     method: 'POST',
-                    headers,
-                    requestBody: data,
+                    headers: response.headers as Record<string, string | number | boolean | undefined>,
                     responseBody: response.data ?? response,
                     statusCode: response.status,
                     partnerId,
                     command,
+                }).catch((error) => {
+                    // Logging errors should never affect the request flow
+                    logger.error('Failed to log outgoing response', error as Error);
                 });
 
                 return response.data;
@@ -193,18 +222,23 @@ export default class OCPIOutgoingRequestService {
                     data: {
                         url: url,
                         method: 'POST',
-                        payload: data,error: e,
+                        payload: data,
+                        error: e,
                     },
                 });
 
-                void OCPIRequestLogService.logOutgoing({
+                // Log error response - Individual log entry (non-blocking)
+                OCPIRequestLogService.logOutgoingResponse({
                     url,
                     method: 'POST',
                     headers,
-                    requestBody: data,
-                    error: e,
+                    error: e.response?.data || e.message || e,
+                    statusCode: e.response?.status,
                     partnerId,
                     command,
+                }).catch((error) => {
+                    // Logging errors should never affect the request flow
+                    logger.error('Failed to log outgoing error response', error as Error);
                 });
 
                 return Promise.reject(e);
@@ -236,9 +270,18 @@ export default class OCPIOutgoingRequestService {
             },
         });
 
-        /**
-         * @todo Add outgoing request DB log
-         */
+        // Log outgoing request (EMSP → CPO) - Individual log entry (non-blocking)
+        OCPIRequestLogService.logOutgoingRequest({
+            url,
+            method: 'PUT',
+            headers,
+            requestBody: data,
+            partnerId,
+            command,
+        }).catch((error) => {
+            // Logging errors should never affect the request flow
+            logger.error('Failed to log outgoing request', error as Error);
+        });
 
         return axios.put(url, data, {
             headers: {
@@ -261,15 +304,18 @@ export default class OCPIOutgoingRequestService {
                     },
                 });
 
-                void OCPIRequestLogService.logOutgoing({
+                // Log incoming response (CPO → EMSP) - Individual log entry (non-blocking)
+                OCPIRequestLogService.logOutgoingResponse({
                     url,
                     method: 'PUT',
-                    headers,
-                    requestBody: data,
+                    headers: response.headers as Record<string, string | number | boolean | undefined>,
                     responseBody: response.data ?? response,
                     statusCode: response.status,
                     partnerId,
                     command,
+                }).catch((error) => {
+                    // Logging errors should never affect the request flow
+                    logger.error('Failed to log outgoing response', error as Error);
                 });
 
                 return response.data;
@@ -290,14 +336,18 @@ export default class OCPIOutgoingRequestService {
                     },
                 });
 
-                void OCPIRequestLogService.logOutgoing({
+                // Log error response - Individual log entry (non-blocking)
+                OCPIRequestLogService.logOutgoingResponse({
                     url,
                     method: 'PUT',
                     headers,
-                    requestBody: data,
-                    error: e,
+                    error: e.response?.data || e.message || e,
+                    statusCode: e.response?.status,
                     partnerId,
                     command,
+                }).catch((error) => {
+                    // Logging errors should never affect the request flow
+                    logger.error('Failed to log outgoing error response', error as Error);
                 });
 
                 return Promise.reject(e);
@@ -329,9 +379,18 @@ export default class OCPIOutgoingRequestService {
             },
         });
 
-        /**
-         * @todo Add outgoing request DB log
-         */
+        // Log outgoing request (EMSP → CPO) - Individual log entry (non-blocking)
+        OCPIRequestLogService.logOutgoingRequest({
+            url,
+            method: 'PATCH',
+            headers,
+            requestBody: data,
+            partnerId,
+            command,
+        }).catch((error) => {
+            // Logging errors should never affect the request flow
+            logger.error('Failed to log outgoing request', error as Error);
+        });
 
         return axios.patch(url, data, {
             headers: {
@@ -354,15 +413,18 @@ export default class OCPIOutgoingRequestService {
                     },
                 });
 
-                void OCPIRequestLogService.logOutgoing({
+                // Log incoming response (CPO → EMSP) - Individual log entry (non-blocking)
+                OCPIRequestLogService.logOutgoingResponse({
                     url,
                     method: 'PATCH',
-                    headers,
-                    requestBody: data,
+                    headers: response.headers as Record<string, string | number | boolean | undefined>,
                     responseBody: response.data ?? response,
                     statusCode: response.status,
                     partnerId,
                     command,
+                }).catch((error) => {
+                    // Logging errors should never affect the request flow
+                    logger.error('Failed to log outgoing response', error as Error);
                 });
 
                 return response.data;
@@ -383,14 +445,18 @@ export default class OCPIOutgoingRequestService {
                     },
                 });
 
-                void OCPIRequestLogService.logOutgoing({
+                // Log error response - Individual log entry (non-blocking)
+                OCPIRequestLogService.logOutgoingResponse({
                     url,
                     method: 'PATCH',
                     headers,
-                    requestBody: data,
-                    error: e,
+                    error: e.response?.data || e.message || e,
+                    statusCode: e.response?.status,
                     partnerId,
                     command,
+                }).catch((error) => {
+                    // Logging errors should never affect the request flow
+                    logger.error('Failed to log outgoing error response', error as Error);
                 });
 
                 return Promise.reject(e);
@@ -422,9 +488,18 @@ export default class OCPIOutgoingRequestService {
             },
         });
 
-        /**
-         * @todo Add outgoing request DB log
-         */
+        // Log outgoing request (EMSP → CPO) - Individual log entry (non-blocking)
+        OCPIRequestLogService.logOutgoingRequest({
+            url,
+            method: 'DELETE',
+            headers,
+            requestBody: data,
+            partnerId,
+            command,
+        }).catch((error) => {
+            // Logging errors should never affect the request flow
+            logger.error('Failed to log outgoing request', error as Error);
+        });
 
         return axios.delete(url, {
             headers: {
@@ -446,15 +521,18 @@ export default class OCPIOutgoingRequestService {
                     },
                 });
 
-                void OCPIRequestLogService.logOutgoing({
+                // Log incoming response (CPO → EMSP) - Individual log entry (non-blocking)
+                OCPIRequestLogService.logOutgoingResponse({
                     url,
                     method: 'DELETE',
-                    headers,
-                    requestBody: data,
+                    headers: response.headers as Record<string, string | number | boolean | undefined>,
                     responseBody: response.data ?? response,
                     statusCode: response.status,
                     partnerId,
                     command,
+                }).catch((error) => {
+                    // Logging errors should never affect the request flow
+                    logger.error('Failed to log outgoing response', error as Error);
                 });
 
                 return response.data;
@@ -475,14 +553,18 @@ export default class OCPIOutgoingRequestService {
                     },
                 });
 
-                void OCPIRequestLogService.logOutgoing({
+                // Log error response - Individual log entry (non-blocking)
+                OCPIRequestLogService.logOutgoingResponse({
                     url,
                     method: 'DELETE',
                     headers,
-                    requestBody: data,
-                    error: e,
+                    error: e.response?.data || e.message || e,
+                    statusCode: e.response?.status,
                     partnerId,
                     command,
+                }).catch((error) => {
+                    // Logging errors should never affect the request flow
+                    logger.error('Failed to log outgoing error response', error as Error);
                 });
 
                 return Promise.reject(e);

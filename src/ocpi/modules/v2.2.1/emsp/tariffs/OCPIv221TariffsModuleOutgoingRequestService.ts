@@ -9,6 +9,7 @@ import { OCPITariff } from '../../../../schema/modules/tariffs/types';
 import { logger } from '../../../../../services/logger.service';
 import { OCPIResponseStatusCode } from '../../../../schema/general/enum';
 import { databaseService } from '../../../../../services/database.service';
+import { OCPILogCommand } from '../../../../types';
 
 /**
  * Handle all outgoing requests for the Tariffs module to the CPO
@@ -56,7 +57,7 @@ export default class OCPIv221TariffsModuleOutgoingRequestService {
                     ),
                 },
                 partnerId,
-                command: 'TARIFFS_GET',
+                command: OCPILogCommand.SendGetTariffsReq,
             });
 
             // Log response for debugging
@@ -314,7 +315,7 @@ export default class OCPIv221TariffsModuleOutgoingRequestService {
                     ),
                 },
                 partnerId: partnerId,
-                command: 'TARIFF_GET',
+                command: OCPILogCommand.SendGetTariffReq,
             });
 
             // Handle axios response structure

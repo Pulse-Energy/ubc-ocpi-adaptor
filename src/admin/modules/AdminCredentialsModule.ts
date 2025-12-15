@@ -262,6 +262,15 @@ export default class AdminCredentialsModule {
                 };
                 emspPartner = await OCPIPartnerDbService.create({ data: emspPartnerCreateFields });
 
+                // create emsp version
+                const emspVersionCreateFields: Prisma.OCPIVersionCreateInput = {
+                    partner: { connect: { id: emspPartner?.id || '' } },
+                    version_id: OCPIVersionNumber.v2_2_1,
+                    version_url: `${emspOcpiHost}/ocpi/${OCPIVersionNumber.v2_2_1}/details`,
+                };
+
+                await databaseService.prisma.oCPIVersion.create({ data: emspVersionCreateFields });
+
                 // Create EMSP endpoints
                 const baseUrl = `${emspOcpiHost}/ocpi/${OCPIVersionNumber.v2_2_1}`;
                 const emspEndpoints = [

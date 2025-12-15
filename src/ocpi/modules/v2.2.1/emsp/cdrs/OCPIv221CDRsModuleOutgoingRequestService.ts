@@ -5,6 +5,7 @@ import { OCPICDR } from '../../../../schema/modules/cdrs/types';
 import OCPIOutgoingRequestService from '../../../../services/OCPIOutgoingRequestService';
 import Utils from '../../../../../utils/Utils';
 import { OCPIResponsePayload } from '../../../../schema/general/types/responses';
+import { OCPILogCommand } from '../../../../types';
 
 /**
  * OCPI 2.2.1 – CDRs module (outgoing, EMSP → CPO).
@@ -47,6 +48,7 @@ export default class OCPIv221CDRsModuleOutgoingRequestService {
         const response = await OCPIOutgoingRequestService.sendGetRequest({
             url,
             headers: OCPIv221CDRsModuleOutgoingRequestService.getAuthHeaders(),
+            command: OCPILogCommand.SendGetCdrsReq,
         });
 
         const payload = response.data as OCPICDRsResponse;
@@ -71,6 +73,7 @@ export default class OCPIv221CDRsModuleOutgoingRequestService {
         const response = await OCPIOutgoingRequestService.sendGetRequest({
             url: path,
             headers: OCPIv221CDRsModuleOutgoingRequestService.getAuthHeaders(),
+            command: OCPILogCommand.SendGetCdrReq,
         });
 
         const payload = response.data as OCPICDRResponse;
@@ -94,6 +97,7 @@ export default class OCPIv221CDRsModuleOutgoingRequestService {
             url: baseUrl,
             headers: OCPIv221CDRsModuleOutgoingRequestService.getAuthHeaders(),
             data: payload,
+            command: OCPILogCommand.SendPostCdrReq,
         });
 
         const payloadOut = response as OCPIResponsePayload<OCPICDR>;
