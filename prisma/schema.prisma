@@ -145,7 +145,7 @@ model Tariff {
   created_at          DateTime       @default(now())
   updated_at          DateTime       @updatedAt
   ocpi_tariff_element Json?
-  evseconnector       EVSEConnector? @relation(fields: [eVSEConnectorId], references: [id])
+  evseconnector       EVSEConnector? @relation(fields: [eVSEConnectorId], references: [id], onDelete: Cascade)
   eVSEConnectorId     String?
   partner_id          String
   partner             OCPIPartner    @relation(fields: [partner_id], references: [id], onDelete: Cascade)
@@ -484,7 +484,7 @@ model PaymentTxn {
   status                          String
   requested_energy_units          Decimal     @db.Decimal(10, 3)
   partner_id                      String
-  partner                         OCPIPartner @relation(fields: [partner_id], references: [id])
+  partner                         OCPIPartner @relation(fields: [partner_id], references: [id], onDelete: Cascade)
   beckn_transaction_id            String
   additional_props                Json?       @default("{}") @db.Json
   created_at                      DateTime    @default(now())
