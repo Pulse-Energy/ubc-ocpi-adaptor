@@ -35,6 +35,13 @@ export default class CPOBackendRequestService {
 
             logData.headers = reqHeaders;
 
+            const responseLogMetaData = {
+                transactionId: data?.context?.transaction_id || '',
+                messageId: data?.context?.message_id || '',
+                domain: data?.context?.domain || '',
+                action: data?.context?.action || '',
+            }   
+
             BecknLoggingService.log({
                 reqId: reqId,
                 url: url,
@@ -60,6 +67,7 @@ export default class CPOBackendRequestService {
                         headers: reqHeaders,
                         payload: response.data,
                         action: 'bpp.out.response',
+                        logMetaData: responseLogMetaData,
                     });
 
                     return response.data;
