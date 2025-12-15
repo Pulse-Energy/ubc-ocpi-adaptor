@@ -11,6 +11,7 @@ import {
 } from '../../ocpi/schema/modules/verisons/types/responses';
 import { databaseService } from '../../services/database.service';
 import OCPIv221VersionsModuleOutgoingRequestService from '../../ocpi/modules/v2.2.1/emsp/versions/OCPIv221VersionsModuleOutgoingRequestService';
+import { OCPIVersionNumber } from '../../ocpi/schema/modules/verisons/enums';
 
 type VersionDetailUnion = OCPIVersionDetailResponse | OCPIv211VersionDetailResponse;
 
@@ -102,9 +103,8 @@ export default class AdminVersionsModule {
     public static async getCpoVersionDetails(
         req: Request,
     ): Promise<HttpResponse<AdminResponsePayload<unknown>>> {
-        const { partner_id: partnerId, version_id: explicitVersionId } = req.body as {
+        const { partner_id: partnerId } = req.body as {
             partner_id?: string;
-            version_id?: string;
         };
 
         if (!partnerId) {
@@ -132,9 +132,13 @@ export default class AdminVersionsModule {
             throw new ValidationError('No stored versions for this partner, call /versions first');
         }
 
-        const preferredVersionId = explicitVersionId || '2.2.1';
-        const selected =
-            versions.find((v) => v.version_id === preferredVersionId) ?? versions[0];
+        const v221Version = versions.find((v) => v.version_id === OCPIVersionNumber.v2_2_1);
+        const v211Version = versions.find((v) => v.version_id === OCPIVersionNumber.v2_1_1);
+
+        const selected = v221Version ?? v211Version;
+        if (!selected) {
+            throw new ValidationError('No valid version found for this partner');
+        }
 
         const versionDetails: VersionDetailUnion =
             await OCPIv221VersionsModuleOutgoingRequestService.getVersionDetails(

@@ -21,17 +21,17 @@ router.post('/credentials', adminAuth, (req: Request, res: Response, next: NextF
     handleRequest(req, res, next, AdminCredentialsModule.sendPostCredentials)
 );
 
-// Upsert CPO partner + credentials from a raw OCPI credentials payload
-router.post(
-    '/credentials/create-cpo-partner',
-    adminAuth,
-    (req: Request, res: Response, next: NextFunction) =>
-        handleRequest(req, res, next, AdminCredentialsModule.upsertCpoFromCredentialsPayload),
-);
-
 // GET CPO view of credentials for a given partner
 router.get('/credentials', adminAuth, (req: Request, res: Response, next: NextFunction) =>
     handleRequest(req, res, next, AdminCredentialsModule.getCpoCredentials)
+);
+
+// Upsert CPO partner + credentials from a raw OCPI credentials payload
+router.post(
+    '/register',
+    adminAuth,
+    (req: Request, res: Response, next: NextFunction) =>
+        handleRequest(req, res, next, AdminCredentialsModule.registerCpoFromCredentialsPayload),
 );
 
 export default router;

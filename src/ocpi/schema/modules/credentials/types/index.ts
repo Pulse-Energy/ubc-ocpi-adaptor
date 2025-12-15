@@ -37,3 +37,4 @@ export type OCPIv211Credentials = {
     party_id: string
     country_code: CountryCode
 }
+

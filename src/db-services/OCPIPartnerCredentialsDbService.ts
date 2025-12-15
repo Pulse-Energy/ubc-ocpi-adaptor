@@ -129,6 +129,12 @@ export class OCPIPartnerCredentialsDbService {
             where: { id },
         });
     }
+
+    public static getByPartnerId(partnerId: string): Promise<OCPIPartnerCredentials | null> {
+        return databaseService.prisma.oCPIPartnerCredentials.findUnique({
+            where: { partner_id: partnerId },
+        });
+    }
 }
 
 

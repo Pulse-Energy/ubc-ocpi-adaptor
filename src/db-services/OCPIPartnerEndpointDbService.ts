@@ -129,6 +129,11 @@ export class OCPIPartnerEndpointDbService {
             where: { id },
         });
     }
+
+    public static async createMultipleEndpoints(data: Prisma.OCPIPartnerEndpointCreateManyArgs): Promise<number> {
+        const result = await databaseService.prisma.oCPIPartnerEndpoint.createMany(data);
+        return result.count;
+    }
 }
 
 
