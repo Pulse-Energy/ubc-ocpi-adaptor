@@ -16,7 +16,10 @@
         "format:check": "echo \"Prettier disabled\"",
         "prisma:generate": "prisma generate",
         "prisma:migrate": "prisma migrate dev",
-        "prisma:studio": "prisma studio"
+        "prisma:migrate:deploy": "prisma migrate deploy",
+        "prisma:studio": "prisma studio",
+        "init-db": "bash scripts/init-db.sh",
+        "healthcheck": "bash scripts/healthcheck.sh"
     },
     "keywords": [
         "ocpi",

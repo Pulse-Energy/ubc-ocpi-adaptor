@@ -1,8 +1,7 @@
-import GLOBAL_VARS from "../../constants/global-vars";
-import { OCPI_GET_ALL_LIMIT, PUBLIC_OCPI_HOST, SELF_OCPI_EMSP_COUNTRY_CODE, SELF_OCPI_EMSP_PARTY_ID } from "../constants";
-import { OCPIRole, OCPIResponseStatusMessage, OCPICredentialsTokenType } from "../schema/general/enum";
+import { OCPI_GET_ALL_LIMIT, PUBLIC_OCPI_HOST } from "../constants";
+import { OCPIRole } from "../schema/general/enum";
 import { OCPIRequestHeaders } from "../schema/general/types/headers";
-import { OCPIVersionNumber, OCPIModuleID, OCPIInterfaceRole } from "../schema/modules/verisons/enums";
+import { OCPIVersionNumber, OCPIModuleID } from "../schema/modules/verisons/enums";
 import { OCPIVersionDetailResponse } from "../schema/modules/verisons/types/responses";
 import OCPIOutgoingRequestService from "./OCPIOutgoingRequestService";
 
@@ -313,43 +312,6 @@ export default class OCPIGenericService {
 
         if (token && url) {
             headers.Authorization = OCPIOutgoingRequestService.getAuthorizationHeader(url, token);
-        }
-        return headers;
-    }
-
-    public static getGenericEMSPHeader(requestId: string = '', correlationId: string = '', toPartyId: string = '', toCountryCode: string = '', fromPartyId: string = '', fromCountryCode: string = ''): any {
-        /**
-         *  - OCPI v2.2.1 includes the headers: 'X-Request-ID', 'X-Correlation-ID', 'OCPI-to-' (only some modules), 'OCPI-from-' (only some modules)
-         *  - OCPI v2.1.1 does not include these headers
-         *  Hence, the parameters requestID, correlationId, toPartyId, toCountryId can be omitted from this function call
-         */
-
-        let headers: any = OCPIGenericService.getGenericHeaders({ requestId, correlationId });
-
-        if (toPartyId && toCountryCode) {
-            headers = {
-                ...headers,
-                'OCPI-to-party-id': toPartyId ?? undefined,
-                'OCPI-to-country-code': toCountryCode ?? undefined,
-                'OCPI-from-party-id': toPartyId ? (fromPartyId ?? SELF_OCPI_EMSP_PARTY_ID) : undefined,
-                'OCPI-from-country-code': toCountryCode ? (fromCountryCode ?? SELF_OCPI_EMSP_COUNTRY_CODE) : undefined,
-            };
-        }
-        return headers;
-    }
-
-
-    public static getGenericCPOHeader(requestId: string = '', correlationId: string = '', toPartyId: string = '', toCountryCode: string = '', fromPartyId: string = '', fromCountryCode: string = ''): any {
-        let headers: any = OCPIGenericService.getGenericHeaders({ requestId, correlationId });
-
-        if (toPartyId && toCountryCode) {
-            headers = {
-                ...headers,
-                'OCPI-to-party-id': toPartyId ?? undefined,
-                'OCPI-to-country-code': toCountryCode ?? undefined,
-                'OCPI-from-party-id': toPartyId ? (fromPartyId ?? SELF_OCPI_EMSP_PARTY_ID) : undefined,
-                'OCPI-from-country-code': toCountryCode ? (fromCountryCode ?? SELF_OCPI_EMSP_COUNTRY_CODE) : undefined,
-            };
         }
         return headers;
     }

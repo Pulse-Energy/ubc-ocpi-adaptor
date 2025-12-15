@@ -1,16 +1,13 @@
 const GLOBAL_VARS = {
     // OCPI
-    OCPI_HOST: process.env.OCPI_HOST,
-    PUBLIC_OCPI_HOST: process.env.PUBLIC_OCPI_HOST,
-    SELF_OCPI_PLATFORM_ID: process.env.SELF_OCPI_PLATFORM_ID,
-    SELF_OCPI_EMSP_PARTY_ID: process.env.SELF_OCPI_EMSP_PARTY_ID,
-    SELF_OCPI_EMSP_COUNTRY_CODE: process.env.SELF_OCPI_EMSP_COUNTRY_CODE,
-    SHOULD_SIGN_CALLBACK_REQUESTS: process.env.SHOULD_SIGN_CALLBACK_REQUESTS,
-    PRIVATE_KEY: process.env.PRIVATE_KEY,
+    OCPI_HOST: process.env.OCPI_HOST || 'https://nearly-boss-pheasant.ngrok-free.app',
+    PRIVATE_KEY: process.env.PRIVATE_KEY || '',
 
-    EV_CHARGING_UBC_BPP_ID: process.env.EV_CHARGING_UBC_BPP_ID || '',
-    EV_CHARGING_UBC_BPP_CLIENT_HOST: process.env.EV_CHARGING_UBC_BPP_CLIENT_HOST || '',
-    EV_CHARGING_UBC_UNIQUE_ID: process.env.EV_CHARGING_UBC_UNIQUE_ID || '',
+    // UBC
+    SHOULD_SIGN_CALLBACK_REQUESTS: process.env.SHOULD_SIGN_CALLBACK_REQUESTS || 'false',
+    EV_CHARGING_UBC_BPP_ID: process.env.EV_CHARGING_UBC_BPP_ID || 'pulseenergy-ubc-local-bpp',
+    EV_CHARGING_UBC_BPP_CLIENT_HOST: process.env.EV_CHARGING_UBC_BPP_CLIENT_HOST || 'http://localhost:7082',
+    EV_CHARGING_UBC_UNIQUE_ID: process.env.EV_CHARGING_UBC_UNIQUE_ID || '76EU7ncBX74BMNTQJMcMYoTMSzU7k71owUF53fN4jdxmosxZrdjdDk',
 };
 
 export default GLOBAL_VARS;

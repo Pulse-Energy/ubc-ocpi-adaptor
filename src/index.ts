@@ -2,7 +2,6 @@ import express, { Express, Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import { appConfig } from './config/app.config';
 import { databaseService } from './services/database.service';
-import { cacheService } from './services/cache.service';
 import { logger } from './services/logger.service';
 import { AppError } from './utils/errors';
 
@@ -114,7 +113,6 @@ const shutdown = async () => {
 
     try {
         await databaseService.disconnect();
-        await cacheService.disconnect();
         process.exit(0);
     }
     catch (error) {
@@ -131,9 +129,6 @@ const startServer = async () => {
     try {
         // Connect to database
         await databaseService.connect();
-
-        // Test cache connection
-        await cacheService.set('health-check', { status: 'ok' }, 60);
 
         app.listen(appConfig.port, () => {
             logger.info(`Server started on port ${appConfig.port}`, {

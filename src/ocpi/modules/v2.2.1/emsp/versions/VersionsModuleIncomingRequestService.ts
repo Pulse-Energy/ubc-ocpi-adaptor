@@ -161,7 +161,7 @@ export default class VersionsModuleIncomingRequestService {
     }
 
     private static handleGetVersionDetailsV211(): OCPIv211VersionDetailResponse {
-        const baseUrl = `${process.env.OCPI_HOST || 'http://localhost:6001'}/ocpi/${OCPIVersionNumber.v2_1_1}`;
+        const baseUrl = `${process.env.OCPI_HOST || 'https://nearly-boss-pheasant.ngrok-free.app'}/ocpi/${OCPIVersionNumber.v2_1_1}`;
 
         const endpoints: OCPIv211EndpointClass[] = [
             {

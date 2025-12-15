@@ -1,201 +1,235 @@
 # UBC OCPI Adaptor
 
-An EMSP (eMobility Service Provider) OCPI server that integrates with CPO (Charge Point Operator) systems via OCPI protocol and syncs locations/tariffs to CDS (Catalog Discover Service) for UBC (Unified Bharat e-Charge) protocol discovery.
+An EMSP (eMobility Service Provider) OCPI server that integrates with CPO (Charge Point Operator) systems via OCPI 2.2.1 protocol and provides UBC (Unified Bharat e-Charge) Beckn protocol integration for EV charging discovery and transactions.
+
+## What is this?
+
+This repository implements a complete OCPI 2.2.1 EMSP server that:
+- Receives and manages charging locations, tariffs, sessions, and CDRs from CPOs
+- Provides OCPI-compliant APIs for CPO integration
+- Integrates with UBC/Beckn protocol for EV charging discovery
+- Offers administrative APIs for managing OCPI connections and data synchronization
+
+## Who is it for?
+
+- **CPOs (Charge Point Operators)**: Integrate with EMSPs using OCPI 2.2.1
+- **EMSPs (eMobility Service Providers)**: Manage charging infrastructure and sessions
+- **Developers**: Build EV charging applications with OCPI and Beckn protocols
+- **System Integrators**: Deploy and customize OCPI adapters
+
+## Quick Start
+
+### Prerequisites
+
+- **Docker** >= 24.0.0
+- **Docker Compose** v2.0.0+
+- **8GB RAM** recommended
+
+### 5-Minute Setup
+
+```bash
+# 1. Clone the repository
+git clone <repository-url>
+cd ubc-ocpi-adaptor
+
+# 2. Configure environment
+cp .env.example .env
+# Edit .env with your configuration
+
+# 3. Start services
+docker compose up -d
+
+# 4. Initialize database
+docker compose exec app npm run prisma:migrate
+
+# 5. Verify installation
+curl http://localhost:6001/api/health
+```
+
+**That's it!** Your OCPI adaptor is now running.
+
+👉 **For detailed setup instructions, see [QUICK_START.md](./QUICK_START.md) or [docs/SETUP.md](./docs/SETUP.md)**
+
+## Service URLs
+
+After starting, services are available at:
+
+| Service | URL | Description |
+|---------|-----|-------------|
+| API | http://localhost:6001 | Main application API |
+| Health Check | http://localhost:6001/api/health | Health check endpoint |
+| OCPI Versions | http://localhost:6001/ocpi/versions | OCPI versions endpoint |
+| PostgreSQL | localhost:5432 | Database (if port exposed) |
+
+## Smoke Tests
+
+Run these commands to verify everything is working:
+
+```bash
+# 1. Health check
+curl http://localhost:6001/api/health
+
+# 2. Root endpoint
+curl http://localhost:6001/
+
+# 3. OCPI versions
+curl http://localhost:6001/ocpi/versions
+```
+
+## Documentation
+
+- **[QUICK_START.md](./QUICK_START.md)** - Quick setup guide (start here)
+- **[docs/SETUP.md](./docs/SETUP.md)** - Detailed setup guide with troubleshooting
+- **[docs/OCPI_FLOWS.md](./docs/OCPI_FLOWS.md)** - OCPI protocol flows and examples
+- **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)** - System architecture and design
+- **[docs/TROUBLESHOOTING.md](./docs/TROUBLESHOOTING.md)** - Common issues and solutions
 
 ## Features
 
-- **OCPI EMSP Server**: Full implementation of OCPI 2.2.1 EMSP modules
-    - Credentials (registration and handshake)
-    - Locations (receive and store from CPO)
-    - Tariffs (receive and store from CPO)
-    - Sessions (charging session management)
-    - CDRs (Charge Detail Records)
-    - Tokens (authorization)
-    - Commands (START_SESSION, STOP_SESSION, etc.)
+### OCPI 2.2.1 EMSP Implementation
 
-- **CDS Integration**: Sync locations and tariffs to Catalog Discover Service for UBC discovery
+- ✅ **Versions** - Version discovery and endpoint listing
+- ✅ **Credentials** - Partner registration and token exchange
+- ✅ **Locations** - Charging location management (with EVSEs and connectors)
+- ✅ **Tariffs** - Pricing and tariff management
+- ✅ **Sessions** - Charging session lifecycle management
+- ✅ **CDRs** - Charge Detail Records for billing
+- ✅ **Tokens** - Token authorization and whitelist management
+- ✅ **Commands** - Start/Stop session commands
 
-- **Admin API**: RESTful API for managing OCPI connections and syncing data
+### UBC/Beckn Integration
 
-- **Database**: PostgreSQL with Prisma ORM for data persistence
+- ✅ **Select** - Location discovery
+- ✅ **Init** - Session initialization
+- ✅ **Confirm** - Session confirmation
+- ✅ **Track** - Real-time session tracking
+- ✅ **Update** - Session updates
 
-- **Caching**: Redis for performance optimization
+### Additional Features
 
-- **Logging**: Multi-cloud logging support (GCP, AWS, Azure)
+- ✅ **Admin API** - RESTful APIs for managing OCPI connections
+- ✅ **Request Logging** - Comprehensive OCPI request/response logging
+- ✅ **Multi-cloud Logging** - Support for GCP, AWS CloudWatch, Azure Monitor
+- ✅ **PostgreSQL Database** - Robust data persistence with Prisma ORM
 
-## Prerequisites
+## Project Structure
 
-- Node.js v22 or higher
-- PostgreSQL database
-- Redis server
-- Docker (optional, for containerized deployment)
-
-## Installation
-
-1. Clone the repository:
-
-```bash
-git clone <repository-url>
-cd ubc-ocpi-adaptor
+```
+ubc-ocpi-adaptor/
+├── docs/                    # Documentation
+│   ├── SETUP.md            # Setup guide
+│   ├── OCPI_FLOWS.md       # OCPI flows
+│   ├── ARCHITECTURE.md     # Architecture docs
+│   └── TROUBLESHOOTING.md  # Troubleshooting
+├── scripts/                 # Utility scripts
+│   ├── init-db.sh          # Database initialization
+│   └── healthcheck.sh      # Health check script
+├── src/                     # Source code
+│   ├── ocpi/               # OCPI implementation
+│   ├── ubc/                # UBC/Beckn integration
+│   ├── admin/              # Admin APIs
+│   ├── services/           # Business logic
+│   └── db-services/        # Database services
+├── prisma/                  # Database schema
+├── docker-compose.yml       # Docker Compose configuration
+└── Dockerfile              # Docker image definition
 ```
 
-2. Install dependencies:
+## Development
+
+### Running in Development Mode
 
 ```bash
+# Start dependencies
+docker compose up -d postgres
+
+# Install dependencies
 npm install
+
+# Run in development mode (with hot reload)
+npm run dev
 ```
 
-3. Set up environment variables:
+### Available Scripts
 
 ```bash
-cp .env.example .env
-# Edit .env with your configuration
-```
-
-4. Set up the database:
-
-```bash
-# Generate Prisma client
-npm run prisma:generate
-
-# Run migrations
-npm run prisma:migrate
-```
-
-5. Build the project:
-
-```bash
-npm run build
+npm run build          # Build TypeScript
+npm start              # Start production server
+npm run dev            # Start development server (hot reload)
+npm test               # Run tests
+npm run lint           # Lint code
+npm run prisma:studio  # Open Prisma Studio
 ```
 
 ## Configuration
 
 Key environment variables (see `.env.example` for full list):
 
-- `DATABASE_URL`: PostgreSQL connection string
-- `REDIS_HOST`: Redis server host
-- `REDIS_PORT`: Redis server port
-- `JWT_SECRET`: Secret key for JWT tokens
-- `CDS_BASE_URL`: CDS API base URL
-- `CDS_API_KEY`: CDS API key
-- `OCPI_PARTY_ID`: Your OCPI party ID
-- `OCPI_COUNTRY_CODE`: Your country code (e.g., IN)
-
-## Usage
-
-### Development
-
-```bash
-npm run dev
-```
-
-### Production
-
-```bash
-npm run build
-npm start
-```
-
-### Docker
-
-```bash
-docker build -f docker/Dockerfile -t ubc-ocpi-adaptor .
-docker run -p 3000:3000 --env-file .env ubc-ocpi-adaptor
-```
+- `DATABASE_URL` - PostgreSQL connection string
+- `JWT_SECRET` - JWT secret key (generate with `openssl rand -base64 32`)
+- `OCPI_HOST` - OCPI host URL
+- `CDS_BASE_URL` - Catalog Discover Service API URL (optional)
+- `EV_CHARGING_UBC_BPP_CLIENT_HOST` - BPP client host for Beckn callbacks
 
 ## API Endpoints
 
-### OCPI Endpoints (EMSP)
+### OCPI Endpoints (EMSP Receiver)
 
-All OCPI endpoints are prefixed with `/api/ocpi/2.2.1`:
-
-- `POST /credentials` - OCPI registration
-- `PUT /locations/{location_id}` - Receive location from CPO
-- `GET /locations` - List locations
-- `GET /locations/{location_id}` - Get location details
-- `PUT /tariffs/{tariff_id}` - Receive tariff from CPO
-- `GET /tariffs` - List tariffs
-- `GET /tariffs/{tariff_id}` - Get tariff details
-- `POST /sessions` - Create session
-- `GET /sessions` - List sessions
-- `GET /sessions/{session_id}` - Get session details
-- `PATCH /sessions/{session_id}` - Update session
-- `POST /cdrs` - Receive CDR from CPO
-- `GET /cdrs` - List CDRs
-- `GET /cdrs/{cdr_id}` - Get CDR details
-- `POST /tokens/{token_uid}/authorize` - Authorize token
-- `POST /commands/{command}` - Handle command
+- `GET /ocpi/versions` - OCPI versions
+- `GET /ocpi/2.2.1` - Version details
+- `POST /ocpi/2.2.1/credentials` - Credential exchange
+- `PUT /ocpi/2.2.1/locations/{country_code}/{party_id}/{location_id}` - Location updates
+- `PUT /ocpi/2.2.1/sessions/{country_code}/{party_id}/{session_id}` - Session updates
+- `POST /ocpi/2.2.1/cdrs/{country_code}/{party_id}` - CDR submission
+- And more... (see [OCPI_FLOWS.md](./docs/OCPI_FLOWS.md))
 
 ### Admin Endpoints
 
 - `POST /api/admin/auth/login` - Admin login
-- `GET /api/admin/auth/me` - Get current admin user
-- `POST /api/admin/ocpi/register` - Register with CPO
-- `GET /api/admin/ocpi/status` - Get OCPI connection status
+- `GET /api/admin/locations` - List locations
 - `POST /api/admin/locations/fetch` - Fetch locations from CPO
-- `POST /api/admin/locations/sync-to-cds` - Sync locations to CDS
-- `GET /api/admin/locations` - List stored locations
-- `GET /api/admin/locations/{location_id}` - Get location details
-- `POST /api/admin/tariffs/fetch` - Fetch tariffs from CPO
-- `POST /api/admin/tariffs/sync-to-cds` - Sync tariffs to CDS
-- `GET /api/admin/tariffs` - List stored tariffs
-- `GET /api/admin/tariffs/{tariff_id}` - Get tariff details
+- `POST /api/admin/commands/start` - Start charging session
+- `POST /api/admin/commands/stop` - Stop charging session
+- And more...
 
 ### Health Check
 
 - `GET /api/health` - Health check endpoint
 
-## Project Structure
+## Docker Deployment
 
-```
-ubc-ocpi-adaptor/
-├── src/
-│   ├── ocpi/              # OCPI EMSP implementation
-│   │   ├── types/         # OCPI type definitions
-│   │   ├── modules/       # OCPI modules
-│   │   ├── validators/    # Schema validators
-│   │   └── client/        # OCPI client for CPO
-│   ├── cds/               # CDS integration
-│   │   ├── mappers/       # OCPI to CDS mappers
-│   │   └── client.ts      # CDS API client
-│   ├── services/          # Business logic services
-│   ├── api/               # API routes
-│   │   ├── ocpi/         # OCPI endpoints
-│   │   ├── admin/        # Admin endpoints
-│   │   └── health/       # Health check
-│   ├── config/            # Configuration
-│   ├── models/            # Database models
-│   └── utils/            # Utility functions
-├── prisma/                # Prisma schema and migrations
-├── docker/                # Docker files
-└── tests/                 # Test files
-```
-
-## Development
-
-### Running Tests
+### Development
 
 ```bash
-npm test
+docker compose up -d
 ```
 
-### Linting
+### Production
 
 ```bash
-npm run lint
-npm run lint:fix
+# Set NODE_ENV=production in .env
+docker compose build
+docker compose up -d
 ```
 
-### Database Migrations
+## Troubleshooting
 
-```bash
-# Create a new migration
-npm run prisma:migrate
+Having issues? Check out:
 
-# Open Prisma Studio
-npm run prisma:studio
-```
+1. **[TROUBLESHOOTING.md](./docs/TROUBLESHOOTING.md)** - Common issues and solutions
+2. **Application logs**: `docker compose logs -f app`
+3. **Database logs**: `docker compose logs -f postgres`
+
+## Support
+
+- 📖 Read the [documentation](./docs/)
+- 🐛 Check [GitHub issues](https://github.com/your-repo/issues)
+- 💬 Contact the development team
 
 ## License
 
 ISC
+
+---
+
+**Ready to get started?** → [docs/SETUP.md](./docs/SETUP.md)

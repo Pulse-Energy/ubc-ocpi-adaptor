@@ -5,15 +5,10 @@ dotenv.config();
 export const appConfig = {
     nodeEnv: process.env.NODE_ENV || 'development',
     port: parseInt(process.env.PORT || '6001', 10),
-    jwtSecret: process.env.JWT_SECRET || 'change-me-in-production',
+    jwtSecret: process.env.JWT_SECRET || 'your-secret-key-change-in-production-min-32-characters',
     jwtExpiresIn: process.env.JWT_EXPIRES_IN || '24h',
-    ocpi: {
-        version: process.env.OCPI_VERSION || '2.2.1',
-        partyId: process.env.OCPI_PARTY_ID || '',
-        countryCode: process.env.OCPI_COUNTRY_CODE || 'IN',
-    },
     cds: {
-        baseUrl: process.env.CDS_BASE_URL || '',
-        apiKey: process.env.CDS_API_KEY || '',
+        baseUrl: process.env.CDS_BASE_URL || 'https://cds.example.com',
+        apiKey: process.env.CDS_API_KEY || 'your-cds-api-key',
     },
 };
