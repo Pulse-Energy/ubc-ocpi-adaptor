@@ -6,6 +6,7 @@ import BecknLoggingService from "./BecknLoggingService";
 import Utils from "../../utils/Utils";
 import GLOBAL_VARS from "../../constants/global-vars";
 import { createAuthorizationHeader } from "../../utils/auth";
+import { response } from "express";
 
 // Used to send requests to the BAP's beckn-provider
 export default class BppOnixRequestService {
@@ -52,6 +53,13 @@ export default class BppOnixRequestService {
                 action: 'bpp.out.request',
             });
 
+            const responselogMetaData = {
+                transactionId: data?.context?.transaction_id || '',
+                messageId: data?.context?.message_id || '',
+                domain: data?.context?.domain || '',
+                action: data?.context?.action || '',
+            }   
+
             logger.debug(`🟡 [${reqId}] Sending BppOnixRequestService.sendPostRequest`, { data: logData });
 
             return axios.post(url, data, {
@@ -68,6 +76,7 @@ export default class BppOnixRequestService {
                         headers: reqHeaders,
                         payload: response.data,
                         action: 'bpp.out.response',
+                        logMetaData: responselogMetaData,
                     });
 
                     return response.data;
