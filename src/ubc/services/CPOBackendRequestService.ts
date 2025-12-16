@@ -4,16 +4,30 @@ import BecknLoggingService from "./BecknLoggingService";
 import { logger } from "../../services/logger.service";
 
 export default class CPOBackendRequestService {
+    /**
+     * Normalize URL - convert https://localhost to http://localhost for local development
+     */
+    private static normalizeUrl(url: string): string {
+        // Convert https://localhost to http://localhost for local development
+        if (url.startsWith('https://localhost') || url.startsWith('https://127.0.0.1')) {
+            return url.replace('https://', 'http://');
+        }
+        return url;
+    }
+
     static async sendPostRequest(requestConfig: {
         url: string;
         headers: Record<string, string>;
         data: any;
     }): Promise<any> {
-        const {
+        let {
             url,
             headers,
             data = {},
         } = requestConfig;
+
+        // Normalize URL for local development
+        url = CPOBackendRequestService.normalizeUrl(url);
 
         let logData = {
             url,

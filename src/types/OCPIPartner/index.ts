@@ -4,5 +4,9 @@ export type OCPIPartnerAdditionalProps = {
             url: string,
             auth_token: string,
         },
+        submit_rating: {
+            url: string,
+            auth_token: string,
+        }
     }
 };
