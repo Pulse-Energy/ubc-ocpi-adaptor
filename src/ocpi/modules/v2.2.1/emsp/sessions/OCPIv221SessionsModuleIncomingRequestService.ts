@@ -11,6 +11,7 @@ import { OCPIResponseStatusCode } from '../../../../schema/general/enum';
 import { OCPIAuthMethod } from '../../../../schema/modules/cdrs/enums';
 import { OCPIRequestLogService } from '../../../../services/OCPIRequestLogService';
 import { OCPILogCommand } from '../../../../types';
+import ChargingService from '../../../../../ubc/actions/services/ChargingService';
 
 /**
  * OCPI 2.2.1 – Sessions module (incoming, EMSP side).
@@ -304,6 +305,8 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
             command: OCPILogCommand.PutSessionRes,
         });
 
+        ChargingService.autoCutOffChargingSession(stored);
+
         return response;
     }
 
@@ -421,6 +424,8 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
             partnerId: partnerCredentials.partner_id,
             command: OCPILogCommand.PatchSessionRes,
         });
+
+        ChargingService.autoCutOffChargingSession(stored);
 
         return response;
     }
