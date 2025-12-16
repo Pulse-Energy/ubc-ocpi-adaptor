@@ -101,7 +101,7 @@ router.post(`/${BecknAction.cancel}`, ubcAuth, async (req: Request, res: Respons
 );
 
 router.post(`/${BecknAction.rating}`, ubcAuth, async (req: Request, res: Response, next: NextFunction) =>
-    handleRequest(req, res, next, RatingActionHandler.handleRating)
+    handleRequest(req, res, next, RatingActionHandler.handleBppRatingAction)
 );
 
 router.post(`/${BecknAction.support}`, ubcAuth, async (req: Request, res: Response, next: NextFunction) =>
