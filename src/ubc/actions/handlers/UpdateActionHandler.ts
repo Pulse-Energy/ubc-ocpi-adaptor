@@ -21,6 +21,8 @@ import { SessionDbService } from '../../../db-services/SessionDbService';
 import { EvseConnectorDbService } from '../../../db-services/EvseConnectorDbService';
 import { OCPICommandResponseResponse } from '../../../ocpi/schema/modules/commands/types/responses';
 import { OCPICommandResponseType } from '../../../ocpi/schema/modules/commands/enums';
+import PaymentTxnDbService from '../../../db-services/PaymentTxnDbService';
+import { BecknPaymentStatus } from '../../schema/v2.0.0/enums/PaymentStatus';
 
 /**
  * Handler for update action
@@ -190,9 +192,23 @@ export default class UpdateActionHandler {
     ): Promise<ExtractedOnUpdateResponsePayload> {
 
         const { beckn_order_id, charging_action, charge_point_connector_id } = payload.payload;
-        
+
+        const paymentTxn = await PaymentTxnDbService.getFirstByFilter({
+            where: {
+                authorization_reference: beckn_order_id,
+            },
+        });
+
+        if (!paymentTxn) {
+            throw new Error('Payment txn not found');
+        }
+
+        if (paymentTxn.status !== BecknPaymentStatus.COMPLETED) {
+            throw new Error('Payment txn is not completed');
+        }
         
         if (charging_action === ChargingAction.StartCharging) {
+            
             const evseConnector = await EvseConnectorDbService.getById(charge_point_connector_id, {
                 include: {
                     evse: {
@@ -234,6 +250,7 @@ export default class UpdateActionHandler {
                         evse_uid: evseConnector.evse?.evse_id ?? '',
                         connector_id: charge_point_connector_id,
                         authorization_reference: beckn_order_id,
+                        requested_energy_units: paymentTxn.requested_energy_units,
                     },
                 });
             }
