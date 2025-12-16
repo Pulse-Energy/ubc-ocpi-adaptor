@@ -1,7 +1,6 @@
 import { Tariff, Prisma, EVSEConnector, EVSE, Location } from '@prisma/client';
 import { databaseService } from '../services/database.service';
 
-export type TariffWithRelations = Tariff;
 
 export class EvseConnectorDbService {
     public static async getByFiltersWithoutCount(

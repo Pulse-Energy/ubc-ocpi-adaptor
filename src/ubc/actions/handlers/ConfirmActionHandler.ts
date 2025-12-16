@@ -15,6 +15,8 @@ import { OrderStatus } from '../../schema/v2.0.0/enums/OrderStatus';
 import PaymentTxnDbService from '../../../db-services/PaymentTxnDbService';
 import { BecknPaymentStatus } from '../../schema/v2.0.0/enums/PaymentStatus';
 import { PaymentTxnAdditionalProps } from '../../../types/PaymentTxn';
+import { EvseDbService } from '../../../db-services/EvseDbService';
+import { SessionDbService } from '../../../db-services/SessionDbService';
 
 /**
  * Handler for confirm action
@@ -138,10 +140,7 @@ export default class ConfirmActionHandler {
     public static async sendConfirmCallToBackend(
         payload: ExtractedConfirmRequestBody
     ): Promise<ExtractedOnConfirmResponsePayload> {
-        /**
-         * @todo @gaganpulse: Need to change
-         */
-        
+
         const becknOrderId = payload.payload.beckn_order_id;
         const paymentTxn = await PaymentTxnDbService.getFirstByFilter({
             where: {
@@ -149,15 +148,26 @@ export default class ConfirmActionHandler {
                 status: BecknPaymentStatus.COMPLETED,
             },
         });
-        // if (!paymentTxn) {
-        //     throw new Error('No completed payment txn found');
-        // }
+        if (!paymentTxn) {
+            return {
+                order_status: OrderStatus.CONFIRMED,
+                payment_received_at: new Date().toISOString(),
+            };
+        }
 
         const paymentAdditionalProps = paymentTxn?.additional_props as PaymentTxnAdditionalProps;
         const paymentReceivedAt = paymentAdditionalProps?.payment_received_at;
+
+        const session = await SessionDbService.getByAuthorizationReference(becknOrderId);
+
+        const evse = await EvseDbService.getByEvseId(session?.evse_uid ?? '');
+
+        const evseStatus = evse?.status;
+
+        let orderStatus = evseStatus === 'AVAILABLE' ? OrderStatus.CONFIRMED : OrderStatus.FAILED;
         
         return {
-            order_status: OrderStatus.CONFIRMED,
+            order_status: orderStatus,
             payment_received_at: paymentReceivedAt ?? new Date().toISOString(),
         };
     }

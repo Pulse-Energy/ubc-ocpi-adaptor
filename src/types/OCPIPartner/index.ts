@@ -9,4 +9,12 @@ export type OCPIPartnerAdditionalProps = {
             auth_token: string,
         }
     }
+    support: {
+        name: string,
+        phone: string,
+        email: string,
+        url: string,
+        hours: string,
+        channels: string[],
+    },
 };

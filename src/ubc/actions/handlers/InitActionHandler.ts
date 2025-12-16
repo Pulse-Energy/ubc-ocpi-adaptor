@@ -29,7 +29,6 @@ import { BecknPaymentStatus } from '../../schema/v2.0.0/enums/PaymentStatus';
 import { EvseConnectorDbService } from '../../../db-services/EvseConnectorDbService';
 import OCPIPartnerDbService from '../../../db-services/OCPIPartnerDbService';
 import { OCPIPartnerAdditionalProps } from '../../../types/OCPIPartner';
-import OnStatusActionHandler from './OnStatusActionHandler';
 
 export default class InitActionHandler {
     public static async handleBppInitAction(
