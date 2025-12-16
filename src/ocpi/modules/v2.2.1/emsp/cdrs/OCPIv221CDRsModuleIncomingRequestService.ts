@@ -7,6 +7,7 @@ import { databaseService } from '../../../../../services/database.service';
 import { OCPIResponseStatusCode } from '../../../../schema/general/enum';
 import { OCPIRequestLogService } from '../../../../services/OCPIRequestLogService';
 import { OCPILogCommand } from '../../../../types';
+import ChargingService from '../../../../../ubc/actions/services/ChargingService';
 // NOTE: Utils import removed – not used in this module.
 
 /**
@@ -280,6 +281,8 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
             partnerId: partnerCredentials.partner_id,
             command: OCPILogCommand.PostCdrRes,
         });
+
+        ChargingService.handleActionOnChargingCompleted(stored?.authorization_reference ?? '');
 
         return response;
     }
