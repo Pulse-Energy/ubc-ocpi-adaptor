@@ -105,7 +105,11 @@ router.post(`/${BecknAction.rating}`, ubcAuth, async (req: Request, res: Respons
 );
 
 router.post(`/${BecknAction.support}`, ubcAuth, async (req: Request, res: Response, next: NextFunction) =>
-    handleRequest(req, res, next, SupportActionHandler.handleSupport)
+    handleRequest(req, res, next, SupportActionHandler.handleBppSupportRequest)
+);
+
+router.post(`/${BecknAction.support}/add`, ubcAuth, async (req: Request, res: Response, next: NextFunction) =>
+    handleRequest(req, res, next, SupportActionHandler.addSupportInformationToPartner)
 );
 
 
