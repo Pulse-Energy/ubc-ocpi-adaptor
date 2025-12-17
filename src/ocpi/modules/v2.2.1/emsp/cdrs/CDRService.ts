@@ -16,7 +16,7 @@ export class CDRService {
         payload: OCPICDR,
         partnerId: string,
     ): Prisma.CDRUncheckedCreateInput {
-        const cdrCreateFields: Prisma.CDRUncheckedCreateInput = {
+        const cdrCreateFields: Partial<Prisma.CDRUncheckedCreateInput> = {
             partner_id: partnerId,
             deleted: false,
             deleted_at: null,
@@ -34,9 +34,9 @@ export class CDRService {
         if (payload.cdr_location !== undefined) cdrCreateFields.cdr_location = payload.cdr_location as Prisma.InputJsonValue;
         if (payload.meter_id !== undefined) cdrCreateFields.meter_id = payload.meter_id ?? null;
         if (payload.currency !== undefined) cdrCreateFields.currency = payload.currency;
-        if (payload.tariffs !== undefined) cdrCreateFields.tariffs = payload.tariffs ? (payload.tariffs as Prisma.InputJsonValue) : undefined;
+        if (payload.tariffs !== undefined) cdrCreateFields.tariffs = payload.tariffs ? (payload.tariffs as unknown as Prisma.InputJsonValue) : undefined;
         if (payload.charging_periods !== undefined) cdrCreateFields.charging_periods = payload.charging_periods as Prisma.InputJsonValue;
-        if (payload.signed_data !== undefined) cdrCreateFields.signed_data = payload.signed_data ? (payload.signed_data as Prisma.InputJsonValue) : undefined;
+        if (payload.signed_data !== undefined) cdrCreateFields.signed_data = payload.signed_data ? (payload.signed_data as unknown as Prisma.InputJsonValue) : undefined;
         if (payload.total_cost !== undefined) cdrCreateFields.total_cost = payload.total_cost as Prisma.InputJsonValue;
         if (payload.total_fixed_cost !== undefined) cdrCreateFields.total_fixed_cost = payload.total_fixed_cost ? (payload.total_fixed_cost as Prisma.InputJsonValue) : undefined;
         if (payload.total_energy !== undefined) cdrCreateFields.total_energy = new Prisma.Decimal(payload.total_energy);
@@ -61,7 +61,7 @@ export class CDRService {
         if (payload.remarks !== undefined) cdrCreateFields.remarks = payload.remarks ?? null;
         if (payload.last_updated !== undefined) cdrCreateFields.last_updated = new Date(payload.last_updated ?? new Date().toISOString());
 
-        return cdrCreateFields;
+        return cdrCreateFields as Prisma.CDRUncheckedCreateInput;
     }
 
     /**
@@ -116,13 +116,13 @@ export class CDRService {
             cdrUpdateFields.currency = payload.currency;
         }
         if (payload.tariffs !== undefined && (!existing || !isEqual(existing.tariffs, payload.tariffs))) {
-            cdrUpdateFields.tariffs = payload.tariffs ? (payload.tariffs as Prisma.InputJsonValue) : undefined;
+            cdrUpdateFields.tariffs = payload.tariffs ? (payload.tariffs as unknown as Prisma.InputJsonValue) : undefined;
         }
         if (payload.charging_periods !== undefined && (!existing || !isEqual(existing.charging_periods, payload.charging_periods))) {
             cdrUpdateFields.charging_periods = payload.charging_periods as Prisma.InputJsonValue;
         }
         if (payload.signed_data !== undefined && (!existing || !isEqual(existing.signed_data, payload.signed_data))) {
-            cdrUpdateFields.signed_data = payload.signed_data ? (payload.signed_data as Prisma.InputJsonValue) : undefined;
+            cdrUpdateFields.signed_data = payload.signed_data ? (payload.signed_data as unknown as Prisma.InputJsonValue) : undefined;
         }
         if (payload.total_cost !== undefined && (!existing || !isEqual(existing.total_cost, payload.total_cost))) {
             cdrUpdateFields.total_cost = payload.total_cost as Prisma.InputJsonValue;

@@ -107,6 +107,9 @@ export default class OCPIv221LocationsModuleOutgoingRequestService {
                 },
                 partnerId,
                 command: OCPILogCommand.SendGetLocationOneReq,
+                logParams: {
+                    ocpi_location_id: locationId,
+                },
             });
 
             const payload = response.data as OCPILocationResponse;

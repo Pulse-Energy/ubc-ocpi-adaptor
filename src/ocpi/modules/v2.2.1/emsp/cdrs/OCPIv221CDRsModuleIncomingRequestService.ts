@@ -33,7 +33,7 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPICDRsResponse>> {
         // Log incoming request (non-blocking)
-        OCPIRequestLogService.logRequest({
+        OCPIRequestLogService.logIncomingRequest({
             req,
             partnerId: partnerCredentials.partner_id,
             command: OCPILogCommand.GetCdrReq,
@@ -102,7 +102,7 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
         };
 
         // Log outgoing response (non-blocking)
-        OCPIRequestLogService.logResponse({
+        OCPIRequestLogService.logIncomingResponse({
             req,
             res,
             responseBody: response.payload,
@@ -123,7 +123,7 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPICDRResponse>> {
         // Log incoming request (non-blocking)
-        OCPIRequestLogService.logRequest({
+        OCPIRequestLogService.logIncomingRequest({
             req,
             partnerId: partnerCredentials.partner_id,
             command: OCPILogCommand.GetCdrReq,
@@ -157,7 +157,7 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
             };
 
             // Log outgoing response (non-blocking)
-            OCPIRequestLogService.logResponse({
+            OCPIRequestLogService.logIncomingResponse({
                 req,
                 res,
                 responseBody: response.payload,
@@ -181,7 +181,7 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
         };
 
         // Log outgoing response (non-blocking)
-        OCPIRequestLogService.logResponse({
+        OCPIRequestLogService.logIncomingResponse({
             req,
             res,
             responseBody: response.payload,
@@ -204,7 +204,7 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPICDRResponse>> {
         // Log incoming request (non-blocking)
-        OCPIRequestLogService.logRequest({
+        OCPIRequestLogService.logIncomingRequest({
             req,
             partnerId: partnerCredentials.partner_id,
             command: OCPILogCommand.PostCdrReq,
@@ -224,7 +224,7 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
             };
 
             // Log outgoing response (non-blocking)
-            OCPIRequestLogService.logResponse({
+            OCPIRequestLogService.logIncomingResponse({
                 req,
                 res,
                 responseBody: response.payload,
@@ -284,13 +284,16 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
         };
 
         // Log outgoing response (non-blocking)
-        OCPIRequestLogService.logResponse({
+        // Pass OCPI IDs (authorization_reference, cpo_session_id) - logging function will resolve them to internal DB IDs
+        OCPIRequestLogService.logIncomingResponse({
             req,
             res,
             responseBody: response.payload,
             statusCode: response.httpStatus,
             partnerId: partnerCredentials.partner_id,
             command: OCPILogCommand.PostCdrRes,
+            authorization_reference: stored.authorization_reference || undefined,
+            cpo_session_id: stored.session_id || undefined,
         });
 
         ChargingService.handleActionOnChargingCompleted(stored?.authorization_reference ?? '');

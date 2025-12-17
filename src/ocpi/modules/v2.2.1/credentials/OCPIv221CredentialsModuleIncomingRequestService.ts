@@ -37,7 +37,7 @@ export default class OCPIv221CredentialsModuleIncomingRequestService {
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPIResponsePayload<OCPICredentials>>> {
         // Log incoming request (non-blocking)
-        OCPIRequestLogService.logRequest({
+        OCPIRequestLogService.logIncomingRequest({
             req,
             partnerId: partnerCredentials.partner_id,
             command: OCPILogCommand.PostCredentialsReq,
@@ -60,7 +60,7 @@ export default class OCPIv221CredentialsModuleIncomingRequestService {
         };
 
         // Log outgoing response (non-blocking)
-        OCPIRequestLogService.logResponse({
+        OCPIRequestLogService.logIncomingResponse({
             req,
             res,
             responseBody: response.payload,
@@ -84,7 +84,7 @@ export default class OCPIv221CredentialsModuleIncomingRequestService {
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPIResponsePayload<OCPICredentials>>> {
         // Log incoming request (non-blocking)
-        OCPIRequestLogService.logRequest({
+        OCPIRequestLogService.logIncomingRequest({
             req,
             partnerId: partnerCredentials.partner_id,
             command: OCPILogCommand.GetCredentialsReq,
@@ -107,7 +107,7 @@ export default class OCPIv221CredentialsModuleIncomingRequestService {
             };
 
             // Log outgoing response (non-blocking)
-            OCPIRequestLogService.logResponse({
+            OCPIRequestLogService.logIncomingResponse({
                 req,
                 res,
                 responseBody: response.payload,
@@ -151,7 +151,7 @@ export default class OCPIv221CredentialsModuleIncomingRequestService {
         };
 
         // Log outgoing response (non-blocking)
-        OCPIRequestLogService.logResponse({
+        OCPIRequestLogService.logIncomingResponse({
             req,
             res,
             responseBody: response.payload,
@@ -175,7 +175,7 @@ export default class OCPIv221CredentialsModuleIncomingRequestService {
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPIResponsePayload<OCPICredentials>>> {
         // Log incoming request (non-blocking)
-        OCPIRequestLogService.logRequest({
+        OCPIRequestLogService.logIncomingRequest({
             req,
             partnerId: partnerCredentials.partner_id,
             command: OCPILogCommand.PutCredentialsReq,
@@ -198,7 +198,7 @@ export default class OCPIv221CredentialsModuleIncomingRequestService {
         };
 
         // Log outgoing response (non-blocking)
-        OCPIRequestLogService.logResponse({
+        OCPIRequestLogService.logIncomingResponse({
             req,
             res,
             responseBody: response.payload,
@@ -227,7 +227,7 @@ export default class OCPIv221CredentialsModuleIncomingRequestService {
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPIResponsePayload<OCPICredentials>>> {
         // Log incoming request (non-blocking)
-        OCPIRequestLogService.logRequest({
+        OCPIRequestLogService.logIncomingRequest({
             req,
             partnerId: partnerCredentials.partner_id,
             command: OCPILogCommand.PatchCredentialsReq,
@@ -252,7 +252,7 @@ export default class OCPIv221CredentialsModuleIncomingRequestService {
                 const safePayload = JSON.parse(
                     JSON.stringify(response.payload, (_key, value) => (typeof value === 'bigint' ? Number(value) : value)),
                 );
-                await OCPIRequestLogService.logResponse({
+                await OCPIRequestLogService.logIncomingResponse({
                     req,
                     res,
                     responseBody: safePayload,
@@ -287,7 +287,7 @@ export default class OCPIv221CredentialsModuleIncomingRequestService {
                 const safePayload = JSON.parse(
                     JSON.stringify(response.payload, (_key, value) => (typeof value === 'bigint' ? Number(value) : value)),
                 );
-                await OCPIRequestLogService.logResponse({
+                await OCPIRequestLogService.logIncomingResponse({
                     req,
                     res,
                     responseBody: safePayload,
@@ -358,7 +358,7 @@ export default class OCPIv221CredentialsModuleIncomingRequestService {
         };
 
             // Log outgoing response (non-blocking)
-            OCPIRequestLogService.logResponse({
+            OCPIRequestLogService.logIncomingResponse({
                 req,
                 res,
                 responseBody: response.payload,
