@@ -330,7 +330,7 @@ router.post(
             res,
             next,
             (innerReq: Request, innerRes: Response) =>
-                OCPIv221TokensModuleIncomingRequestService.handlePostAuthorizeToken(
+                OCPIv221TokensModuleIncomingRequestService.handlePostToken(
                     innerReq,
                     innerRes,
                     (req as OCPIAuthedRequest).ocpiPartnerCredentials!,

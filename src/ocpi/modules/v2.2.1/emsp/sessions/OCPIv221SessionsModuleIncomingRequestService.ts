@@ -12,6 +12,8 @@ import { OCPIAuthMethod } from '../../../../schema/modules/cdrs/enums';
 import { OCPIRequestLogService } from '../../../../services/OCPIRequestLogService';
 import { OCPILogCommand } from '../../../../types';
 import ChargingService from '../../../../../ubc/actions/services/ChargingService';
+import { SessionService } from './SessionService';
+import { isEmpty } from 'lodash';
 
 /**
  * OCPI 2.2.1 – Sessions module (incoming, EMSP side).
@@ -259,27 +261,26 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
             },
         });
 
-        const partnerId = partnerCredentials.partner_id;
-
-        const createData =
-            OCPIv221SessionsModuleIncomingRequestService.mapOcpiSessionToPrisma(
-                payload,
-                partnerId,
-            );
-
         let stored: PrismaSession;
         if (existing) {
-            const updateData: Prisma.SessionUncheckedUpdateInput = {
-                ...createData,
-            };
-            stored = await prisma.session.update({
-                where: { id: existing.id },
-                data: updateData,
-            });
+            // Build update fields - only include fields present in payload that have changed
+            const sessionUpdateFields = SessionService.buildSessionUpdateFields(payload, existing);
+            // Only update if there are changes
+            if (!isEmpty(sessionUpdateFields)) {
+                stored = await prisma.session.update({
+                    where: { id: existing.id },
+                    data: sessionUpdateFields,
+                });
+            }
+            else {
+                stored = existing;
+            }
         }
         else {
+            // Create new session - only include fields present in payload
+            const sessionCreateFields = SessionService.buildSessionCreateFields(payload, partnerCredentials.partner_id);
             stored = await prisma.session.create({
-                data: createData,
+                data: sessionCreateFields,
             });
         }
 
@@ -382,26 +383,17 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
             return response;
         }
 
-        // Session exists, do a normal merge+update
-        const current =
-            OCPIv221SessionsModuleIncomingRequestService.mapPrismaSessionToOcpi(existing);
+        // Build update fields - only include fields present in payload that have changed
+        const sessionUpdateFields = SessionService.buildSessionUpdateFields(patch as OCPISession, existing);
 
-        const merged: OCPISession = {
-            ...current,
-            ...patch,
-            last_updated: patch.last_updated ?? new Date().toISOString(),
-        };
-
-        const dataForDb =
-            OCPIv221SessionsModuleIncomingRequestService.mapOcpiSessionToPrisma(
-                merged,
-                partnerCredentials.partner_id,
-            );
-
-        const stored = await prisma.session.update({
-            where: { id: existing.id },
-            data: dataForDb,
-        });
+        // Only update if there are changes
+        let stored = existing;
+        if (!isEmpty(sessionUpdateFields)) {
+            stored = await prisma.session.update({
+                where: { id: existing.id },
+                data: sessionUpdateFields,
+            });
+        }
 
         const data =
             OCPIv221SessionsModuleIncomingRequestService.mapPrismaSessionToOcpi(stored);

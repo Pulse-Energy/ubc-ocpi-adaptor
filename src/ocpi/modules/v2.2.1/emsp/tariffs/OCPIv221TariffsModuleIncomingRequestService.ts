@@ -12,6 +12,9 @@ import { logger } from "../../../../../services/logger.service";
 import { OCPIResponseStatusCode } from "../../../../schema/general/enum";
 import { OCPIRequestLogService } from "../../../../services/OCPIRequestLogService";
 import { OCPILogCommand } from "../../../../types";
+import { TariffService } from "./TariffService";
+import { isEmpty } from "lodash";
+import { databaseService } from "../../../../../services/database.service";
 
 /**
  * Handle all incoming requests for the Tariffs module from the CPO
@@ -338,7 +341,7 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
                 }) as HttpResponse<OCPITariffResponse>;
             }
 
-            // Check if tariff already exists to determine HTTP status code
+            // Check if tariff already exists
             const existingTariff = await TariffDbService.findByOcpiTariffId(
                 ocpiTariff.country_code,
                 ocpiTariff.party_id,
@@ -346,11 +349,28 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
                 partnerCredentials.partner_id,
             );
 
-            // Store or update the tariff in the database for this partner
-            const storedTariff = await TariffDbService.upsertFromOcpiTariff(
-                ocpiTariff,
-                partnerCredentials.partner_id,
-            );
+            let storedTariff;
+            if (!existingTariff) {
+                // Create tariff if it doesn't exist - only include fields present in payload
+                const tariffCreateFields = TariffService.buildTariffCreateFields(ocpiTariff, partnerCredentials.partner_id);
+                storedTariff = await databaseService.prisma.tariff.create({
+                    data: tariffCreateFields,
+                });
+            }
+            else {
+                // Build update fields - only include fields present in payload that have changed
+                const tariffUpdateFields = TariffService.buildTariffUpdateFields(ocpiTariff, existingTariff);
+                // Update existing tariff only if there are changes
+                if (!isEmpty(tariffUpdateFields)) {
+                    storedTariff = await databaseService.prisma.tariff.update({
+                        where: { id: existingTariff.id },
+                        data: tariffUpdateFields,
+                    });
+                }
+                else {
+                    storedTariff = existingTariff;
+                }
+            }
             const responseTariff = TariffDbService.mapPrismaTariffToOcpi(storedTariff);
 
             logger.info('Tariff stored/updated', {
@@ -450,18 +470,17 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
                 return response;
             }
 
-            const current = TariffDbService.mapPrismaTariffToOcpi(existingTariff);
+            // Build update fields - only include fields present in payload that have changed
+            const tariffUpdateFields = TariffService.buildTariffUpdateFields(patch as OCPITariff, existingTariff);
 
-            const merged: OCPITariff = {
-                ...current,
-                ...patch,
-                last_updated: patch.last_updated ?? new Date().toISOString(),
-            };
-
-            const storedTariff = await TariffDbService.upsertFromOcpiTariff(
-                merged,
-                partnerCredentials.partner_id,
-            );
+            // Only update if there are changes
+            let storedTariff = existingTariff;
+            if (!isEmpty(tariffUpdateFields)) {
+                storedTariff = await databaseService.prisma.tariff.update({
+                    where: { id: existingTariff.id },
+                    data: tariffUpdateFields,
+                });
+            }
             const responseTariff = TariffDbService.mapPrismaTariffToOcpi(storedTariff);
 
             const response = {

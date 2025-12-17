@@ -8,10 +8,12 @@ import {
 } from '../../../../schema/modules/tokens/types/responses';
 import { databaseService } from '../../../../../services/database.service';
 import { OCPIAuthorizationInfo, OCPILocationReferences, OCPIToken } from '../../../../schema/modules/tokens/types';
-import { OCPIAllowedType } from '../../../../schema/modules/tokens/enums';
+import { OCPIAllowedType, OCPIWhitelistType } from '../../../../schema/modules/tokens/enums';
 import { OCPIResponseStatusCode } from '../../../../schema/general/enum';
 import { OCPIRequestLogService } from '../../../../services/OCPIRequestLogService';
 import { OCPILogCommand } from '../../../../types';
+import { TokenService } from './TokenService';
+import { isEmpty } from 'lodash';
 
 /**
  * OCPI 2.2.1 – Tokens module (incoming, EMSP side).
@@ -182,12 +184,22 @@ export default class OCPIv221TokensModuleIncomingRequestService {
     /**
      * POST /tokens/{country_code}/{party_id}/{token_uid}/authorize
      *
-     * CPO asks the EMSP if a token may be used for starting a session.
-     * We implement a minimal OCPI-compliant behaviour:
-     * - If token exists and valid === true  → allowed = ALLOWED
-     * - Otherwise                          → allowed = NOT_ALLOWED
+     * CPO asks the EMSP if a token may be used for starting a session at a specific location.
+     * 
+     * According to OCPI 2.2.1:
+     * - Request body: OCPILocationReferences (location_id required, evse_uids optional)
+     * - If token is unknown → HTTP 404 (Not Found)
+     * - If token exists → return authorization info with allowed status
+     * 
+     * Authorization logic:
+     * - Token must exist and be valid
+     * - Whitelist type determines if token is allowed:
+     *   - ALWAYS: Always allowed
+     *   - ALLOWED: Allowed (online authorization)
+     *   - ALLOWED_OFFLINE: Allowed offline
+     *   - NEVER: Never allowed
      */
-    public static async handlePostAuthorizeToken(
+    public static async handlePostToken(
         req: Request,
         res: Response,
         partnerCredentials: OCPIPartnerCredentials,
@@ -205,40 +217,16 @@ export default class OCPIv221TokensModuleIncomingRequestService {
             token_uid: string;
         };
 
-        const _location = req.body as OCPILocationReferences | undefined;
+        // Request body should be OCPILocationReferences
+        const locationReferences = req.body as OCPILocationReferences | undefined;
 
-        const prismaToken = await databaseService.prisma.token.findFirst({
-            where: {
-                country_code,
-                party_id,
-                uid: token_uid,
-                deleted: false,
-                partner_id: partnerCredentials.partner_id,
-            },
-        });
-
-        if (!prismaToken) {
-            const info: OCPIAuthorizationInfo = {
-                allowed: OCPIAllowedType.NOT_ALLOWED,
-                token: {
-                    country_code,
-                    party_id,
-                    uid: token_uid,
-                    type: undefined as never,
-                    contract_id: '',
-                    issuer: '',
-                    valid: false,
-                    whitelist: undefined as never,
-                    last_updated: new Date().toISOString(),
-                } as unknown as OCPIToken,
-                location: _location,
-            };
-
+        // Validate request body if provided
+        if (locationReferences && !locationReferences.location_id) {
             const response = {
-                httpStatus: 200,
+                httpStatus: 400,
                 payload: {
-                    data: info,
-                    status_code: OCPIResponseStatusCode.status_1000,
+                    status_code: OCPIResponseStatusCode.status_2000,
+                    status_message: 'location_id is required in request body',
                     timestamp: new Date().toISOString(),
                 },
             };
@@ -256,14 +244,90 @@ export default class OCPIv221TokensModuleIncomingRequestService {
             return response;
         }
 
+        const prismaToken = await databaseService.prisma.token.findFirst({
+            where: {
+                country_code,
+                party_id,
+                uid: token_uid,
+                deleted: false,
+                partner_id: partnerCredentials.partner_id,
+            },
+        });
+
+        // According to OCPI 2.2.1: If token is unknown, return 404 with status_2002
+        if (!prismaToken) {
+            const response = {
+                httpStatus: 404,
+                payload: {
+                    status_code: OCPIResponseStatusCode.status_2002, // Unknown token
+                    status_message: 'Token not found',
+                    timestamp: new Date().toISOString(),
+                },
+            };
+
+            // Log outgoing response (non-blocking)
+            OCPIRequestLogService.logResponse({
+                req,
+                res,
+                responseBody: response.payload,
+                statusCode: response.httpStatus,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.PostAuthorizeTokenRes,
+            });
+
+            return response;
+        }
+
+        // Map Prisma token to OCPI token
         const token = OCPIv221TokensModuleIncomingRequestService.mapPrismaTokenToOcpi(
             prismaToken,
         );
 
+        // Determine authorization status based on token validity, expiry, and whitelist
+        // Note: Token model doesn't currently have expiry_date field, so expiry check is skipped
+        // If expiry_date is added to the schema in the future, check it here:
+        // if (prismaToken.expiry_date && prismaToken.expiry_date < new Date()) {
+        //     allowed = OCPIAllowedType.NOT_ALLOWED;
+        // }
+        let allowed: OCPIAllowedType = OCPIAllowedType.NOT_ALLOWED;
+
+        // Check token validity first
+        if (prismaToken.valid) {
+            // Token is valid, check whitelist type
+            const whitelistType = prismaToken.whitelist as OCPIWhitelistType;
+            
+            switch (whitelistType) {
+                case OCPIWhitelistType.ALWAYS:
+                case OCPIWhitelistType.ALLOWED:
+                    allowed = OCPIAllowedType.ALLOWED;
+                    break;
+                case OCPIWhitelistType.ALLOWED_OFFLINE:
+                    // ALLOWED_OFFLINE: Token is allowed when CPO is offline
+                    // For simplicity, we treat it as ALLOWED (common implementation)
+                    // In a production system, you might check CPO online status via:
+                    // - Request header (e.g., 'x-ocpi-cpo-online')
+                    // - Partner metadata
+                    // - Real-time connectivity check
+                    allowed = OCPIAllowedType.ALLOWED;
+                    break;
+                case OCPIWhitelistType.NEVER:
+                    allowed = OCPIAllowedType.NOT_ALLOWED;
+                    break;
+                default:
+                    // Default to NOT_ALLOWED for unknown whitelist types
+                    allowed = OCPIAllowedType.NOT_ALLOWED;
+            }
+        }
+
+        // Calculate cache_until: CPO can cache this authorization decision for 5 minutes
+        // This helps reduce authorization requests for the same token
+        const cacheUntil = new Date(Date.now() + 5 * 60 * 1000).toISOString(); // 5 minutes
+
         const info: OCPIAuthorizationInfo = {
-            allowed: prismaToken.valid ? OCPIAllowedType.ALLOWED : OCPIAllowedType.NOT_ALLOWED,
+            allowed,
             token,
-            location: _location,
+            location: locationReferences, // Include location references from request (optional per spec)
+            cache_until: cacheUntil, // Recommended: tells CPO how long to cache this authorization decision
         };
 
         const response = {
@@ -319,49 +383,32 @@ export default class OCPIv221TokensModuleIncomingRequestService {
                 country_code,
                 party_id,
                 uid: token_uid,
+                deleted: false,
+                partner_id: partnerCredentials.partner_id,
             },
         });
 
-        if (!existing) {
-            const response = {
-                httpStatus: 404,
-                payload: {
-                    status_code: OCPIResponseStatusCode.status_2001,
-                    status_message: 'Token not found',
-                    timestamp: new Date().toISOString(),
-                },
-            };
-
-            // Log outgoing response (non-blocking)
-            OCPIRequestLogService.logResponse({
-                req,
-                res,
-                responseBody: response.payload,
-                statusCode: response.httpStatus,
-                partnerId: partnerCredentials.partner_id,
-                command: OCPILogCommand.PutTokenRes,
-            });
-
-            return response;
-        }
-
-        const tokenData =
-            OCPIv221TokensModuleIncomingRequestService.mapOcpiTokenToPrisma(
-                payload,
-                partnerCredentials.partner_id,
-            );
-
         let stored: Token;
-        if (existing) {
-            stored = await prisma.token.update({
-                where: { id: existing.id },
-                data: tokenData,
+        if (!existing) {
+            // Create token if it doesn't exist - only include fields present in payload
+            const tokenCreateFields = TokenService.buildTokenCreateFields(payload, partnerCredentials.partner_id);
+            stored = await prisma.token.create({
+                data: tokenCreateFields,
             });
         }
         else {
-            stored = await prisma.token.create({
-                data: tokenData,
-            });
+            // Build update fields - only include fields present in payload that have changed
+            const tokenUpdateFields = TokenService.buildTokenUpdateFields(payload, existing);
+            // Only update if there are changes
+            if (!isEmpty(tokenUpdateFields)) {
+                stored = await prisma.token.update({
+                    where: { id: existing.id },
+                    data: tokenUpdateFields,
+                });
+            }
+            else {
+                stored = existing;
+            }
         }
 
         const data = OCPIv221TokensModuleIncomingRequestService.mapPrismaTokenToOcpi(
@@ -449,21 +496,17 @@ export default class OCPIv221TokensModuleIncomingRequestService {
             return response;
         }
 
-        const merged: OCPIToken = {
-            ...OCPIv221TokensModuleIncomingRequestService.mapPrismaTokenToOcpi(existing),
-            ...patch,
-            last_updated: patch.last_updated ?? new Date().toISOString(),
-        };
+        // Build update fields - only include fields present in payload that have changed
+        const tokenUpdateFields = TokenService.buildTokenUpdateFields(patch as OCPIToken, existing);
 
-        const tokenData = OCPIv221TokensModuleIncomingRequestService.mapOcpiTokenToPrisma(
-            merged,
-            partnerCredentials.partner_id,
-        );
-
-        const stored = await prisma.token.update({
-            where: { id: existing.id },
-            data: tokenData,
-        });
+        // Only update if there are changes
+        let stored = existing;
+        if (!isEmpty(tokenUpdateFields)) {
+            stored = await prisma.token.update({
+                where: { id: existing.id },
+                data: tokenUpdateFields,
+            });
+        }
 
         const data = OCPIv221TokensModuleIncomingRequestService.mapPrismaTokenToOcpi(
             stored,
