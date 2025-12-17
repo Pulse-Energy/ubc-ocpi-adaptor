@@ -14,12 +14,14 @@ import { ExtractedSupportRequestPayload } from "../../schema/v2.0.0/actions/supp
 import OCPIPartnerDbService from "../../../db-services/OCPIPartnerDbService";
 import { OCPIPartnerAdditionalProps } from "../../../types/OCPIPartner";
 import { SessionDbService } from "../../../db-services/SessionDbService";
+import UBCResponseService from "../../services/UBCResponseService";
+import { Support } from "../../schema/v2.0.0/types/Support";
 
 /**
  * Handler for support action
  */
 export default class SupportActionHandler {
-    public static async handleBppInitAction(
+    public static async handleBppSupportRequest(
         req: Request
     ): Promise<HttpResponse<BecknActionResponse>> {
         const payload = req.body as UBCSupportRequestPayload;
@@ -198,5 +200,36 @@ export default class SupportActionHandler {
 
         // Send the error response to BPP ONIX, which will forward it to BAP
         await this.sendOnSupportCallToBecknONIX(errorOnSupportPayload);
+    }
+
+    static async addSupportInformationToPartner(req: Request
+    ): Promise<HttpResponse<BecknActionResponse>> {
+        const payload = req.body as Support & { partner_id: string };
+
+        try {
+            const partner = await OCPIPartnerDbService.getById(payload.partner_id);
+            if (!partner) {
+                throw new Error('Partner not found');
+            }
+            const partnerAdditionalProps = partner.additional_props as OCPIPartnerAdditionalProps;
+            await OCPIPartnerDbService.update(partner.id, {
+                additional_props: {
+                    ...partnerAdditionalProps,
+                    support: {
+                        name: payload.name ?? '',
+                        phone: payload.phone ?? '',
+                        email: payload.email ?? '',
+                        url: payload.url ?? '',
+                        hours: payload.hours ?? '',
+                        channels: payload.channels ?? [],
+                    },
+                },
+            });
+            return UBCResponseService.ack();
+        } 
+        catch (e: any) {
+            logger.error(`🔴 Error in addSupportInformationToPartner: ${e?.toString()}`, e);
+            return UBCResponseService.nack();
+        }
     }
 }

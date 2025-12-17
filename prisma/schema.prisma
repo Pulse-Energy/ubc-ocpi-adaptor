@@ -62,7 +62,7 @@ model EVSE {
   id                      String    @id @default(uuid())
   location_id             String
   location                Location  @relation(fields: [location_id], references: [id], onDelete: Cascade)
-  uid                     String
+  uid                     String // CPO ocpi id
   evse_id                 String?
   status                  String // OCPIStatus enum
   status_schedule         Json? // OCPIStatusSchedule[]
