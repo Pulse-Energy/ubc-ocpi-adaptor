@@ -16,6 +16,7 @@ import adminCommandsRoutes from './admin/routes/ocpi/commands.routes';
 import healthRoutes from './api/health/routes';
 import ocpiOutgoingRoutes from './api/ocpi/ocpi-outgoing-routes';
 import ocpiIncomingRoutes from './ocpi/ocpi-incoming-routes';
+import appRoutes from './api/app/routes';
 
 const app: Express = express();
 
@@ -58,6 +59,8 @@ app.use('/api/admin/tariffs', adminTariffsRoutes);
 app.use('/api/admin/tokens', adminTokensRoutes);
 app.use('/api/admin/commands', adminCommandsRoutes);
 app.use('/api/health', healthRoutes);
+
+app.use('/api/app', appRoutes);
 
 // Root endpoint
 app.get('/', (req: Request, res: Response) => {
