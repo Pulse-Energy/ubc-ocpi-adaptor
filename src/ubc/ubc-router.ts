@@ -14,6 +14,8 @@ import CancelActionHandler from './actions/handlers/CancelActionHandler';
 import RatingActionHandler from './actions/handlers/RatingActionHandler';
 import SupportActionHandler from './actions/handlers/SupportActionHandler';
 import InitActionHandler from './actions/handlers/InitActionHandler';
+import PublishActionHandler from './actions/handlers/PublishActionHandler';
+import OnPublishActionHandler from './actions/handlers/OnPublishActionHandler';
 import OnixBppPreReqLogger from '../utils/OnixBppPreReqLogger';
 
 const router = Router();
@@ -110,6 +112,14 @@ router.post(`/${BecknAction.support}`, ubcAuth, async (req: Request, res: Respon
 
 router.post(`/${BecknAction.support}/add`, ubcAuth, async (req: Request, res: Response, next: NextFunction) =>
     handleRequest(req, res, next, SupportActionHandler.addSupportInformationToPartner)
+);
+
+router.post(`/${BecknAction.publish}`, ubcAuth, async (req: Request, res: Response, next: NextFunction) =>
+    handleRequest(req, res, next, PublishActionHandler.handleBppPublishRequest)
+);
+
+router.post(`/${BecknAction.on_publish}`, ubcAuth, async (req: Request, res: Response, next: NextFunction) =>
+    handleRequest(req, res, next, OnPublishActionHandler.handleBppOnPublishRequest)
 );
 
 

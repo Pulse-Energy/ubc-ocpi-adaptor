@@ -12,7 +12,7 @@ export enum BecknAction {
     cancel = 'cancel',
     rating = 'rating',
     support = 'support',
-    publish = 'catalog/publish',
+    publish = 'catalog_publish',
 
     // BPP initiated actions
     on_search = 'on_search',
@@ -26,4 +26,5 @@ export enum BecknAction {
     on_cancel = 'on_cancel',
     on_rating = 'on_rating',
     on_support = 'on_support',
+    on_publish = 'on_catalog_publish',
 }
