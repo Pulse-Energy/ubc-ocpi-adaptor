@@ -13,7 +13,7 @@ datasource db {
 // OCPI 2.2.1 Location Model
 model Location {
   id                   String    @id @default(uuid())
-  ocpi_location_id     String
+  ocpi_location_id     String // OCPI ID sent by CPO
   name                 String?
   latitude             String // From coordinates
   longitude            String // From coordinates
@@ -62,7 +62,7 @@ model EVSE {
   id                      String    @id @default(uuid())
   location_id             String
   location                Location  @relation(fields: [location_id], references: [id], onDelete: Cascade)
-  uid                     String
+  uid                     String // OCPI ID sent by CPO
   evse_id                 String?
   status                  String // OCPIStatus enum
   status_schedule         Json? // OCPIStatusSchedule[]
@@ -98,7 +98,7 @@ model EVSEConnector {
   id                   String      @id @default(uuid())
   evse_id              String
   evse                 EVSE        @relation(fields: [evse_id], references: [id], onDelete: Cascade)
-  connector_id         String // OCPI id field
+  connector_id         String // OCPI ID sent by CPO
   standard             String // OCPIConnectorType enum
   format               String // OCPIConnectorFormat enum
   qr_code              String?
@@ -131,7 +131,7 @@ model Tariff {
   id                  String         @id @default(uuid())
   country_code        String
   party_id            String
-  ocpi_tariff_id      String // OCPI id field
+  ocpi_tariff_id      String // OCPI ID sent by CPO
   currency            String
   type                String? // OCPITariffType enum
   tariff_alt_text     Json? // OCPIDisplayText[]
@@ -211,7 +211,7 @@ model Session {
   id                                String       @id @default(uuid())
   country_code                      String?
   party_id                          String?
-  cpo_session_id                    String? // OCPI id field
+  cpo_session_id                    String? // OCPI ID sent by CPO
   start_date_time                   DateTime?
   end_date_time                     DateTime?
   kwh                               Decimal?     @db.Decimal(10, 3)
@@ -257,7 +257,7 @@ model CDR {
   id                              String      @id @default(uuid())
   country_code                    String
   party_id                        String
-  ocpi_cdr_id                     String // OCPI id field
+  ocpi_cdr_id                     String // OCPI ID sent by CPO
   start_date_time                 DateTime
   end_date_time                   DateTime
   session_id                      String?
@@ -307,7 +307,7 @@ model Token {
   id                   String      @id @default(uuid())
   country_code         String
   party_id             String
-  uid                  String
+  uid                  String // OCPI ID sent by CPO
   type                 String // OCPITokenType enum
   contract_id          String
   visual_number        String?

@@ -12,6 +12,9 @@ import { logger } from "../../../../../services/logger.service";
 import { OCPIResponseStatusCode } from "../../../../schema/general/enum";
 import { OCPIRequestLogService } from "../../../../services/OCPIRequestLogService";
 import { OCPILogCommand } from "../../../../types";
+import { TariffService } from "./TariffService";
+import { isEmpty } from "lodash";
+import { databaseService } from "../../../../../services/database.service";
 
 /**
  * Handle all incoming requests for the Tariffs module from the CPO
@@ -26,7 +29,7 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPITariffsResponse>> {
         // Log incoming request (non-blocking)
-        OCPIRequestLogService.logRequest({
+        OCPIRequestLogService.logIncomingRequest({
             req,
             partnerId: partnerCredentials.partner_id,
             command: OCPILogCommand.GetTariffsReq,
@@ -105,7 +108,7 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
             };
 
             // Log outgoing response (non-blocking)
-            OCPIRequestLogService.logResponse({
+            OCPIRequestLogService.logIncomingResponse({
                 req,
                 res,
                 responseBody: response.payload,
@@ -126,7 +129,7 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
             }) as HttpResponse<OCPITariffsResponse>;
 
             // Log outgoing response (non-blocking)
-            OCPIRequestLogService.logResponse({
+            OCPIRequestLogService.logIncomingResponse({
                 req,
                 res,
                 responseBody: errorResponse.payload,
@@ -145,7 +148,7 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPITariffResponse>> {
         // Log incoming request (non-blocking)
-        OCPIRequestLogService.logRequest({
+        OCPIRequestLogService.logIncomingRequest({
             req,
             partnerId: partnerCredentials.partner_id,
             command: OCPILogCommand.GetTariffReq,
@@ -176,7 +179,7 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
                         message: 'Tariff not found',
                     }, OCPIResponseStatusCode.status_2003) as HttpResponse<OCPITariffResponse>;
                     // Log outgoing response (non-blocking)
-                    OCPIRequestLogService.logResponse({
+                    OCPIRequestLogService.logIncomingResponse({
                         req,
                         res,
                         responseBody: response.payload,
@@ -190,7 +193,7 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
                 const ocpiTariff = TariffDbService.mapPrismaTariffToOcpi(tariff);
                 const response = OCPIResponseService.success(ocpiTariff);
                 // Log outgoing response (non-blocking)
-                OCPIRequestLogService.logResponse({
+                OCPIRequestLogService.logIncomingResponse({
                     req,
                     res,
                     responseBody: response.payload,
@@ -217,7 +220,7 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
                     message: 'Tariff not found',
                 }, OCPIResponseStatusCode.status_2003) as HttpResponse<OCPITariffResponse>;
                 // Log outgoing response (non-blocking)
-                OCPIRequestLogService.logResponse({
+                OCPIRequestLogService.logIncomingResponse({
                     req,
                     res,
                     responseBody: response.payload,
@@ -233,7 +236,7 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
                     message: 'Multiple tariffs found with the same ID. Please provide country_code and party_id',
                 }) as HttpResponse<OCPITariffResponse>;
                 // Log outgoing response (non-blocking)
-                OCPIRequestLogService.logResponse({
+                OCPIRequestLogService.logIncomingResponse({
                     req,
                     res,
                     responseBody: response.payload,
@@ -247,7 +250,7 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
             const ocpiTariff = TariffDbService.mapPrismaTariffToOcpi(matchingTariffs[0]);
             const response = OCPIResponseService.success(ocpiTariff);
             // Log outgoing response (non-blocking)
-            OCPIRequestLogService.logResponse({
+            OCPIRequestLogService.logIncomingResponse({
                 req,
                 res,
                 responseBody: response.payload,
@@ -267,7 +270,7 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
                 error: error instanceof Error ? error.message : String(error),
             }) as HttpResponse<OCPITariffResponse>;
             // Log outgoing response (non-blocking)
-            OCPIRequestLogService.logResponse({
+            OCPIRequestLogService.logIncomingResponse({
                 req,
                 res,
                 responseBody: errorResponse.payload,
@@ -287,7 +290,7 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPITariffResponse>> {
         // Log incoming request (non-blocking)
-        OCPIRequestLogService.logRequest({
+        OCPIRequestLogService.logIncomingRequest({
             req,
             partnerId: partnerCredentials.partner_id,
             command: OCPILogCommand.PutTariffReq,
@@ -338,7 +341,7 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
                 }) as HttpResponse<OCPITariffResponse>;
             }
 
-            // Check if tariff already exists to determine HTTP status code
+            // Check if tariff already exists
             const existingTariff = await TariffDbService.findByOcpiTariffId(
                 ocpiTariff.country_code,
                 ocpiTariff.party_id,
@@ -346,11 +349,28 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
                 partnerCredentials.partner_id,
             );
 
-            // Store or update the tariff in the database for this partner
-            const storedTariff = await TariffDbService.upsertFromOcpiTariff(
-                ocpiTariff,
-                partnerCredentials.partner_id,
-            );
+            let storedTariff;
+            if (!existingTariff) {
+                // Create tariff if it doesn't exist - only include fields present in payload
+                const tariffCreateFields = TariffService.buildTariffCreateFields(ocpiTariff, partnerCredentials.partner_id);
+                storedTariff = await databaseService.prisma.tariff.create({
+                    data: tariffCreateFields,
+                });
+            }
+            else {
+                // Build update fields - only include fields present in payload that have changed
+                const tariffUpdateFields = TariffService.buildTariffUpdateFields(ocpiTariff, existingTariff);
+                // Update existing tariff only if there are changes
+                if (!isEmpty(tariffUpdateFields)) {
+                    storedTariff = await databaseService.prisma.tariff.update({
+                        where: { id: existingTariff.id },
+                        data: tariffUpdateFields,
+                    });
+                }
+                else {
+                    storedTariff = existingTariff;
+                }
+            }
             const responseTariff = TariffDbService.mapPrismaTariffToOcpi(storedTariff);
 
             logger.info('Tariff stored/updated', {
@@ -367,7 +387,7 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
             };
 
             // Log outgoing response (non-blocking)
-            OCPIRequestLogService.logResponse({
+            OCPIRequestLogService.logIncomingResponse({
                 req,
                 res,
                 responseBody: response.payload,
@@ -389,7 +409,7 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
             }) as HttpResponse<OCPITariffResponse>;
 
             // Log outgoing response (non-blocking)
-            OCPIRequestLogService.logResponse({
+            OCPIRequestLogService.logIncomingResponse({
                 req,
                 res,
                 responseBody: errorResponse.payload,
@@ -413,7 +433,7 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPITariffResponse>> {
         // Log incoming request (non-blocking)
-        OCPIRequestLogService.logRequest({
+        OCPIRequestLogService.logIncomingRequest({
             req,
             partnerId: partnerCredentials.partner_id,
             command: OCPILogCommand.PatchTariffReq,
@@ -439,7 +459,7 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
                     message: 'Tariff not found',
                 }, OCPIResponseStatusCode.status_2003) as HttpResponse<OCPITariffResponse>;
                 // Log outgoing response (non-blocking)
-                OCPIRequestLogService.logResponse({
+                OCPIRequestLogService.logIncomingResponse({
                     req,
                     res,
                     responseBody: response.payload,
@@ -450,18 +470,17 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
                 return response;
             }
 
-            const current = TariffDbService.mapPrismaTariffToOcpi(existingTariff);
+            // Build update fields - only include fields present in payload that have changed
+            const tariffUpdateFields = TariffService.buildTariffUpdateFields(patch as OCPITariff, existingTariff);
 
-            const merged: OCPITariff = {
-                ...current,
-                ...patch,
-                last_updated: patch.last_updated ?? new Date().toISOString(),
-            };
-
-            const storedTariff = await TariffDbService.upsertFromOcpiTariff(
-                merged,
-                partnerCredentials.partner_id,
-            );
+            // Only update if there are changes
+            let storedTariff = existingTariff;
+            if (!isEmpty(tariffUpdateFields)) {
+                storedTariff = await databaseService.prisma.tariff.update({
+                    where: { id: existingTariff.id },
+                    data: tariffUpdateFields,
+                });
+            }
             const responseTariff = TariffDbService.mapPrismaTariffToOcpi(storedTariff);
 
             const response = {
@@ -470,7 +489,7 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
             };
 
             // Log outgoing response (non-blocking)
-            OCPIRequestLogService.logResponse({
+            OCPIRequestLogService.logIncomingResponse({
                 req,
                 res,
                 responseBody: response.payload,
@@ -492,7 +511,7 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
             }) as HttpResponse<OCPITariffResponse>;
 
             // Log outgoing response (non-blocking)
-            OCPIRequestLogService.logResponse({
+            OCPIRequestLogService.logIncomingResponse({
                 req,
                 res,
                 responseBody: errorResponse.payload,
@@ -513,7 +532,7 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPITariffResponse>> {
         // Log incoming request (non-blocking)
-        OCPIRequestLogService.logRequest({
+        OCPIRequestLogService.logIncomingRequest({
             req,
             partnerId: partnerCredentials.partner_id,
             command: OCPILogCommand.DeleteTariffReq,
@@ -566,7 +585,7 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
             }) as HttpResponse<OCPITariffResponse>;
 
             // Log outgoing response (non-blocking)
-            OCPIRequestLogService.logResponse({
+            OCPIRequestLogService.logIncomingResponse({
                 req,
                 res,
                 responseBody: response.payload,
@@ -587,7 +606,7 @@ export default class OCPIv221TariffsModuleIncomingRequestService {
             }) as HttpResponse<OCPITariffResponse>;
 
             // Log outgoing response (non-blocking)
-            OCPIRequestLogService.logResponse({
+            OCPIRequestLogService.logIncomingResponse({
                 req,
                 res,
                 responseBody: errorResponse.payload,

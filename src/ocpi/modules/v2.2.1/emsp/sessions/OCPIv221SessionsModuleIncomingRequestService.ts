@@ -12,6 +12,8 @@ import { OCPIAuthMethod } from '../../../../schema/modules/cdrs/enums';
 import { OCPIRequestLogService } from '../../../../services/OCPIRequestLogService';
 import { OCPILogCommand } from '../../../../types';
 import ChargingService from '../../../../../ubc/actions/services/ChargingService';
+import { SessionService } from './SessionService';
+import { isEmpty } from 'lodash';
 
 /**
  * OCPI 2.2.1 – Sessions module (incoming, EMSP side).
@@ -35,7 +37,7 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPISessionsResponse>> {
         // Log incoming request (non-blocking)
-        OCPIRequestLogService.logRequest({
+        OCPIRequestLogService.logIncomingRequest({
             req,
             partnerId: partnerCredentials.partner_id,
             command: OCPILogCommand.GetSessionsReq,
@@ -104,7 +106,7 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
         };
 
         // Log outgoing response (non-blocking)
-        OCPIRequestLogService.logResponse({
+        OCPIRequestLogService.logIncomingResponse({
             req,
             res,
             responseBody: response.payload,
@@ -124,19 +126,21 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
         res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPISessionResponse>> {
-        // Log incoming request (non-blocking)
-        OCPIRequestLogService.logRequest({
-            req,
-            partnerId: partnerCredentials.partner_id,
-            command: OCPILogCommand.GetSessionReq,
-        });
-
         const prisma = databaseService.prisma;
         const { country_code, party_id, session_id } = req.params as {
             country_code: string;
             party_id: string;
             session_id: string;
         };
+
+        // Log incoming request (non-blocking)
+        // Pass OCPI IDs from params - logging function will resolve them to internal DB IDs
+        OCPIRequestLogService.logIncomingRequest({
+            req,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.GetSessionReq,
+            ocpi_session_id: session_id,
+        });
 
         const session = await prisma.session.findFirst({
             where: {
@@ -159,13 +163,15 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
             };
 
             // Log outgoing response (non-blocking)
-            OCPIRequestLogService.logResponse({
+            // Pass OCPI IDs from params - logging function will try to resolve them
+            OCPIRequestLogService.logIncomingResponse({
                 req,
                 res,
                 responseBody: response.payload,
                 statusCode: response.httpStatus,
                 partnerId: partnerCredentials.partner_id,
                 command: OCPILogCommand.GetSessionRes,
+                cpo_session_id: session_id, // session_id from params is the CPO's session ID
             });
 
             return response;
@@ -185,13 +191,16 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
         };
 
         // Log outgoing response (non-blocking)
-        OCPIRequestLogService.logResponse({
+        OCPIRequestLogService.logIncomingResponse({
             req,
             res,
             responseBody: response.payload,
             statusCode: response.httpStatus,
             partnerId: partnerCredentials.partner_id,
             command: OCPILogCommand.GetSessionRes,
+            session_id: session.id,
+            authorization_reference: session.authorization_reference || undefined,
+            cpo_session_id: session.cpo_session_id || undefined,
         });
 
         return response;
@@ -207,19 +216,21 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
         res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPISessionResponse>> {
-        // Log incoming request (non-blocking)
-        OCPIRequestLogService.logRequest({
-            req,
-            partnerId: partnerCredentials.partner_id,
-            command: OCPILogCommand.PutSessionReq,
-        });
-
         const prisma = databaseService.prisma;
         const { country_code, party_id, session_id } = req.params as {
             country_code: string;
             party_id: string;
             session_id: string;
         };
+
+        // Log incoming request (non-blocking)
+        // Pass OCPI IDs from params - logging function will resolve them to internal DB IDs
+        OCPIRequestLogService.logIncomingRequest({
+            req,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.PutSessionReq,
+            ocpi_session_id: session_id,
+        });
 
         const payload = req.body as OCPISession;
 
@@ -239,13 +250,16 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
             };
 
             // Log outgoing response (non-blocking)
-            OCPIRequestLogService.logResponse({
+            // Pass OCPI IDs from params/body - logging function will try to resolve them
+            OCPIRequestLogService.logIncomingResponse({
                 req,
                 res,
                 responseBody: response.payload,
                 statusCode: response.httpStatus,
                 partnerId: partnerCredentials.partner_id,
                 command: OCPILogCommand.PutSessionRes,
+                cpo_session_id: session_id, // session_id from params is the CPO's session ID
+                authorization_reference: payload?.authorization_reference,
             });
 
             return response;
@@ -259,27 +273,26 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
             },
         });
 
-        const partnerId = partnerCredentials.partner_id;
-
-        const createData =
-            OCPIv221SessionsModuleIncomingRequestService.mapOcpiSessionToPrisma(
-                payload,
-                partnerId,
-            );
-
         let stored: PrismaSession;
         if (existing) {
-            const updateData: Prisma.SessionUncheckedUpdateInput = {
-                ...createData,
-            };
-            stored = await prisma.session.update({
-                where: { id: existing.id },
-                data: updateData,
-            });
+            // Build update fields - only include fields present in payload that have changed
+            const sessionUpdateFields = SessionService.buildSessionUpdateFields(payload, existing);
+            // Only update if there are changes
+            if (!isEmpty(sessionUpdateFields)) {
+                stored = await prisma.session.update({
+                    where: { id: existing.id },
+                    data: sessionUpdateFields,
+                });
+            }
+            else {
+                stored = existing;
+            }
         }
         else {
+            // Create new session - only include fields present in payload
+            const sessionCreateFields = SessionService.buildSessionCreateFields(payload, partnerCredentials.partner_id);
             stored = await prisma.session.create({
-                data: createData,
+                data: sessionCreateFields,
             });
         }
 
@@ -296,13 +309,16 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
         };
 
         // Log outgoing response (non-blocking)
-        OCPIRequestLogService.logResponse({
+        OCPIRequestLogService.logIncomingResponse({
             req,
             res,
             responseBody: response.payload,
             statusCode: response.httpStatus,
             partnerId: partnerCredentials.partner_id,
             command: OCPILogCommand.PutSessionRes,
+            session_id: stored.id,
+            authorization_reference: stored.authorization_reference || undefined,
+            cpo_session_id: stored.cpo_session_id || undefined,
         });
 
         ChargingService.autoCutOffChargingSession(stored);
@@ -324,19 +340,21 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
         res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPISessionResponse>> {
-        // Log incoming request (non-blocking)
-        OCPIRequestLogService.logRequest({
-            req,
-            partnerId: partnerCredentials.partner_id,
-            command: OCPILogCommand.PatchSessionReq,
-        });
-
         const prisma = databaseService.prisma;
         const { session_id } = req.params as {
             country_code: string;
             party_id: string;
             session_id: string;
         };
+
+        // Log incoming request (non-blocking)
+        // Pass OCPI IDs from params - logging function will resolve them to internal DB IDs
+        OCPIRequestLogService.logIncomingRequest({
+            req,
+            partnerId: partnerCredentials.partner_id,
+            command: OCPILogCommand.PatchSessionReq,
+            ocpi_session_id: session_id,
+        });
 
         const patch = req.body as OCPIPatchSession;
 
@@ -370,38 +388,32 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
             };
 
             // Log outgoing response (non-blocking)
-            OCPIRequestLogService.logResponse({
+            // Pass OCPI IDs from params/body - logging function will try to resolve them
+            OCPIRequestLogService.logIncomingResponse({
                 req,
                 res,
                 responseBody: response.payload,
                 statusCode: response.httpStatus,
                 partnerId: partnerCredentials.partner_id,
                 command: OCPILogCommand.PatchSessionRes,
+                cpo_session_id: session_id, // session_id from params is the CPO's session ID
+                authorization_reference: patch.authorization_reference,
             });
 
             return response;
         }
 
-        // Session exists, do a normal merge+update
-        const current =
-            OCPIv221SessionsModuleIncomingRequestService.mapPrismaSessionToOcpi(existing);
+        // Build update fields - only include fields present in payload that have changed
+        const sessionUpdateFields = SessionService.buildSessionUpdateFields(patch as OCPISession, existing);
 
-        const merged: OCPISession = {
-            ...current,
-            ...patch,
-            last_updated: patch.last_updated ?? new Date().toISOString(),
-        };
-
-        const dataForDb =
-            OCPIv221SessionsModuleIncomingRequestService.mapOcpiSessionToPrisma(
-                merged,
-                partnerCredentials.partner_id,
-            );
-
-        const stored = await prisma.session.update({
-            where: { id: existing.id },
-            data: dataForDb,
-        });
+        // Only update if there are changes
+        let stored = existing;
+        if (!isEmpty(sessionUpdateFields)) {
+            stored = await prisma.session.update({
+                where: { id: existing.id },
+                data: sessionUpdateFields,
+            });
+        }
 
         const data =
             OCPIv221SessionsModuleIncomingRequestService.mapPrismaSessionToOcpi(stored);
@@ -416,13 +428,16 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
         };
 
         // Log outgoing response (non-blocking)
-        OCPIRequestLogService.logResponse({
+        OCPIRequestLogService.logIncomingResponse({
             req,
             res,
             responseBody: response.payload,
             statusCode: response.httpStatus,
             partnerId: partnerCredentials.partner_id,
             command: OCPILogCommand.PatchSessionRes,
+            session_id: stored.id,
+            authorization_reference: stored.authorization_reference || undefined,
+            cpo_session_id: stored.cpo_session_id || undefined,
         });
 
         ChargingService.autoCutOffChargingSession(stored);

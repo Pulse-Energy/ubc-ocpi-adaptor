@@ -71,12 +71,31 @@ export default class OCPIv221CommandsModuleOutgoingRequestService {
 
         const logCommand = OCPIv221CommandsModuleOutgoingRequestService.getLogCommandForCommandType(commandType);
 
+        // Extract IDs from command body for logging
+        const logParams: any = {};
+        if ('location_id' in body) {
+            logParams.ocpi_location_id = body.location_id;
+        }
+        if ('evse_uid' in body) {
+            logParams.ocpi_evse_uid = body.evse_uid;
+        }
+        if ('connector_id' in body) {
+            logParams.ocpi_connector_id = body.connector_id;
+        }
+        if ('authorization_reference' in body) {
+            logParams.authorization_reference = body.authorization_reference;
+        }
+        if ('session_id' in body) {
+            logParams.cpo_session_id = body.session_id;
+        }
+
         const response = await OCPIOutgoingRequestService.sendPostRequest({
             url,
             headers: OCPIv221CommandsModuleOutgoingRequestService.getAuthHeaders(cpoAuthToken),
             data: body,
             partnerId,
             command: logCommand,
+            logParams,
         });
 
         const payload = response as OCPICommandResponseResponse;

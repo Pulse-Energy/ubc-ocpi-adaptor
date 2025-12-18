@@ -4,6 +4,21 @@ import { OCPIRequestLogService } from "./OCPIRequestLogService";
 import { OCPILogCommand } from "../types";
 
 // TODO: move this somewhere else
+type OutgoingRequestLogParams = {
+    // Internal DB IDs (if already resolved)
+    location_id?: string;
+    evse_id?: string;
+    connector_id?: string;
+    session_id?: string;
+    // OCPI IDs (will be resolved to internal DB IDs)
+    ocpi_location_id?: string;
+    ocpi_evse_uid?: string;
+    ocpi_connector_id?: string;
+    ocpi_session_id?: string;
+    authorization_reference?: string;
+    cpo_session_id?: string;
+};
+
 type OutgoingRequestConfig = {
     url: string;
     headers: Record<string, string>;
@@ -18,6 +33,11 @@ type OutgoingRequestConfig = {
      * If omitted, a generic "OUTGOING <METHOD> <url>" is used.
      */
     command?: OCPILogCommand;
+    /**
+     * Optional log parameters containing IDs for logging.
+     * Can contain either internal DB IDs or OCPI IDs (which will be resolved).
+     */
+    logParams?: OutgoingRequestLogParams;
 }
 type OutgoingGetRequestConfig = OutgoingRequestConfig & {
 
@@ -63,6 +83,7 @@ export default class OCPIOutgoingRequestService {
             headers,
             partnerId,
             command,
+            ...requestConfig.logParams,
         }).catch((error) => {
             // Logging errors should never affect the request flow
             logger.error('Failed to log outgoing request', error as Error);
@@ -96,6 +117,7 @@ export default class OCPIOutgoingRequestService {
                     statusCode: response.status,
                     partnerId,
                     command,
+                    ...requestConfig.logParams,
                 }).catch((error) => {
                     // Logging errors should never affect the request flow
                     logger.error('Failed to log outgoing response', error as Error);
@@ -127,6 +149,7 @@ export default class OCPIOutgoingRequestService {
                     statusCode: e.response?.status,
                     partnerId,
                     command,
+                    ...requestConfig.logParams,
                 }).catch((error) => {
                     // Logging errors should never affect the request flow
                     logger.error('Failed to log outgoing error response', error as Error);
@@ -169,6 +192,7 @@ export default class OCPIOutgoingRequestService {
             requestBody: data,
             partnerId,
             command,
+            ...requestConfig.logParams,
         }).catch((error) => {
             // Logging errors should never affect the request flow
             logger.error('Failed to log outgoing request', error as Error);
@@ -204,6 +228,7 @@ export default class OCPIOutgoingRequestService {
                     statusCode: response.status,
                     partnerId,
                     command,
+                    ...requestConfig.logParams,
                 }).catch((error) => {
                     // Logging errors should never affect the request flow
                     logger.error('Failed to log outgoing response', error as Error);
@@ -236,6 +261,7 @@ export default class OCPIOutgoingRequestService {
                     statusCode: e.response?.status,
                     partnerId,
                     command,
+                    ...requestConfig.logParams,
                 }).catch((error) => {
                     // Logging errors should never affect the request flow
                     logger.error('Failed to log outgoing error response', error as Error);
@@ -278,6 +304,7 @@ export default class OCPIOutgoingRequestService {
             requestBody: data,
             partnerId,
             command,
+            ...requestConfig.logParams,
         }).catch((error) => {
             // Logging errors should never affect the request flow
             logger.error('Failed to log outgoing request', error as Error);
@@ -313,6 +340,7 @@ export default class OCPIOutgoingRequestService {
                     statusCode: response.status,
                     partnerId,
                     command,
+                    ...requestConfig.logParams,
                 }).catch((error) => {
                     // Logging errors should never affect the request flow
                     logger.error('Failed to log outgoing response', error as Error);
@@ -345,6 +373,7 @@ export default class OCPIOutgoingRequestService {
                     statusCode: e.response?.status,
                     partnerId,
                     command,
+                    ...requestConfig.logParams,
                 }).catch((error) => {
                     // Logging errors should never affect the request flow
                     logger.error('Failed to log outgoing error response', error as Error);
@@ -387,6 +416,7 @@ export default class OCPIOutgoingRequestService {
             requestBody: data,
             partnerId,
             command,
+            ...requestConfig.logParams,
         }).catch((error) => {
             // Logging errors should never affect the request flow
             logger.error('Failed to log outgoing request', error as Error);
@@ -422,6 +452,7 @@ export default class OCPIOutgoingRequestService {
                     statusCode: response.status,
                     partnerId,
                     command,
+                    ...requestConfig.logParams,
                 }).catch((error) => {
                     // Logging errors should never affect the request flow
                     logger.error('Failed to log outgoing response', error as Error);
@@ -454,6 +485,7 @@ export default class OCPIOutgoingRequestService {
                     statusCode: e.response?.status,
                     partnerId,
                     command,
+                    ...requestConfig.logParams,
                 }).catch((error) => {
                     // Logging errors should never affect the request flow
                     logger.error('Failed to log outgoing error response', error as Error);
@@ -496,6 +528,7 @@ export default class OCPIOutgoingRequestService {
             requestBody: data,
             partnerId,
             command,
+            ...requestConfig.logParams,
         }).catch((error) => {
             // Logging errors should never affect the request flow
             logger.error('Failed to log outgoing request', error as Error);
@@ -530,6 +563,7 @@ export default class OCPIOutgoingRequestService {
                     statusCode: response.status,
                     partnerId,
                     command,
+                    ...requestConfig.logParams,
                 }).catch((error) => {
                     // Logging errors should never affect the request flow
                     logger.error('Failed to log outgoing response', error as Error);
@@ -562,6 +596,7 @@ export default class OCPIOutgoingRequestService {
                     statusCode: e.response?.status,
                     partnerId,
                     command,
+                    ...requestConfig.logParams,
                 }).catch((error) => {
                     // Logging errors should never affect the request flow
                     logger.error('Failed to log outgoing error response', error as Error);

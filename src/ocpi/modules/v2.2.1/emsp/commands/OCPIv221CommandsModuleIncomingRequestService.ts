@@ -31,7 +31,7 @@ export default class OCPIv221CommandsModuleIncomingRequestService {
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPICommandResponseResponse>> {
         // Log incoming request (non-blocking)
-        OCPIRequestLogService.logRequest({
+        OCPIRequestLogService.logIncomingRequest({
             req,
             partnerId: partnerCredentials.partner_id,
             command: OCPILogCommand.PostCommandResultReq,
@@ -85,7 +85,7 @@ export default class OCPIv221CommandsModuleIncomingRequestService {
             };
 
             // Log outgoing response (non-blocking)
-            OCPIRequestLogService.logResponse({
+            OCPIRequestLogService.logIncomingResponse({
                 req,
                 res,
                 responseBody: response.payload,
@@ -114,7 +114,7 @@ export default class OCPIv221CommandsModuleIncomingRequestService {
         };
 
         // Log outgoing response (non-blocking)
-        OCPIRequestLogService.logResponse({
+        OCPIRequestLogService.logIncomingResponse({
             req,
             res,
             responseBody: response.payload,

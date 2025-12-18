@@ -26,7 +26,7 @@ export default class VersionsModuleIncomingRequestService {
         partnerCredentials?: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPIResponsePayload<OCPIVersionClass[]>>> {
         // Log incoming request (non-blocking)
-        OCPIRequestLogService.logRequest({
+        OCPIRequestLogService.logIncomingRequest({
             req,
             partnerId: partnerCredentials?.partner_id,
             command: OCPILogCommand.GetVersionReq,
@@ -45,7 +45,7 @@ export default class VersionsModuleIncomingRequestService {
             };
 
             // Log outgoing response (non-blocking)
-            OCPIRequestLogService.logResponse({
+            OCPIRequestLogService.logIncomingResponse({
                 req,
                 res,
                 responseBody: response.payload,
@@ -82,7 +82,7 @@ export default class VersionsModuleIncomingRequestService {
         };
 
         // Log outgoing response
-        await OCPIRequestLogService.logResponse({
+        await OCPIRequestLogService.logIncomingResponse({
             req,
             res,
             responseBody: response.payload,
@@ -100,7 +100,7 @@ export default class VersionsModuleIncomingRequestService {
         partnerCredentials?: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPIResponsePayload<OCPIVersionDetailResponse | OCPIv211VersionDetailResponse>>> {
         // Log incoming request (non-blocking)
-        OCPIRequestLogService.logRequest({
+        OCPIRequestLogService.logIncomingRequest({
             req,
             partnerId: partnerCredentials?.partner_id,
             command: OCPILogCommand.GetVersionDetailsReq,
@@ -121,7 +121,7 @@ export default class VersionsModuleIncomingRequestService {
         };
 
         // Log outgoing response
-        await OCPIRequestLogService.logResponse({
+        await OCPIRequestLogService.logIncomingResponse({
             req,
             res,
             responseBody: response.payload,

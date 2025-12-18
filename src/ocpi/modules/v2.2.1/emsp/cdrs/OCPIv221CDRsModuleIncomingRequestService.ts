@@ -8,6 +8,8 @@ import { OCPIResponseStatusCode } from '../../../../schema/general/enum';
 import { OCPIRequestLogService } from '../../../../services/OCPIRequestLogService';
 import { OCPILogCommand } from '../../../../types';
 import ChargingService from '../../../../../ubc/actions/services/ChargingService';
+import { CDRService } from './CDRService';
+import { isEmpty } from 'lodash';
 // NOTE: Utils import removed – not used in this module.
 
 /**
@@ -31,7 +33,7 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPICDRsResponse>> {
         // Log incoming request (non-blocking)
-        OCPIRequestLogService.logRequest({
+        OCPIRequestLogService.logIncomingRequest({
             req,
             partnerId: partnerCredentials.partner_id,
             command: OCPILogCommand.GetCdrReq,
@@ -100,7 +102,7 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
         };
 
         // Log outgoing response (non-blocking)
-        OCPIRequestLogService.logResponse({
+        OCPIRequestLogService.logIncomingResponse({
             req,
             res,
             responseBody: response.payload,
@@ -121,7 +123,7 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPICDRResponse>> {
         // Log incoming request (non-blocking)
-        OCPIRequestLogService.logRequest({
+        OCPIRequestLogService.logIncomingRequest({
             req,
             partnerId: partnerCredentials.partner_id,
             command: OCPILogCommand.GetCdrReq,
@@ -155,7 +157,7 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
             };
 
             // Log outgoing response (non-blocking)
-            OCPIRequestLogService.logResponse({
+            OCPIRequestLogService.logIncomingResponse({
                 req,
                 res,
                 responseBody: response.payload,
@@ -179,7 +181,7 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
         };
 
         // Log outgoing response (non-blocking)
-        OCPIRequestLogService.logResponse({
+        OCPIRequestLogService.logIncomingResponse({
             req,
             res,
             responseBody: response.payload,
@@ -202,7 +204,7 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPICDRResponse>> {
         // Log incoming request (non-blocking)
-        OCPIRequestLogService.logRequest({
+        OCPIRequestLogService.logIncomingRequest({
             req,
             partnerId: partnerCredentials.partner_id,
             command: OCPILogCommand.PostCdrReq,
@@ -222,7 +224,7 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
             };
 
             // Log outgoing response (non-blocking)
-            OCPIRequestLogService.logResponse({
+            OCPIRequestLogService.logIncomingResponse({
                 req,
                 res,
                 responseBody: response.payload,
@@ -242,23 +244,32 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
                 country_code: payload.country_code,
                 party_id: payload.party_id,
                 ocpi_cdr_id: payload.id,
+                deleted: false,
+                partner_id: partnerId,
             },
         });
 
-        const dataForDb =
-            OCPIv221CDRsModuleIncomingRequestService.mapOcpiCdrToPrisma(payload, partnerId);
-
         let stored: PrismaCDR;
-        if (existing) {
-            stored = await prisma.cDR.update({
-                where: { id: existing.id },
-                data: dataForDb,
+        if (!existing) {
+            // Create CDR if it doesn't exist - only include fields present in payload
+            const cdrCreateFields = CDRService.buildCdrCreateFields(payload, partnerId);
+            stored = await prisma.cDR.create({
+                data: cdrCreateFields,
             });
         }
         else {
-            stored = await prisma.cDR.create({
-                data: dataForDb,
-            });
+            // Update existing CDR - only include fields present in payload that have changed
+            const cdrUpdateFields = CDRService.buildCdrUpdateFields(payload, existing);
+            // Only update if there are changes
+            if (!isEmpty(cdrUpdateFields)) {
+                stored = await prisma.cDR.update({
+                    where: { id: existing.id },
+                    data: cdrUpdateFields,
+                });
+            }
+            else {
+                stored = existing;
+            }
         }
 
         const data = OCPIv221CDRsModuleIncomingRequestService.mapPrismaCdrToOcpi(stored);
@@ -273,13 +284,16 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
         };
 
         // Log outgoing response (non-blocking)
-        OCPIRequestLogService.logResponse({
+        // Pass OCPI IDs (authorization_reference, cpo_session_id) - logging function will resolve them to internal DB IDs
+        OCPIRequestLogService.logIncomingResponse({
             req,
             res,
             responseBody: response.payload,
             statusCode: response.httpStatus,
             partnerId: partnerCredentials.partner_id,
             command: OCPILogCommand.PostCdrRes,
+            authorization_reference: stored.authorization_reference || undefined,
+            cpo_session_id: stored.session_id || undefined,
         });
 
         ChargingService.handleActionOnChargingCompleted(stored?.authorization_reference ?? '');
