@@ -12,9 +12,9 @@ import {
     BillDeskRetrieveTransactionResponse,
     GenericPaymentTxnStatus,
     PaymentSDK,
-    PaymentAdditionalProps,
 } from "../../../../types/BillDesk";
 import { OCPIPartnerAdditionalProps } from "../../../../types/OCPIPartner";
+import { PaymentTxnAdditionalProps } from "../../../../types/PaymentTxn";
 
 // Types for payment gateway
 interface CreatePaymentGatewayOrderResponseType {
@@ -69,7 +69,7 @@ export default class PaymentGatewayService {
     ): Promise<CreatePaymentGatewayOrderResponseType> {
         const amount = paymentTxn.amount;
         const status = paymentTxn.status;
-        const additionalProps = paymentTxn.additional_props as PaymentAdditionalProps | null;
+        const additionalProps = paymentTxn.additional_props as PaymentTxnAdditionalProps;
         const paymentSdk = additionalProps?.payment_sdk || PaymentSDK.BillDesk;
 
         const response: CreatePaymentGatewayOrderResponseType = {
@@ -164,14 +164,14 @@ export default class PaymentGatewayService {
             }
 
             // Get payment gateway details
-            const additionalProps = paymentTxn.additional_props as PaymentAdditionalProps | null;
+            const additionalProps = paymentTxn.additional_props as PaymentTxnAdditionalProps;
             const paymentSdk = additionalProps?.payment_sdk || PaymentSDK.BillDesk;
             const partnerId = paymentTxn.partner_id;
 
             // Get transaction ID from details or additional props
-            const paymentDetails = (paymentTxn as any).details as any;
+            const paymentDetails = paymentTxn?.details as unknown as BillDeskRetrieveTransactionResponse;
             const transactionId = paymentDetails?.transactionid || 
-                                  (paymentTxn as any).payment_gateway_payment_id;
+                                  paymentTxn?.payment_gateway_payment_id;
 
             if (!transactionId) {
                 logger.error('Refund: Transaction ID not found', undefined, { payment_txn_id });

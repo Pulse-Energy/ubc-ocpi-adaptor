@@ -17,7 +17,6 @@ import {
     BillDeskPaymentServiceProps,
     BillDeskTransactionAuthStatus,
     GenericPaymentTxnStatus,
-    PaymentAdditionalProps,
     PaymentSDK,
     mapBillDeskStatusToGeneric,
     CreateOrderWithBillDeskResponse,
@@ -25,6 +24,7 @@ import {
 import { HttpResponse } from "../../../../types/responses";
 import OnStatusActionHandler from "../../../actions/handlers/OnStatusActionHandler";
 import { BecknPaymentStatus } from "../../../schema/v2.0.0/enums/PaymentStatus";
+import { PaymentTxnAdditionalProps } from "../../../../types/PaymentTxn";
 
 // Helper function to extract error message
 const getErrorMessage = (error: unknown): string => {
@@ -359,7 +359,7 @@ export default class BillDeskPaymentService {
         error?: string;
     }> {
         try {
-            const paymentTxnAdditionalProps = paymentTxn.additional_props as PaymentAdditionalProps | null;
+            const paymentTxnAdditionalProps = paymentTxn.additional_props as PaymentTxnAdditionalProps;
             const paymentSDK = paymentTxnAdditionalProps?.payment_sdk;
             const paymentStatus = paymentTxn.status;
 
@@ -374,7 +374,7 @@ export default class BillDeskPaymentService {
 
             if (paymentStatus === GenericPaymentTxnStatus.Pending) {
                 // Cast to access payment_gateway_order_id (run `npx prisma generate` after schema update)
-                const orderId = (paymentTxn as PaymentTxn & { payment_gateway_order_id?: string }).payment_gateway_order_id;
+                const orderId = paymentTxn?.payment_gateway_order_id;
                 const partnerId = paymentTxn.partner_id;
 
                 if (!orderId || !partnerId) {
