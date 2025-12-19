@@ -30,52 +30,78 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
         res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPIResponsePayload<unknown>>> {
-        // Log incoming request (non-blocking)
-        OCPIRequestLogService.logIncomingRequest({
-            req,
-            partnerId: partnerCredentials.partner_id,
-            command: OCPILogCommand.GetLocationsReq,
-        });
+        const reqId = req.headers['x-correlation-id'] as string || req.headers['x-request-id'] as string || 'unknown';
+        const logData = { action: 'GET /locations', partnerId: partnerCredentials.partner_id };
 
-        const limit = req.query.limit ? Number(req.query.limit) : undefined;
-        const offset = req.query.offset ? Number(req.query.offset) : undefined;
+        try {
+            logger.debug(`🟡 [${reqId}] Starting GET /locations in handleGetLocations`, { data: logData });
 
-        const prismaLocations = await databaseService.prisma.location.findMany({
-            take: limit,
-            skip: offset,
-            where: {
-                deleted: false,
-                partner_id: partnerCredentials.partner_id,
-            },
-            include: {
-                evses: {
-                    include: {
-                        evse_connectors: true,
+            // Log incoming request (non-blocking)
+            OCPIRequestLogService.logIncomingRequest({
+                req,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.GetLocationsReq,
+            });
+
+            logger.debug(`🟡 [${reqId}] Parsing query parameters in handleGetLocations`, { 
+                data: { logData, query: req.query } 
+            });
+            const limit = req.query.limit ? Number(req.query.limit) : undefined;
+            const offset = req.query.offset ? Number(req.query.offset) : undefined;
+
+            logger.debug(`🟡 [${reqId}] Fetching locations from DB in handleGetLocations`, { 
+                data: { logData, limit, offset } 
+            });
+            const prismaLocations = await databaseService.prisma.location.findMany({
+                take: limit,
+                skip: offset,
+                where: {
+                    deleted: false,
+                    partner_id: partnerCredentials.partner_id,
+                },
+                include: {
+                    evses: {
+                        include: {
+                            evse_connectors: true,
+                        },
                     },
                 },
-            },
-            orderBy: {
-                last_updated: 'desc',
-            },
-        });
+                orderBy: {
+                    last_updated: 'desc',
+                },
+            });
 
-        const ocpiLocations: OCPILocation[] = prismaLocations.map((loc) =>
-            LocationDbService.mapPrismaLocationToOcpi(loc as LocationWithRelations),
-        );
+            logger.debug(`🟢 [${reqId}] Fetched ${prismaLocations.length} locations from DB in handleGetLocations`, { 
+                data: { logData, locationsCount: prismaLocations.length } 
+            });
 
-        const response = OCPIResponseService.success<OCPILocation[]>(ocpiLocations);
+            logger.debug(`🟡 [${reqId}] Mapping Prisma locations to OCPI format in handleGetLocations`, { data: logData });
+            const ocpiLocations: OCPILocation[] = prismaLocations.map((loc) =>
+                LocationDbService.mapPrismaLocationToOcpi(loc as LocationWithRelations),
+            );
 
-        // Log outgoing response (non-blocking)
-        OCPIRequestLogService.logIncomingResponse({
-            req,
-            res,
-            responseBody: response.payload,
-            statusCode: response.httpStatus ?? 200,
-            partnerId: partnerCredentials.partner_id,
-            command: OCPILogCommand.GetLocationsRes,
-        });
+            const response = OCPIResponseService.success<OCPILocation[]>(ocpiLocations);
 
-        return response;
+            // Log outgoing response (non-blocking)
+            OCPIRequestLogService.logIncomingResponse({
+                req,
+                res,
+                responseBody: response.payload,
+                statusCode: response.httpStatus ?? 200,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.GetLocationsRes,
+            });
+
+            logger.debug(`🟢 [${reqId}] Returning GET /locations response in handleGetLocations`, { 
+                data: { logData, httpStatus: response.httpStatus, locationsCount: ocpiLocations.length } 
+            });
+
+            return response;
+        }
+        catch (e: any) {
+            logger.error(`🔴 [${reqId}] Error in handleGetLocations: ${e?.toString()}`, e, { data: logData });
+            throw e;
+        }
     }
 
     public static async handleGetLocation(
@@ -83,54 +109,71 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
         res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPIResponsePayload<unknown>>> {
+        const reqId = req.headers['x-correlation-id'] as string || req.headers['x-request-id'] as string || 'unknown';
         const { location_id } = req.params as {
             country_code: string;
             party_id: string;
             location_id: string;
         };
+        const logData = { action: 'GET /locations/:location_id', partnerId: partnerCredentials.partner_id, location_id };
 
-        // Log incoming request (non-blocking)
-        // Pass OCPI IDs from params - logging function will resolve them to internal DB IDs
-        OCPIRequestLogService.logIncomingRequest({
-            req,
-            partnerId: partnerCredentials.partner_id,
-            command: OCPILogCommand.GetLocationReq,
-            ocpi_location_id: location_id,
-        });
+        try {
+            logger.debug(`🟡 [${reqId}] Starting GET /locations/:location_id in handleGetLocation`, { data: logData });
 
-        const prismaLocation = await LocationDbService.findByOcpiLocationId(
-            location_id,
-            partnerCredentials.partner_id,
-        );
-        if (!prismaLocation) {
-            const response = OCPIResponseService.clientError<OCPILocation | null>(null);
+            // Log incoming request (non-blocking)
+            // Pass OCPI IDs from params - logging function will resolve them to internal DB IDs
+            OCPIRequestLogService.logIncomingRequest({
+                req,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.GetLocationReq,
+                ocpi_location_id: location_id,
+            });
+
+            logger.debug(`🟡 [${reqId}] Finding location by OCPI ID in handleGetLocation`, { data: logData });
+            const prismaLocation = await LocationDbService.findByOcpiLocationId(
+                location_id,
+                partnerCredentials.partner_id,
+            );
+            if (!prismaLocation) {
+                logger.warn(`🟡 [${reqId}] Location not found in handleGetLocation`, { data: logData });
+                const response = OCPIResponseService.clientError<OCPILocation | null>(null);
+                // Log outgoing response (non-blocking)
+                OCPIRequestLogService.logIncomingResponse({
+                    req,
+                    res,
+                    responseBody: response.payload,
+                    statusCode: response.httpStatus ?? 400,
+                    partnerId: partnerCredentials.partner_id,
+                    command: OCPILogCommand.GetLocationRes,
+                });
+                return response;
+            }
+
+            logger.debug(`🟡 [${reqId}] Mapping Prisma location to OCPI format in handleGetLocation`, { data: logData });
+            const ocpiLocation = LocationDbService.mapPrismaLocationToOcpi(prismaLocation);
+            const response = OCPIResponseService.success<OCPILocation>(ocpiLocation);
+
             // Log outgoing response (non-blocking)
             OCPIRequestLogService.logIncomingResponse({
                 req,
                 res,
                 responseBody: response.payload,
-                statusCode: response.httpStatus ?? 400,
+                statusCode: response.httpStatus ?? 200,
                 partnerId: partnerCredentials.partner_id,
                 command: OCPILogCommand.GetLocationRes,
+                location_id: prismaLocation.id,
             });
+
+            logger.debug(`🟢 [${reqId}] Returning GET /locations/:location_id response in handleGetLocation`, { 
+                data: { logData, httpStatus: response.httpStatus } 
+            });
+
             return response;
         }
-
-        const ocpiLocation = LocationDbService.mapPrismaLocationToOcpi(prismaLocation);
-        const response = OCPIResponseService.success<OCPILocation>(ocpiLocation);
-
-        // Log outgoing response (non-blocking)
-        OCPIRequestLogService.logIncomingResponse({
-            req,
-            res,
-            responseBody: response.payload,
-            statusCode: response.httpStatus ?? 200,
-            partnerId: partnerCredentials.partner_id,
-            command: OCPILogCommand.GetLocationRes,
-            location_id: prismaLocation.id,
-        });
-
-        return response;
+        catch (e: any) {
+            logger.error(`🔴 [${reqId}] Error in handleGetLocation: ${e?.toString()}`, e, { data: logData });
+            throw e;
+        }
     }
 
     public static async handleGetEVSE(
@@ -272,66 +315,94 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
         res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPIResponsePayload<unknown>>> {
+        const reqId = req.headers['x-correlation-id'] as string || req.headers['x-request-id'] as string || 'unknown';
         const { location_id } = req.params as {
             country_code: string;
             party_id: string;
             location_id: string;
         };
+        const logData = { action: 'PUT /locations/:location_id', partnerId: partnerCredentials.partner_id, location_id };
 
-        // Log incoming request (non-blocking)
-        // Pass OCPI IDs from params - logging function will resolve them to internal DB IDs
-        OCPIRequestLogService.logIncomingRequest({
-            req,
-            partnerId: partnerCredentials.partner_id,
-            command: OCPILogCommand.PutLocationReq,
-            ocpi_location_id: location_id,
-        });
-        const payload = req.body as OCPILocation;
+        try {
+            logger.debug(`🟡 [${reqId}] Starting PUT /locations/:location_id in handlePutLocation`, { data: logData });
 
-        if (!payload || payload.id !== location_id) {
-            const response = OCPIResponseService.clientError<OCPILocation | null>(null);
-            OCPIRequestLogService.logIncomingResponse({
+            // Log incoming request (non-blocking)
+            // Pass OCPI IDs from params - logging function will resolve them to internal DB IDs
+            OCPIRequestLogService.logIncomingRequest({
                 req,
-                res,
-                responseBody: response.payload,
-                statusCode: response.httpStatus ?? 400,
                 partnerId: partnerCredentials.partner_id,
-                command: OCPILogCommand.PutLocationRes,
+                command: OCPILogCommand.PutLocationReq,
+                ocpi_location_id: location_id,
             });
-            return response;
-        }
 
-        // Find existing location
-        const existingLocation = await LocationDbService.findByOcpiLocationId(
-            location_id,
-            partnerCredentials.partner_id,
-        );
-
-        let locationRecord;
-        if (!existingLocation) {
-            // Create location if it doesn't exist - only include fields present in payload
-            const locationCreateFields = LocationService.buildLocationCreateFields(payload, partnerCredentials.partner_id);
-            locationRecord = await databaseService.prisma.location.create({
-                data: locationCreateFields,
+            logger.debug(`🟡 [${reqId}] Parsing PUT location payload in handlePutLocation`, { 
+                data: { logData, hasBody: !!req.body } 
             });
-        }
-        else {
-            // Build update fields - only include fields present in payload that have changed
-            const locationUpdateFields = LocationService.buildLocationUpdateFields(payload, existingLocation);
-            // Update existing location only if there are changes
-            if (!isEmpty(locationUpdateFields)) {
-                locationRecord = await databaseService.prisma.location.update({
-                    where: { id: existingLocation.id },
-                    data: locationUpdateFields,
+            const payload = req.body as OCPILocation;
+
+            if (!payload || payload.id !== location_id) {
+                logger.warn(`🟡 [${reqId}] Invalid payload or location_id mismatch in handlePutLocation`, { 
+                    data: { logData, payloadId: payload?.id, expectedId: location_id } 
+                });
+                const response = OCPIResponseService.clientError<OCPILocation | null>(null);
+                OCPIRequestLogService.logIncomingResponse({
+                    req,
+                    res,
+                    responseBody: response.payload,
+                    statusCode: response.httpStatus ?? 400,
+                    partnerId: partnerCredentials.partner_id,
+                    command: OCPILogCommand.PutLocationRes,
+                });
+                return response;
+            }
+
+            // Find existing location
+            logger.debug(`🟡 [${reqId}] Finding existing location in handlePutLocation`, { data: logData });
+            const existingLocation = await LocationDbService.findByOcpiLocationId(
+                location_id,
+                partnerCredentials.partner_id,
+            );
+
+            logger.debug(`🟡 [${reqId}] ${existingLocation ? 'Updating' : 'Creating'} location in handlePutLocation`, { 
+                data: { logData, locationExists: !!existingLocation } 
+            });
+            let locationRecord;
+            if (!existingLocation) {
+                // Create location if it doesn't exist - only include fields present in payload
+                logger.debug(`🟡 [${reqId}] Building location create fields in handlePutLocation`, { data: logData });
+                const locationCreateFields = LocationService.buildLocationCreateFields(payload, partnerCredentials.partner_id);
+                locationRecord = await databaseService.prisma.location.create({
+                    data: locationCreateFields,
+                });
+                logger.debug(`🟢 [${reqId}] Created new location in handlePutLocation`, { 
+                    data: { logData, locationId: locationRecord.id } 
                 });
             }
             else {
-                locationRecord = existingLocation;
+                // Build update fields - only include fields present in payload that have changed
+                logger.debug(`🟡 [${reqId}] Building location update fields in handlePutLocation`, { data: logData });
+                const locationUpdateFields = LocationService.buildLocationUpdateFields(payload, existingLocation);
+                // Update existing location only if there are changes
+                if (!isEmpty(locationUpdateFields)) {
+                    locationRecord = await databaseService.prisma.location.update({
+                        where: { id: existingLocation.id },
+                        data: locationUpdateFields,
+                    });
+                    logger.debug(`🟢 [${reqId}] Updated existing location in handlePutLocation`, { 
+                        data: { logData, locationId: locationRecord.id } 
+                    });
+                }
+                else {
+                    logger.debug(`🟡 [${reqId}] No changes detected, using existing location in handlePutLocation`, { data: logData });
+                    locationRecord = existingLocation;
+                }
             }
-        }
 
-        // Handle EVSEs if provided
-        if (payload.evses !== undefined && payload.evses.length > 0) {
+            // Handle EVSEs if provided
+            logger.debug(`🟡 [${reqId}] Processing EVSEs in handlePutLocation`, { 
+                data: { logData, evsesCount: payload.evses?.length || 0 } 
+            });
+            if (payload.evses !== undefined && payload.evses.length > 0) {
             for (const evse of payload.evses) {
                 const existingEvse = await databaseService.prisma.eVSE.findFirst({
                     where: {
@@ -405,32 +476,43 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
             }
         }
 
-        // Fetch updated location with relations
-        const refreshedLocation = await databaseService.prisma.location.findUnique({
-            where: { id: locationRecord.id },
-            include: {
-                evses: {
-                    include: {
-                        evse_connectors: true,
+            logger.debug(`🟡 [${reqId}] Fetching refreshed location with relations in handlePutLocation`, { data: logData });
+            // Fetch updated location with relations
+            const refreshedLocation = await databaseService.prisma.location.findUnique({
+                where: { id: locationRecord.id },
+                include: {
+                    evses: {
+                        include: {
+                            evse_connectors: true,
+                        },
                     },
                 },
-            },
-        });
+            });
 
-        const ocpiLocation = LocationDbService.mapPrismaLocationToOcpi(refreshedLocation as LocationWithRelations);
-        const response = OCPIResponseService.success<OCPILocation>(ocpiLocation);
+            logger.debug(`🟡 [${reqId}] Mapping Prisma location to OCPI format in handlePutLocation`, { data: logData });
+            const ocpiLocation = LocationDbService.mapPrismaLocationToOcpi(refreshedLocation as LocationWithRelations);
+            const response = OCPIResponseService.success<OCPILocation>(ocpiLocation);
 
-        OCPIRequestLogService.logIncomingResponse({
-            req,
-            res,
-            responseBody: response.payload,
-            statusCode: response.httpStatus ?? 200,
-            partnerId: partnerCredentials.partner_id,
-            command: OCPILogCommand.PutLocationRes,
-            location_id: locationRecord.id,
-        });
+            OCPIRequestLogService.logIncomingResponse({
+                req,
+                res,
+                responseBody: response.payload,
+                statusCode: response.httpStatus ?? 200,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.PutLocationRes,
+                location_id: locationRecord.id,
+            });
 
-        return response;
+            logger.debug(`🟢 [${reqId}] Returning PUT /locations/:location_id response in handlePutLocation`, { 
+                data: { logData, httpStatus: response.httpStatus } 
+            });
+
+            return response;
+        }
+        catch (e: any) {
+            logger.error(`🔴 [${reqId}] Error in handlePutLocation: ${e?.toString()}`, e, { data: logData });
+            throw e;
+        }
     }
 
     public static async handlePutEVSE(
