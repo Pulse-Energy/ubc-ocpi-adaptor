@@ -17,6 +17,7 @@ import { OCPIRequestLogService } from '../../../../services/OCPIRequestLogServic
 import { OCPILogCommand } from '../../../../types';
 import { LocationService } from './LocationService';
 import { isEmpty } from 'lodash';
+import { logger } from '../../../../../services/logger.service';
 
 /**
  * Handle all incoming requests for the Locations module from the CPO

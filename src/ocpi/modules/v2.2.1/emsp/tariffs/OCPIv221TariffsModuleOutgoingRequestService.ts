@@ -22,6 +22,7 @@ export default class OCPIv221TariffsModuleOutgoingRequestService {
     ): Promise<HttpResponse<OCPITariffsResponse>> {
         const reqId = req.headers['x-correlation-id'] as string || req.headers['x-request-id'] as string || 'unknown';
         const logData = { action: 'GET /tariffs (outgoing)', partnerId };
+        let url = '';
 
         try {
             logger.debug(`🟡 [${reqId}] Starting GET /tariffs (outgoing) in sendGetTariffs`, { data: logData });
@@ -42,7 +43,7 @@ export default class OCPIv221TariffsModuleOutgoingRequestService {
             logger.debug(`🟡 [${reqId}] Building URL with query params in sendGetTariffs`, { 
                 data: { logData, params: { limit, offset, dateFrom, dateTo, countryCode, partyId } } 
             });
-            const url = OCPIv221TariffsModuleOutgoingRequestService.appendQueryParams(
+            url = OCPIv221TariffsModuleOutgoingRequestService.appendQueryParams(
                 baseUrl,
                 { limit, offset, dateFrom, dateTo, countryCode, partyId }
             );

@@ -14,6 +14,7 @@ import { OCPILogCommand } from '../../../../types';
 import ChargingService from '../../../../../ubc/actions/services/ChargingService';
 import { SessionService } from './SessionService';
 import { isEmpty } from 'lodash';
+import { logger } from '../../../../../services/logger.service';
 
 /**
  * OCPI 2.2.1 – Sessions module (incoming, EMSP side).
