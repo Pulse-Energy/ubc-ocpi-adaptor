@@ -489,6 +489,9 @@ model PaymentTxn {
   partner_id                      String
   partner                         OCPIPartner @relation(fields: [partner_id], references: [id], onDelete: Cascade)
   beckn_transaction_id            String
+  payment_gateway_order_id        String?     // BillDesk/Razorpay order ID
+  payment_gateway_payment_id      String?     // BillDesk/Razorpay payment/transaction ID
+  details                         Json?       @default("{}") @db.Json // Full payment gateway response
   additional_props                Json?       @default("{}") @db.Json
   created_at                      DateTime    @default(now())
   updated_at                      DateTime    @updatedAt
@@ -497,5 +500,6 @@ model PaymentTxn {
 
   @@index([authorization_reference])
   @@index([partner_id])
+  @@index([payment_gateway_order_id])
   @@map("payment_txn")
 }

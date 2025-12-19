@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client';
+import { PaymentTxn, Prisma } from '@prisma/client';
 import { Request } from 'express';
 import { BecknDomain } from '../../schema/v2.0.0/enums/BecknDomain';
 import { BecknActionResponse } from '../../schema/v2.0.0/types/AckResponse';
@@ -28,7 +28,8 @@ import PaymentTxnDbService from '../../../db-services/PaymentTxnDbService';
 import { BecknPaymentStatus } from '../../schema/v2.0.0/enums/PaymentStatus';
 import { EvseConnectorDbService } from '../../../db-services/EvseConnectorDbService';
 import OCPIPartnerDbService from '../../../db-services/OCPIPartnerDbService';
-import { OCPIPartnerAdditionalProps } from '../../../types/OCPIPartner';
+import { OCPIPartnerAdditionalProps, PaymentServiceProvider } from '../../../types/OCPIPartner';
+import PaymentGatewayService from '../../services/PaymentServices/PaymentGatewayService';
 
 export default class InitActionHandler {
     public static async handleBppInitAction(
@@ -206,12 +207,12 @@ export default class InitActionHandler {
             data: paymentTxnData,
         });
         const generatePaymentLinkResponse =
-            await InitActionHandler.sendGeneratePaymentLinkCallToBackend(
+            await InitActionHandler.generatePaymentLink(
                 {
                     amount: finalAmount,
                     authorization_reference: authorizationReference,
                 },
-                paymentTxn.partner_id
+                paymentTxn
             );
         PaymentTxnDbService.update(paymentTxn.id, {
             payment_link: generatePaymentLinkResponse.payment_link,
@@ -232,6 +233,29 @@ export default class InitActionHandler {
             },
         };
         return extractedOnInitResponseBody;
+    }
+
+    public static async generatePaymentLink(
+        payload: GeneratePaymentLinkRequestPayload,
+        paymentTxn: PaymentTxn
+    ): Promise<GeneratePaymentLinkResponsePayload> {
+        const ocpiPartner = await OCPIPartnerDbService.getById(paymentTxn.partner_id);
+        if (!ocpiPartner) {
+            throw new Error('OCPI partner not found');
+        }
+        const ocpiPartnerAdditionalProps =
+            ocpiPartner?.additional_props as OCPIPartnerAdditionalProps;
+        
+        if (ocpiPartnerAdditionalProps?.payment_service_provider === PaymentServiceProvider.CPO) {
+            return await this.sendGeneratePaymentLinkCallToBackend(payload, paymentTxn.partner_id);
+        }
+        else {
+            const paymentGatewayOrder = await PaymentGatewayService.createPaymentGatewayOrder(paymentTxn, ocpiPartner);
+            return {
+                payment_link: paymentGatewayOrder.bill_desk?.payment_url || '',
+                authorization_reference: paymentTxn.authorization_reference,
+            };
+        }
     }
 
     public static async sendGeneratePaymentLinkCallToBackend(
