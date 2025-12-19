@@ -65,7 +65,7 @@ export default class AdminCredentialsModule {
 
         // fetch from ocpi partner endpoints table
         const cpoCredentialsUrl = await databaseService.prisma.oCPIPartnerEndpoint.findFirst({
-            where: { partner_id: partner.id, module: 'credentials', role: 'SENDER' },
+            where: { partner_id: partner.id, module: 'credentials', role: 'RECEIVER' },
             select: { url: true },
         });
 
@@ -81,6 +81,14 @@ export default class AdminCredentialsModule {
             roles,
             partner.id,
         );
+
+        if (response.httpStatus !== 200) {
+            throw new Error(response?.payload?.status_message ?`Failed to send credentials to the CPO\nError: ${response.payload.status_message}` : 'Failed to send credentials to the CPO');
+        }
+
+        if (response.payload.status_code !== OCPIResponseStatusCode.status_1000) {
+            throw new Error(`Failed to send credentials to the CPO\nError: ${response.payload.status_message}`);
+        }
 
         await databaseService.prisma.oCPIPartnerCredentials.update({
             where: { partner_id: partner.id },
@@ -172,8 +180,9 @@ export default class AdminCredentialsModule {
                 throw new ValidationError('OCPI credentials payload is required');
             }
     
-            const { cpo_auth_token: cpoAuthToken, cpo_versions_url: cpoVersionsUrl, cpo_party_id: cpoPartyId, cpo_country_code: cpoCountryCode, cpo_name: cpoName, cpo_token: cpoToken, emsp_auth_token: emspAuthToken, emsp_ocpi_host: emspOcpiHost, emsp_party_id: emspPartyId = "EMSP", emsp_country_code: emspCountryCode = "IN", emsp_name: emspName = "EMSP PARTNER" } = payload;
-    
+            const { cpo_auth_token: cpoAuthToken, cpo_versions_url: cpoVersionsUrl, cpo_party_id: cpoPartyId, cpo_country_code: cpoCountryCode, cpo_name: cpoName, cpo_token: cpoToken, emsp_ocpi_host: emspOcpiHost, emsp_party_id: emspPartyId = "EMSP", emsp_country_code: emspCountryCode = "IN", emsp_name: emspName = "EMSP PARTNER", bypass_credentials_creation: bypassCredentialsCreation = false } = payload;
+            let { emsp_auth_token: emspAuthToken } = payload;
+
             if (!cpoAuthToken) {
                 throw new ValidationError('cpo_auth_token is required');
             }
@@ -236,7 +245,7 @@ export default class AdminCredentialsModule {
     
             if (!emspPartner) {
                 if (!emspAuthToken) {
-                    throw new ValidationError('emsp_auth_token is required for first time registration');
+                    emspAuthToken = randomUUID();
                 }
                 if (!emspName) {
                     throw new ValidationError('emsp_name is required for first time registration');
@@ -356,9 +365,7 @@ export default class AdminCredentialsModule {
                 ],
             };
 
-            const errors: any[] = [];
-
-            try {
+            if (!bypassCredentialsCreation) {
                 // Hit the admin credentials Post endpoint to create the credentials for the EMSP
                 const emspCredentialsResponse = await AdminCredentialsModule.sendPostCredentials({
                     body: emspCredentials,
@@ -370,9 +377,6 @@ export default class AdminCredentialsModule {
 
                 // update CPO partner to active status
                 await OCPIPartnerDbService.update(partner.id, { status: 'ACTIVE' });
-            }
-            catch(error) {
-                errors.push(error as string);
             }
 
             // create a token for the EMSP
