@@ -433,4 +433,299 @@ router.get('/billdesk/link/:partnerId/:linkrefno', async (req: Request, res: Res
     }
 });
 
+/**
+ * Launch BillDesk Payment Page (Neo Full Redirect - Step 2)
+ * GET /api/app/billdesk/pay/:paymentTxnId
+ * 
+ * This endpoint generates an HTML form that auto-submits to BillDesk's payment page.
+ * The form uses the order data from Step 1 (Create Order API).
+ * 
+ * Reference: https://docs.billdesk.io/docs/neo-full-redirect
+ */
+router.get('/billdesk/pay/:paymentTxnId', async (req: Request, res: Response) => {
+    try {
+        const { paymentTxnId } = req.params;
+        const { autoSubmit } = req.query; // Set to 'false' to show a button instead of auto-submit
+
+        if (!paymentTxnId) {
+            res.status(400).json({
+                success: false,
+                message: 'Missing required parameter: paymentTxnId',
+                timestamp: new Date().toISOString(),
+            });
+            return;
+        }
+
+        // Fetch PaymentTxn from DB
+        const paymentTxn = await PaymentTxnDbService.getById(paymentTxnId);
+
+        if (!paymentTxn) {
+            res.status(404).send(`
+                <!DOCTYPE html>
+                <html>
+                <head><title>Payment Not Found</title></head>
+                <body>
+                    <h1>Payment Not Found</h1>
+                    <p>The payment transaction was not found.</p>
+                </body>
+                </html>
+            `);
+            return;
+        }
+
+        // Get the BillDesk order from additional_props
+        const additionalProps = paymentTxn.additional_props as Record<string, unknown> | null;
+        const billDeskOrder = additionalProps?.payment_gateway_create_object as any;
+
+        if (!billDeskOrder || !billDeskOrder.bdorderid) {
+            res.status(400).send(`
+                <!DOCTYPE html>
+                <html>
+                <head><title>Order Not Created</title></head>
+                <body>
+                    <h1>Order Not Created</h1>
+                    <p>No BillDesk order found for this payment. Please create an order first.</p>
+                </body>
+                </html>
+            `);
+            return;
+        }
+
+        // Find the redirect link in the order response
+        const redirectLink = billDeskOrder.links?.find((link: any) => link.rel === 'redirect');
+
+        if (!redirectLink || !redirectLink.href || !redirectLink.parameters) {
+            res.status(400).send(`
+                <!DOCTYPE html>
+                <html>
+                <head><title>Invalid Order</title></head>
+                <body>
+                    <h1>Invalid Order</h1>
+                    <p>The order does not contain a valid redirect link.</p>
+                </body>
+                </html>
+            `);
+            return;
+        }
+
+        // Check if order has expired
+        if (redirectLink.valid_date) {
+            const validUntil = new Date(redirectLink.valid_date);
+            if (validUntil < new Date()) {
+                res.status(410).send(`
+                    <!DOCTYPE html>
+                    <html>
+                    <head><title>Order Expired</title></head>
+                    <body>
+                        <h1>Order Expired</h1>
+                        <p>This payment order has expired. Please create a new order.</p>
+                        <p>Expired at: ${redirectLink.valid_date}</p>
+                    </body>
+                    </html>
+                `);
+                return;
+            }
+        }
+
+        // Extract form data
+        const formAction = redirectLink.href;
+        const merchantId = redirectLink.parameters.mercid || billDeskOrder.mercid;
+        const bdOrderId = redirectLink.parameters.bdorderid || billDeskOrder.bdorderid;
+        const rdata = redirectLink.parameters.rdata;
+
+        // Generate the HTML form
+        const shouldAutoSubmit = autoSubmit !== 'false';
+        const html = generateBillDeskPaymentForm({
+            formAction,
+            merchantId,
+            bdOrderId,
+            rdata,
+            amount: billDeskOrder.amount,
+            orderId: billDeskOrder.orderid,
+            autoSubmit: shouldAutoSubmit,
+        });
+
+        res.setHeader('Content-Type', 'text/html');
+        res.send(html);
+    }
+    catch (error) {
+        res.status(500).send(`
+            <!DOCTYPE html>
+            <html>
+            <head><title>Error</title></head>
+            <body>
+                <h1>Error</h1>
+                <p>Failed to load payment page: ${error instanceof Error ? error.message : 'Unknown error'}</p>
+            </body>
+            </html>
+        `);
+    }
+});
+
+/**
+ * Generate BillDesk Payment Form HTML
+ * Reference: https://docs.billdesk.io/docs/neo-full-redirect
+ */
+function generateBillDeskPaymentForm(params: {
+    formAction: string;
+    merchantId: string;
+    bdOrderId: string;
+    rdata: string;
+    amount?: string;
+    orderId?: string;
+    autoSubmit?: boolean;
+}): string {
+    const { formAction, merchantId, bdOrderId, rdata, amount, orderId, autoSubmit = true } = params;
+
+    return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Redirecting to Payment...</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 16px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            text-align: center;
+            max-width: 400px;
+            width: 90%;
+        }
+        .logo {
+            width: 80px;
+            height: 80px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 50%;
+            margin: 0 auto 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .logo svg {
+            width: 40px;
+            height: 40px;
+            fill: white;
+        }
+        h1 {
+            color: #333;
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+        .amount {
+            font-size: 32px;
+            font-weight: bold;
+            color: #667eea;
+            margin: 20px 0;
+        }
+        .order-id {
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        p {
+            color: #666;
+            margin-top: 15px;
+        }
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            font-size: 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            margin-top: 20px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+        .secure-badge {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 20px;
+            color: #28a745;
+            font-size: 14px;
+        }
+        .secure-badge svg {
+            width: 16px;
+            height: 16px;
+            fill: #28a745;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">
+            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path d="M20 4H4c-1.11 0-1.99.89-1.99 2L2 18c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V6c0-1.11-.89-2-2-2zm0 14H4v-6h16v6zm0-10H4V6h16v2z"/>
+            </svg>
+        </div>
+        <h1>Secure Payment</h1>
+        ${amount ? `<div class="amount">₹${amount}</div>` : ''}
+        ${orderId ? `<div class="order-id">Order ID: ${orderId}</div>` : ''}
+        
+        <form name="sdklaunch" id="sdklaunch" action="${formAction}" method="POST">
+            <input type="hidden" id="merchantid" name="merchantid" value="${merchantId}" />
+            <input type="hidden" id="bdorderid" name="bdorderid" value="${bdOrderId}" />
+            <input type="hidden" id="rdata" name="rdata" value="${rdata}" />
+            ${autoSubmit 
+                ? `<div class="spinner"></div><p>Redirecting to secure payment gateway...</p>`
+                : `<button type="submit" class="btn">Proceed to Pay</button>`
+            }
+        </form>
+        
+        <div class="secure-badge">
+            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"/>
+            </svg>
+            <span>Secured by BillDesk</span>
+        </div>
+    </div>
+    
+    ${autoSubmit ? `
+    <script>
+        // Auto-submit the form after a brief delay for better UX
+        setTimeout(function() {
+            document.getElementById('sdklaunch').submit();
+        }, 1500);
+    </script>
+    ` : ''}
+</body>
+</html>
+    `.trim();
+}
+
 export default router;
