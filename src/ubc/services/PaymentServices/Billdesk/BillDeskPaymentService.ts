@@ -514,7 +514,7 @@ export default class BillDeskPaymentService {
                 logger.error('BillDesk: Create order request failed', undefined, { paymentTxn, createOrderResult });
                 return {
                     success: false,
-                    error: 'Create order request failed',
+                    error: createOrderResult.error || 'Create order request failed',
                 };
             }
 
@@ -558,6 +558,84 @@ export default class BillDeskPaymentService {
             const errorMessage = getErrorMessage(error);
             const err = error instanceof Error ? error : new Error(errorMessage);
             logger.error(`BillDesk: Failed to create order - ${errorMessage}`, err, { paymentTxnId: paymentTxn.id });
+
+            return {
+                success: false,
+                error: errorMessage,
+            };
+        }
+    }
+
+    /**
+     * Dummy/Test API for creating a BillDesk order
+     * Use this for testing purposes without needing a full PaymentTxn from database
+     * 
+     * @param params - Test parameters for creating an order
+     * @returns BillDesk order creation response
+     */
+    public static async createTestOrder(params: {
+        partnerId: string;
+        amount: number;
+        authorizationReference: string;
+        returnUrl: string;
+        becknTransactionId?: string;
+        device?: {
+            ip?: string;
+            userAgent?: string;
+            initChannel?: string;
+        };
+    }): Promise<CreateOrderWithBillDeskResponse> {
+        try {
+            const { partnerId, amount, authorizationReference, returnUrl, becknTransactionId, device } = params;
+
+            // Create a mock PaymentTxn object with required fields
+            const mockPaymentTxn = {
+                id: `test-${Date.now()}`,
+                partner_id: partnerId,
+                amount: { toString: () => amount.toFixed(2) } as any, // Mock Decimal
+                authorization_reference: authorizationReference,
+                beckn_transaction_id: becknTransactionId || `beckn-test-${Date.now()}`,
+                additional_props: null,
+            } as PaymentTxn;
+
+            // Create mock device props
+            const billDeskPaymentServiceProps: BillDeskPaymentServiceProps = {
+                return_url: returnUrl,
+                bill_desk_device: {
+                    init_channel: device?.initChannel || 'internet',
+                    ip: device?.ip || '127.0.0.1',
+                    user_agent: device?.userAgent || 'Mozilla/5.0 (Test)',
+                    accept_header: 'application/json',
+                    fingerprintid: `fp-${Date.now()}`,
+                    browser_tz: '+05:30',
+                    browser_color_depth: '24',
+                    browser_java_enabled: 'false',
+                    browser_screen_height: '1080',
+                    browser_screen_width: '1920',
+                    browser_language: 'en-US',
+                    browser_javascript_enabled: 'true',
+                },
+            };
+
+            logger.info('BillDesk: Creating test order', {
+                partnerId,
+                amount,
+                authorizationReference,
+                returnUrl,
+            });
+
+            // Call the actual create order method
+            const result = await this.createOrderWithBillDeskPaymentGateway(
+                mockPaymentTxn,
+                billDeskPaymentServiceProps
+            );
+
+            return result;
+        }
+        catch (error: unknown) {
+            const errorMessage = getErrorMessage(error);
+            const err = error instanceof Error ? error : new Error(errorMessage);
+            logger.error(`BillDesk: Test order creation failed - ${errorMessage}`, err, { params });
 
             return {
                 success: false,
