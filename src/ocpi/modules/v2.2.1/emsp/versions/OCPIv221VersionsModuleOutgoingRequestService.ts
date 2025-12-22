@@ -28,6 +28,7 @@ export default class OCPIv221VersionsModuleOutgoingRequestService {
         versionsUrl: string,
         cpoAuthToken: string,
         partnerId?: string,
+        headers?: Record<string, string>,
     ): Promise<OCPIVersionClass[]> {
         const reqId = `outgoing-${Date.now()}`;
         const logData = { action: 'getVersions', partnerId, versionsUrl };
@@ -44,11 +45,17 @@ export default class OCPIv221VersionsModuleOutgoingRequestService {
                 data: { ...logData, versionsUrl } 
             });
 
+            const requestHeaders: Record<string, string> = {
+                Authorization: `Token ${cpoAuthToken}`,
+                ...(headers?.['X-Correlation-Id'] && { 'X-Correlation-Id': headers['X-Correlation-Id'] }),
+                ...(headers?.['x-correlation-id'] && { 'X-Correlation-Id': headers['x-correlation-id'] }),
+                ...(headers?.['X-Request-Id'] && { 'X-Request-Id': headers['X-Request-Id'] }),
+                ...(headers?.['x-request-id'] && { 'X-Request-Id': headers['x-request-id'] }),
+            };
+
             const response = await OCPIOutgoingRequestService.sendGetRequest({
                 url: versionsUrl,
-                headers: {
-                    Authorization: `Token ${cpoAuthToken}`,
-                }, 
+                headers: requestHeaders,
                 partnerId,
                 command: OCPILogCommand.SendGetVersionReq,
             });
@@ -106,6 +113,7 @@ export default class OCPIv221VersionsModuleOutgoingRequestService {
         cpoAuthToken: string,
         fallbackVersionId?: string,
         partnerId?: string,
+        headers?: Record<string, string>,
     ): Promise<VersionDetailUnion> {
         const reqId = `outgoing-${Date.now()}`;
         const logData = { action: 'getVersionDetails', partnerId, versionUrl, fallbackVersionId };
@@ -122,11 +130,17 @@ export default class OCPIv221VersionsModuleOutgoingRequestService {
                 data: { ...logData, versionUrl } 
             });
 
+            const requestHeaders: Record<string, string> = {
+                Authorization: `Token ${cpoAuthToken}`,
+                ...(headers?.['X-Correlation-Id'] && { 'X-Correlation-Id': headers['X-Correlation-Id'] }),
+                ...(headers?.['x-correlation-id'] && { 'X-Correlation-Id': headers['x-correlation-id'] }),
+                ...(headers?.['X-Request-Id'] && { 'X-Request-Id': headers['X-Request-Id'] }),
+                ...(headers?.['x-request-id'] && { 'X-Request-Id': headers['x-request-id'] }),
+            };
+
             const response = await OCPIOutgoingRequestService.sendGetRequest({
                 url: versionUrl,
-                headers: {
-                    Authorization: `Token ${cpoAuthToken}`,
-                },
+                headers: requestHeaders,
                 partnerId,
                 command: OCPILogCommand.SendGetVersionDetailsReq,
             });

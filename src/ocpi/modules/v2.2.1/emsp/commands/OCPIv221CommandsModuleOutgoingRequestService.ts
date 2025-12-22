@@ -32,14 +32,22 @@ export default class OCPIv221CommandsModuleOutgoingRequestService {
         return Utils.getOcpiEndpoint('commands', 'RECEIVER', partnerId);
     }
 
-    private static getAuthHeaders(cpoAuthToken: string): Record<string, string> {
+    private static getAuthHeaders(
+        cpoAuthToken: string,
+        headers?: Record<string, string>,
+    ): Record<string, string> {
         if (!cpoAuthToken) {
             throw new Error('CPO auth token is required to send OCPI command');
         }
 
-        return {
+        const requestHeaders: Record<string, string> = {
             Authorization: `Token ${cpoAuthToken}`,
+            ...(headers?.['X-Correlation-Id'] && { 'X-Correlation-Id': headers['X-Correlation-Id'] }),
+            ...(headers?.['x-correlation-id'] && { 'X-Correlation-Id': headers['x-correlation-id'] }),
+            ...(headers?.['X-Request-Id'] && { 'X-Request-Id': headers['X-Request-Id'] }),
+            ...(headers?.['x-request-id'] && { 'X-Request-Id': headers['x-request-id'] }),
         };
+        return requestHeaders;
     }
 
     private static getLogCommandForCommandType(commandType: OCPICommandType): OCPILogCommand {
@@ -64,6 +72,7 @@ export default class OCPIv221CommandsModuleOutgoingRequestService {
         body: OCPICancelReservation | OCPIReserveNow | OCPIStartSession | OCPIStopSession | OCPIUnlockConnector,
         cpoAuthToken: string,
         partnerId?: string,
+        headers?: Record<string, string>,
     ): Promise<HttpResponse<OCPICommandResponseResponse>> {
         const reqId = `outgoing-${Date.now()}`;
         const logData = { action: 'sendCommand', commandType, partnerId };
@@ -102,7 +111,7 @@ export default class OCPIv221CommandsModuleOutgoingRequestService {
             });
             const response = await OCPIOutgoingRequestService.sendPostRequest({
                 url,
-                headers: OCPIv221CommandsModuleOutgoingRequestService.getAuthHeaders(cpoAuthToken),
+                headers: OCPIv221CommandsModuleOutgoingRequestService.getAuthHeaders(cpoAuthToken, headers),
                 data: body,
                 partnerId,
                 command: logCommand,
@@ -141,12 +150,14 @@ export default class OCPIv221CommandsModuleOutgoingRequestService {
         body: OCPIStartSession,
         cpoAuthToken: string,
         partnerId?: string,
+        headers?: Record<string, string>,
     ): Promise<HttpResponse<OCPICommandResponseResponse>> {
         return OCPIv221CommandsModuleOutgoingRequestService.sendCommand(
             OCPICommandType.START_SESSION,
             body,
             cpoAuthToken,
             partnerId,
+            headers,
         );
     }
 
@@ -154,12 +165,14 @@ export default class OCPIv221CommandsModuleOutgoingRequestService {
         body: OCPIStopSession,
         cpoAuthToken: string,
         partnerId?: string,
+        headers?: Record<string, string>,
     ): Promise<HttpResponse<OCPICommandResponseResponse>> {
         return OCPIv221CommandsModuleOutgoingRequestService.sendCommand(
             OCPICommandType.STOP_SESSION,
             body,
             cpoAuthToken,
             partnerId,
+            headers,
         );
     }
 

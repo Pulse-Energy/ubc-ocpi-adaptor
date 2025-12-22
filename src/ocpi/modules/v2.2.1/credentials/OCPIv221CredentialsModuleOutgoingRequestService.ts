@@ -34,6 +34,7 @@ export default class OCPIv221CredentialsModuleOutgoingRequestService {
         url: string,
         roles: OCPICredentialsRoleClass[],
         partnerId?: string,
+        headers?: Record<string, string>,
     ): Promise<HttpResponse<OCPIResponsePayload<OCPICredentials>>> {
         const credentials: OCPICredentials = {
             token,
@@ -41,11 +42,17 @@ export default class OCPIv221CredentialsModuleOutgoingRequestService {
             roles,
         };
 
+        const requestHeaders: Record<string, string> = {
+            Authorization: `Token ${cpoAuthToken}`,
+            ...(headers?.['X-Correlation-Id'] && { 'X-Correlation-Id': headers['X-Correlation-Id'] }),
+            ...(headers?.['x-correlation-id'] && { 'X-Correlation-Id': headers['x-correlation-id'] }),
+            ...(headers?.['X-Request-Id'] && { 'X-Request-Id': headers['X-Request-Id'] }),
+            ...(headers?.['x-request-id'] && { 'X-Request-Id': headers['x-request-id'] }),
+        };
+
         const response = await OCPIOutgoingRequestService.sendPostRequest({
             url: cpoUrl,
-            headers: {
-                Authorization: `Token ${cpoAuthToken}`,
-            },
+            headers: requestHeaders,
             data: credentials,
             partnerId,
             command: OCPILogCommand.SendPostCredentialsReq,
@@ -69,12 +76,19 @@ export default class OCPIv221CredentialsModuleOutgoingRequestService {
         cpoUrl: string,
         cpoAuthToken: string,
         partnerId?: string,
+        headers?: Record<string, string>,
     ): Promise<HttpResponse<OCPIResponsePayload<OCPICredentials>>> {
+        const requestHeaders: Record<string, string> = {
+            Authorization: `Token ${cpoAuthToken}`,
+            ...(headers?.['X-Correlation-Id'] && { 'X-Correlation-Id': headers['X-Correlation-Id'] }),
+            ...(headers?.['x-correlation-id'] && { 'X-Correlation-Id': headers['x-correlation-id'] }),
+            ...(headers?.['X-Request-Id'] && { 'X-Request-Id': headers['X-Request-Id'] }),
+            ...(headers?.['x-request-id'] && { 'X-Request-Id': headers['x-request-id'] }),
+        };
+
         const response = await OCPIOutgoingRequestService.sendGetRequest({
             url: cpoUrl,
-            headers: {
-                Authorization: `Token ${cpoAuthToken}`,
-            },
+            headers: requestHeaders,
             partnerId,
             command: OCPILogCommand.SendGetCredentialsReq,
         });
