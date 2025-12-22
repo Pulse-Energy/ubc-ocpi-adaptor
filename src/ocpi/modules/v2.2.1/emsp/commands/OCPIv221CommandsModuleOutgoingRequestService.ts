@@ -74,7 +74,7 @@ export default class OCPIv221CommandsModuleOutgoingRequestService {
         partnerId?: string,
         headers?: Record<string, string>,
     ): Promise<HttpResponse<OCPICommandResponseResponse>> {
-        const reqId = `outgoing-${Date.now()}`;
+        const reqId = headers?.['x-correlation-id'] || headers?.['X-Correlation-Id'] || headers?.['x-request-id'] || headers?.['X-Request-Id'] || `outgoing-${Date.now()}`;
         const logData = { action: 'sendCommand', commandType, partnerId };
 
         try {

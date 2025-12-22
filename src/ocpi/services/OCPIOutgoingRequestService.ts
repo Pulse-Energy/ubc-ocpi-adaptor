@@ -30,10 +30,15 @@ type OutgoingRequestConfig = {
      */
     partnerId?: string;
     /**
-     * Optional logical command name for easier debugging (e.g. "LOCATIONS_GET").
+     * Request command for logging the outgoing request (e.g. "SendGetLocationReq").
      * If omitted, a generic "OUTGOING <METHOD> <url>" is used.
      */
-    command?: OCPILogCommand;
+    requestCommand?: OCPILogCommand;
+    /**
+     * Response command for logging the incoming response (e.g. "SendGetLocationRes").
+     * If omitted, a generic response command is used.
+     */
+    responseCommand?: OCPILogCommand;
     /**
      * Optional log parameters containing IDs for logging.
      * Can contain either internal DB IDs or OCPI IDs (which will be resolved).
@@ -54,33 +59,14 @@ export default class OCPIOutgoingRequestService {
         return authorizationHeader;
     }
 
-    /**
-     * Converts a request command to a response command by replacing "Req" with "Res"
-     * @param command The request command (e.g., SendGetLocationReq) - can be undefined
-     * @returns The corresponding response command (e.g., SendGetLocationRes) or undefined
-     */
-    private static getResponseCommand(command?: OCPILogCommand): OCPILogCommand | undefined {
-        if (!command) {
-            return undefined;
-        }
-        const commandString = command.toString();
-        if (commandString.endsWith('Req')) {
-            const responseCommandString = commandString.replace(/Req$/, 'Res');
-            // Try to find the corresponding Res command in the enum
-            const responseCommand = Object.values(OCPILogCommand).find(
-                (cmd) => cmd.toString() === responseCommandString
-            );
-            return responseCommand || command; // Fallback to original if not found
-        }
-        return command; // Return as-is if it doesn't end with Req
-    }
 
     static async sendGetRequest(requestConfig: OutgoingGetRequestConfig): Promise<any> {
         const {
             url,
             headers,
             partnerId,
-            command,
+            requestCommand,
+            responseCommand,
         } = requestConfig;
 
         // Generate UUIDs for outgoing requests if not provided
@@ -109,7 +95,7 @@ export default class OCPIOutgoingRequestService {
             method: 'GET',
             headers: headers,
             partnerId,
-            command,
+            command: requestCommand,
             ...requestConfig.logParams,
         }).catch((error) => {
             // Logging errors should never affect the request flow
@@ -134,7 +120,6 @@ export default class OCPIOutgoingRequestService {
                 });
 
                 // Log incoming response (CPO → EMSP) - Individual log entry (non-blocking)
-                const responseCommand = OCPIOutgoingRequestService.getResponseCommand(command);
                 OCPIRequestLogService.logOutgoingResponse({
                     url,
                     method: 'GET',
@@ -167,7 +152,6 @@ export default class OCPIOutgoingRequestService {
                 });
 
                 // Log error response - Individual log entry (non-blocking)
-                const responseCommand = OCPIOutgoingRequestService.getResponseCommand(command);
                 OCPIRequestLogService.logOutgoingResponse({
                     url,
                     method: 'GET',
@@ -192,7 +176,8 @@ export default class OCPIOutgoingRequestService {
             headers,
             data = {},
             partnerId,
-            command,
+            requestCommand,
+            responseCommand,
         } = requestConfig;
 
         // Generate UUIDs for outgoing requests if not provided
@@ -223,7 +208,7 @@ export default class OCPIOutgoingRequestService {
             headers: headers,
             requestBody: data,
             partnerId,
-            command,
+            command: requestCommand,
             ...requestConfig.logParams,
         }).catch((error) => {
             // Logging errors should never affect the request flow
@@ -252,7 +237,6 @@ export default class OCPIOutgoingRequestService {
                 });
 
                 // Log incoming response (CPO → EMSP) - Individual log entry (non-blocking)
-                const responseCommand = OCPIOutgoingRequestService.getResponseCommand(command);
                 OCPIRequestLogService.logOutgoingResponse({
                     url,
                     method: 'POST',
@@ -286,7 +270,6 @@ export default class OCPIOutgoingRequestService {
                 });
 
                 // Log error response - Individual log entry (non-blocking)
-                const responseCommand = OCPIOutgoingRequestService.getResponseCommand(command);
                 OCPIRequestLogService.logOutgoingResponse({
                     url,
                     method: 'POST',
@@ -311,7 +294,8 @@ export default class OCPIOutgoingRequestService {
             headers,
             data = {},
             partnerId,
-            command,
+            requestCommand,
+            responseCommand,
         } = requestConfig;
 
         // Generate UUIDs for outgoing requests if not provided
@@ -342,7 +326,7 @@ export default class OCPIOutgoingRequestService {
             headers: headers,
             requestBody: data,
             partnerId,
-            command,
+            command: requestCommand,
             ...requestConfig.logParams,
         }).catch((error) => {
             // Logging errors should never affect the request flow
@@ -378,7 +362,7 @@ export default class OCPIOutgoingRequestService {
                     responseBody: response.data ?? response,
                     statusCode: response.status,
                     partnerId,
-                    command,
+                    command: responseCommand,
                     ...requestConfig.logParams,
                 }).catch((error) => {
                     // Logging errors should never affect the request flow
@@ -411,7 +395,7 @@ export default class OCPIOutgoingRequestService {
                     error: e.response?.data || e.message || e,
                     statusCode: e.response?.status,
                     partnerId,
-                    command,
+                    command: responseCommand,
                     ...requestConfig.logParams,
                 }).catch((error) => {
                     // Logging errors should never affect the request flow
@@ -428,7 +412,8 @@ export default class OCPIOutgoingRequestService {
             headers,
             data = {},
             partnerId,
-            command,
+            requestCommand,
+            responseCommand,
         } = requestConfig;
 
         // Generate UUIDs for outgoing requests if not provided
@@ -459,7 +444,7 @@ export default class OCPIOutgoingRequestService {
             headers: headers,
             requestBody: data,
             partnerId,
-            command,
+            command: requestCommand,
             ...requestConfig.logParams,
         }).catch((error) => {
             // Logging errors should never affect the request flow
@@ -495,7 +480,7 @@ export default class OCPIOutgoingRequestService {
                     responseBody: response.data ?? response,
                     statusCode: response.status,
                     partnerId,
-                    command,
+                    command: responseCommand,
                     ...requestConfig.logParams,
                 }).catch((error) => {
                     // Logging errors should never affect the request flow
@@ -528,7 +513,7 @@ export default class OCPIOutgoingRequestService {
                     error: e.response?.data || e.message || e,
                     statusCode: e.response?.status,
                     partnerId,
-                    command,
+                    command: responseCommand,
                     ...requestConfig.logParams,
                 }).catch((error) => {
                     // Logging errors should never affect the request flow
@@ -545,7 +530,8 @@ export default class OCPIOutgoingRequestService {
             headers,
             data = {},
             partnerId,
-            command,
+            requestCommand,
+            responseCommand,
         } = requestConfig;
 
         // Generate UUIDs for outgoing requests if not provided
@@ -576,7 +562,7 @@ export default class OCPIOutgoingRequestService {
             headers: headers,
             requestBody: data,
             partnerId,
-            command,
+            command: requestCommand,
             ...requestConfig.logParams,
         }).catch((error) => {
             // Logging errors should never affect the request flow
@@ -609,7 +595,7 @@ export default class OCPIOutgoingRequestService {
                     responseBody: response.data ?? response,
                     statusCode: response.status,
                     partnerId,
-                    command,
+                    command: responseCommand,
                     ...requestConfig.logParams,
                 }).catch((error) => {
                     // Logging errors should never affect the request flow
@@ -642,7 +628,7 @@ export default class OCPIOutgoingRequestService {
                     error: e.response?.data || e.message || e,
                     statusCode: e.response?.status,
                     partnerId,
-                    command,
+                    command: responseCommand,
                     ...requestConfig.logParams,
                 }).catch((error) => {
                     // Logging errors should never affect the request flow

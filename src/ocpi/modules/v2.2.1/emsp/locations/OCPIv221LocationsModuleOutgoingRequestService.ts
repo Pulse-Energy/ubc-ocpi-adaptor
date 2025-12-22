@@ -69,7 +69,8 @@ export default class OCPIv221LocationsModuleOutgoingRequestService {
                     ...(req.headers['x-request-id'] && { 'X-Request-Id': req.headers['x-request-id'] as string }),
                 },
                 partnerId,
-                command: OCPILogCommand.SendGetLocationReq,
+                requestCommand: OCPILogCommand.SendGetLocationReq,
+                responseCommand: OCPILogCommand.SendGetLocationRes,
             });
 
             logger.debug(`🟢 [${reqId}] Received response from CPO in sendGetLocations`, { 
@@ -149,7 +150,8 @@ export default class OCPIv221LocationsModuleOutgoingRequestService {
                     ...(req.headers['x-request-id'] && { 'X-Request-Id': req.headers['x-request-id'] as string }),
                 },
                 partnerId,
-                command: OCPILogCommand.SendGetLocationOneReq,
+                requestCommand: OCPILogCommand.SendGetLocationOneReq,
+                responseCommand: OCPILogCommand.SendGetLocationOneRes,
                 logParams: {
                     ocpi_location_id: locationId,
                 },

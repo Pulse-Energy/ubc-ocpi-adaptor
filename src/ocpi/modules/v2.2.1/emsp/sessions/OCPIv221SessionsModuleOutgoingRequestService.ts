@@ -72,7 +72,8 @@ export default class OCPIv221SessionsModuleOutgoingRequestService {
                 url,
                 headers: OCPIv221SessionsModuleOutgoingRequestService.getAuthHeaders(cpoAuthToken),
                 partnerId,
-                command: OCPILogCommand.SendGetSessionsReq,
+                requestCommand: OCPILogCommand.SendGetSessionsReq,
+                responseCommand: OCPILogCommand.SendGetSessionsRes,
             });
 
             logger.debug(`🟢 [${reqId}] Received response from CPO /sessions in sendGetSessions`, { 
@@ -139,7 +140,8 @@ export default class OCPIv221SessionsModuleOutgoingRequestService {
                 url,
                 headers: OCPIv221SessionsModuleOutgoingRequestService.getAuthHeaders(cpoAuthToken),
                 partnerId,
-                command: OCPILogCommand.SendGetSessionOneReq,
+                requestCommand: OCPILogCommand.SendGetSessionOneReq,
+                responseCommand: OCPILogCommand.SendGetSessionOneRes,
             });
 
             logger.debug(`🟢 [${reqId}] Received response from CPO /sessions/:session_id in sendGetSession`, { 
@@ -206,7 +208,8 @@ export default class OCPIv221SessionsModuleOutgoingRequestService {
                 headers: OCPIv221SessionsModuleOutgoingRequestService.getAuthHeaders(cpoAuthToken),
                 data: payload,
                 partnerId,
-                command: OCPILogCommand.SendPutSessionReq,
+                requestCommand: OCPILogCommand.SendPutSessionReq,
+                responseCommand: OCPILogCommand.SendPutSessionRes,
             });
 
             logger.debug(`🟢 [${reqId}] Received response from CPO /sessions/:session_id in sendPutSession`, { 
@@ -273,7 +276,8 @@ export default class OCPIv221SessionsModuleOutgoingRequestService {
                 headers: OCPIv221SessionsModuleOutgoingRequestService.getAuthHeaders(cpoAuthToken),
                 data: patch,
                 partnerId,
-                command: OCPILogCommand.SendPatchSessionReq,
+                requestCommand: OCPILogCommand.SendPatchSessionReq,
+                responseCommand: OCPILogCommand.SendPatchSessionRes,
             });
 
             logger.debug(`🟢 [${reqId}] Received response from CPO /sessions/:session_id in sendPatchSession`, { 

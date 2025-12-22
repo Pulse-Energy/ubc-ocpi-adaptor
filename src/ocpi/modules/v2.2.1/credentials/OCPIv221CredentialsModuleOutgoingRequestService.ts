@@ -36,6 +36,7 @@ export default class OCPIv221CredentialsModuleOutgoingRequestService {
         partnerId?: string,
         headers?: Record<string, string>,
     ): Promise<HttpResponse<OCPIResponsePayload<OCPICredentials>>> {
+        const reqId = headers?.['x-correlation-id'] || headers?.['X-Correlation-Id'] || headers?.['x-request-id'] || headers?.['X-Request-Id'] || `outgoing-${Date.now()}`;
         const credentials: OCPICredentials = {
             token,
             url,
@@ -55,7 +56,8 @@ export default class OCPIv221CredentialsModuleOutgoingRequestService {
             headers: requestHeaders,
             data: credentials,
             partnerId,
-            command: OCPILogCommand.SendPostCredentialsReq,
+            requestCommand: OCPILogCommand.SendPostCredentialsReq,
+            responseCommand: OCPILogCommand.SendPostCredentialsRes,
         });
 
         const payload = response as OCPIResponsePayload<OCPICredentials>;
@@ -78,6 +80,7 @@ export default class OCPIv221CredentialsModuleOutgoingRequestService {
         partnerId?: string,
         headers?: Record<string, string>,
     ): Promise<HttpResponse<OCPIResponsePayload<OCPICredentials>>> {
+        const reqId = headers?.['x-correlation-id'] || headers?.['X-Correlation-Id'] || headers?.['x-request-id'] || headers?.['X-Request-Id'] || `outgoing-${Date.now()}`;
         const requestHeaders: Record<string, string> = {
             Authorization: `Token ${cpoAuthToken}`,
             ...(headers?.['X-Correlation-Id'] && { 'X-Correlation-Id': headers['X-Correlation-Id'] }),
@@ -90,7 +93,8 @@ export default class OCPIv221CredentialsModuleOutgoingRequestService {
             url: cpoUrl,
             headers: requestHeaders,
             partnerId,
-            command: OCPILogCommand.SendGetCredentialsReq,
+            requestCommand: OCPILogCommand.SendGetCredentialsReq,
+            responseCommand: OCPILogCommand.SendGetCredentialsRes,
         });
 
         const payload = response.data as OCPIResponsePayload<OCPICredentials>;

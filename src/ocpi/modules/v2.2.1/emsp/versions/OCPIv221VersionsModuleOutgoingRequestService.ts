@@ -30,7 +30,7 @@ export default class OCPIv221VersionsModuleOutgoingRequestService {
         partnerId?: string,
         headers?: Record<string, string>,
     ): Promise<OCPIVersionClass[]> {
-        const reqId = `outgoing-${Date.now()}`;
+        const reqId = headers?.['x-correlation-id'] || headers?.['X-Correlation-Id'] || headers?.['x-request-id'] || headers?.['X-Request-Id'] || `outgoing-${Date.now()}`;
         const logData = { action: 'getVersions', partnerId, versionsUrl };
 
         try {
@@ -57,7 +57,8 @@ export default class OCPIv221VersionsModuleOutgoingRequestService {
                 url: versionsUrl,
                 headers: requestHeaders,
                 partnerId,
-                command: OCPILogCommand.SendGetVersionReq,
+                requestCommand: OCPILogCommand.SendGetVersionReq,
+                responseCommand: OCPILogCommand.SendGetVersionRes,
             });
 
             logger.debug(`🟢 [${reqId}] Received response from CPO /versions endpoint in getVersions`, { 
@@ -115,7 +116,7 @@ export default class OCPIv221VersionsModuleOutgoingRequestService {
         partnerId?: string,
         headers?: Record<string, string>,
     ): Promise<VersionDetailUnion> {
-        const reqId = `outgoing-${Date.now()}`;
+        const reqId = headers?.['x-correlation-id'] || headers?.['X-Correlation-Id'] || headers?.['x-request-id'] || headers?.['X-Request-Id'] || `outgoing-${Date.now()}`;
         const logData = { action: 'getVersionDetails', partnerId, versionUrl, fallbackVersionId };
 
         try {
@@ -142,7 +143,8 @@ export default class OCPIv221VersionsModuleOutgoingRequestService {
                 url: versionUrl,
                 headers: requestHeaders,
                 partnerId,
-                command: OCPILogCommand.SendGetVersionDetailsReq,
+                requestCommand: OCPILogCommand.SendGetVersionDetailsReq,
+                responseCommand: OCPILogCommand.SendGetVersionDetailsRes,
             });
 
             logger.debug(`🟢 [${reqId}] Received response from CPO version-details endpoint in getVersionDetails`, { 

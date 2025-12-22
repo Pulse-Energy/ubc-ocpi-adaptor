@@ -62,7 +62,8 @@ export default class OCPIv221CDRsModuleOutgoingRequestService {
             const response = await OCPIOutgoingRequestService.sendGetRequest({
                 url,
                 headers: OCPIv221CDRsModuleOutgoingRequestService.getAuthHeaders(),
-                command: OCPILogCommand.SendGetCdrsReq,
+                requestCommand: OCPILogCommand.SendGetCdrsReq,
+                responseCommand: OCPILogCommand.SendGetCdrsRes,
             });
 
             logger.debug(`🟢 [${reqId}] Received response from CPO /cdrs in sendGetCDRs`, { 
@@ -117,7 +118,8 @@ export default class OCPIv221CDRsModuleOutgoingRequestService {
             const response = await OCPIOutgoingRequestService.sendGetRequest({
                 url: path,
                 headers: OCPIv221CDRsModuleOutgoingRequestService.getAuthHeaders(),
-                command: OCPILogCommand.SendGetCdrReq,
+                requestCommand: OCPILogCommand.SendGetCdrReq,
+                responseCommand: OCPILogCommand.SendGetCdrRes,
             });
 
             logger.debug(`🟢 [${reqId}] Received response from CPO /cdrs/:cdr_id in sendGetCDR`, { 
@@ -172,7 +174,8 @@ export default class OCPIv221CDRsModuleOutgoingRequestService {
                 url: baseUrl,
                 headers: OCPIv221CDRsModuleOutgoingRequestService.getAuthHeaders(),
                 data: payload,
-                command: OCPILogCommand.SendPostCdrReq,
+                requestCommand: OCPILogCommand.SendPostCdrReq,
+                responseCommand: OCPILogCommand.SendPostCdrRes,
             });
 
             logger.debug(`🟢 [${reqId}] Received response from CPO /cdrs in sendPostCDR`, { 

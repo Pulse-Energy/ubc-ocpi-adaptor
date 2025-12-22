@@ -83,7 +83,8 @@ export default class OCPIv221TokensModuleOutgoingRequestService {
                 url,
                 headers: OCPIv221TokensModuleOutgoingRequestService.getAuthHeaders(cpoAuthToken, req.headers as Record<string, string>),
                 partnerId,
-                command: OCPILogCommand.SendGetTokensReq,
+                requestCommand: OCPILogCommand.SendGetTokensReq,
+                responseCommand: OCPILogCommand.SendGetTokensRes,
             });
 
             logger.debug(`🟢 [${reqId}] Received response from CPO /tokens in sendGetTokens`, { 
@@ -151,7 +152,8 @@ export default class OCPIv221TokensModuleOutgoingRequestService {
                 url,
                 headers: OCPIv221TokensModuleOutgoingRequestService.getAuthHeaders(cpoAuthToken, req.headers as Record<string, string>),
                 partnerId,
-                command: OCPILogCommand.SendGetTokenReq,
+                requestCommand: OCPILogCommand.SendGetTokenReq,
+                responseCommand: OCPILogCommand.SendGetTokenRes,
             });
 
             logger.debug(`🟢 [${reqId}] Received response from CPO /tokens/:token_uid in sendGetToken`, { 
@@ -222,7 +224,8 @@ export default class OCPIv221TokensModuleOutgoingRequestService {
                 headers: OCPIv221TokensModuleOutgoingRequestService.getAuthHeaders(cpoAuthToken, req.headers as Record<string, string>),
                 data: token,
                 partnerId,
-                command: OCPILogCommand.SendPutTokenReq,
+                requestCommand: OCPILogCommand.SendPutTokenReq,
+                responseCommand: OCPILogCommand.SendPutTokenRes,
             });
 
             logger.debug(`🟢 [${reqId}] Received response from CPO /tokens/:token_uid in sendPutToken`, { 
@@ -260,7 +263,7 @@ export default class OCPIv221TokensModuleOutgoingRequestService {
         partnerId: string,
         headers?: Record<string, string>,
     ): Promise<HttpResponse<OCPIResponsePayload<OCPIToken>>> {
-        const reqId = `outgoing-${Date.now()}`;
+        const reqId = headers?.['x-correlation-id'] || headers?.['X-Correlation-Id'] || headers?.['x-request-id'] || headers?.['X-Request-Id'] || `outgoing-${Date.now()}`;
         const logData = { action: 'sendPutTokenDirect', partnerId };
 
         try {
@@ -280,7 +283,8 @@ export default class OCPIv221TokensModuleOutgoingRequestService {
                 headers: OCPIv221TokensModuleOutgoingRequestService.getAuthHeaders(cpoAuthToken, headers),
                 data: token,
                 partnerId,
-                command: OCPILogCommand.SendPutTokenDirectReq,
+                requestCommand: OCPILogCommand.SendPutTokenDirectReq,
+                responseCommand: OCPILogCommand.SendPutTokenDirectRes,
             });
 
             logger.debug(`🟢 [${reqId}] Received response from CPO /tokens/:token_uid (direct) in sendPutTokenDirect`, { 
@@ -351,7 +355,8 @@ export default class OCPIv221TokensModuleOutgoingRequestService {
                 headers: OCPIv221TokensModuleOutgoingRequestService.getAuthHeaders(cpoAuthToken),
                 data: patch,
                 partnerId,
-                command: OCPILogCommand.SendPatchTokenReq,
+                requestCommand: OCPILogCommand.SendPatchTokenReq,
+                responseCommand: OCPILogCommand.SendPatchTokenRes,
             });
 
             logger.debug(`🟢 [${reqId}] Received response from CPO /tokens/:token_uid in sendPatchToken`, { 
@@ -422,7 +427,8 @@ export default class OCPIv221TokensModuleOutgoingRequestService {
                 headers: OCPIv221TokensModuleOutgoingRequestService.getAuthHeaders(cpoAuthToken),
                 data: location,
                 partnerId,
-                command: OCPILogCommand.SendPostAuthorizeTokenReq,
+                requestCommand: OCPILogCommand.SendPostAuthorizeTokenReq,
+                responseCommand: OCPILogCommand.SendPostAuthorizeTokenRes,
             });
 
             logger.debug(`🟢 [${reqId}] Received response from CPO /tokens/:token_uid/authorize in sendPostAuthorizeToken`, { 
