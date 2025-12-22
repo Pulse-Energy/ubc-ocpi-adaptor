@@ -234,6 +234,7 @@ model Session {
   partner_id                        String?
   partner                           OCPIPartner? @relation(fields: [partner_id], references: [id], onDelete: Cascade)
   requested_energy_units            Decimal?     @db.Decimal(10, 3)
+  buyer_info                        Json? // OCPIBusinessDetailsClass
 
   // Log relations (named to avoid ambiguity)
   ocpi_logs_session                 OCPILog[]    @relation("OCPILogSession")
