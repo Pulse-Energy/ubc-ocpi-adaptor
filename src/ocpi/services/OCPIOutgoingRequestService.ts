@@ -53,6 +53,27 @@ export default class OCPIOutgoingRequestService {
         return authorizationHeader;
     }
 
+    /**
+     * Converts a request command to a response command by replacing "Req" with "Res"
+     * @param command The request command (e.g., SendGetLocationReq) - can be undefined
+     * @returns The corresponding response command (e.g., SendGetLocationRes) or undefined
+     */
+    private static getResponseCommand(command?: OCPILogCommand): OCPILogCommand | undefined {
+        if (!command) {
+            return undefined;
+        }
+        const commandString = command.toString();
+        if (commandString.endsWith('Req')) {
+            const responseCommandString = commandString.replace(/Req$/, 'Res');
+            // Try to find the corresponding Res command in the enum
+            const responseCommand = Object.values(OCPILogCommand).find(
+                (cmd) => cmd.toString() === responseCommandString
+            );
+            return responseCommand || command; // Fallback to original if not found
+        }
+        return command; // Return as-is if it doesn't end with Req
+    }
+
     static async sendGetRequest(requestConfig: OutgoingGetRequestConfig): Promise<any> {
         const {
             url,
@@ -109,6 +130,7 @@ export default class OCPIOutgoingRequestService {
                 });
 
                 // Log incoming response (CPO → EMSP) - Individual log entry (non-blocking)
+                const responseCommand = OCPIOutgoingRequestService.getResponseCommand(command);
                 OCPIRequestLogService.logOutgoingResponse({
                     url,
                     method: 'GET',
@@ -116,7 +138,7 @@ export default class OCPIOutgoingRequestService {
                     responseBody: response.data ?? response,
                     statusCode: response.status,
                     partnerId,
-                    command,
+                    command: responseCommand,
                     ...requestConfig.logParams,
                 }).catch((error) => {
                     // Logging errors should never affect the request flow
@@ -141,6 +163,7 @@ export default class OCPIOutgoingRequestService {
                 });
 
                 // Log error response - Individual log entry (non-blocking)
+                const responseCommand = OCPIOutgoingRequestService.getResponseCommand(command);
                 OCPIRequestLogService.logOutgoingResponse({
                     url,
                     method: 'GET',
@@ -148,7 +171,7 @@ export default class OCPIOutgoingRequestService {
                     error: e.response?.data || e.message || e,
                     statusCode: e.response?.status,
                     partnerId,
-                    command,
+                    command: responseCommand,
                     ...requestConfig.logParams,
                 }).catch((error) => {
                     // Logging errors should never affect the request flow
@@ -220,6 +243,7 @@ export default class OCPIOutgoingRequestService {
                 });
 
                 // Log incoming response (CPO → EMSP) - Individual log entry (non-blocking)
+                const responseCommand = OCPIOutgoingRequestService.getResponseCommand(command);
                 OCPIRequestLogService.logOutgoingResponse({
                     url,
                     method: 'POST',
@@ -227,7 +251,7 @@ export default class OCPIOutgoingRequestService {
                     responseBody: response.data ?? response,
                     statusCode: response.status,
                     partnerId,
-                    command,
+                    command: responseCommand,
                     ...requestConfig.logParams,
                 }).catch((error) => {
                     // Logging errors should never affect the request flow
@@ -253,6 +277,7 @@ export default class OCPIOutgoingRequestService {
                 });
 
                 // Log error response - Individual log entry (non-blocking)
+                const responseCommand = OCPIOutgoingRequestService.getResponseCommand(command);
                 OCPIRequestLogService.logOutgoingResponse({
                     url,
                     method: 'POST',
@@ -260,7 +285,7 @@ export default class OCPIOutgoingRequestService {
                     error: e.response?.data || e.message || e,
                     statusCode: e.response?.status,
                     partnerId,
-                    command,
+                    command: responseCommand,
                     ...requestConfig.logParams,
                 }).catch((error) => {
                     // Logging errors should never affect the request flow

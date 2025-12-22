@@ -20,34 +20,51 @@ export default class OCPIv221TariffsModuleOutgoingRequestService {
         cpoAuthToken: string | undefined,
         partnerId?: string,
     ): Promise<HttpResponse<OCPITariffsResponse>> {
-        const baseUrl = await Utils.getOcpiEndpoint('tariffs', 'SENDER', partnerId);
-
-        const limit = req.query.limit ? Number(req.query.limit) : undefined;
-        const offset = req.query.offset ? Number(req.query.offset) : undefined;
-        const dateFrom = req.query.date_from as string | undefined;
-        const dateTo = req.query.date_to as string | undefined;
-        const countryCode = req.query.country_code as string | undefined;
-        const partyId = req.query.party_id as string | undefined;
-
-        const url = OCPIv221TariffsModuleOutgoingRequestService.appendQueryParams(
-            baseUrl,
-            { limit, offset, dateFrom, dateTo, countryCode, partyId }
-        );
+        const reqId = req.headers['x-correlation-id'] as string || req.headers['x-request-id'] as string || 'unknown';
+        const logData = { action: 'GET /tariffs (outgoing)', partnerId };
+        let url = '';
 
         try {
+            logger.debug(`🟡 [${reqId}] Starting GET /tariffs (outgoing) in sendGetTariffs`, { data: logData });
+
+            logger.debug(`🟡 [${reqId}] Getting OCPI endpoint URL in sendGetTariffs`, { data: logData });
+            const baseUrl = await Utils.getOcpiEndpoint('tariffs', 'SENDER', partnerId);
+
+            logger.debug(`🟡 [${reqId}] Parsing query parameters in sendGetTariffs`, { 
+                data: { logData, query: req.query } 
+            });
+            const limit = req.query.limit ? Number(req.query.limit) : undefined;
+            const offset = req.query.offset ? Number(req.query.offset) : undefined;
+            const dateFrom = req.query.date_from as string | undefined;
+            const dateTo = req.query.date_to as string | undefined;
+            const countryCode = req.query.country_code as string | undefined;
+            const partyId = req.query.party_id as string | undefined;
+
+            logger.debug(`🟡 [${reqId}] Building URL with query params in sendGetTariffs`, { 
+                data: { logData, params: { limit, offset, dateFrom, dateTo, countryCode, partyId } } 
+            });
+            url = OCPIv221TariffsModuleOutgoingRequestService.appendQueryParams(
+                baseUrl,
+                { limit, offset, dateFrom, dateTo, countryCode, partyId }
+            );
 
             if (!cpoAuthToken) {
+                logger.warn(`🟡 [${reqId}] CPO auth token missing in sendGetTariffs`, { data: logData });
                 return OCPIResponseService.clientError<unknown>({
                     message: 'CPO auth token is required',
                 }) as HttpResponse<OCPITariffsResponse>;
             }
 
             if (!partnerId) {
+                logger.warn(`🟡 [${reqId}] Partner ID missing in sendGetTariffs`, { data: logData });
                 return OCPIResponseService.clientError<unknown>({
                     message: 'Partner ID is required',
                 }) as HttpResponse<OCPITariffsResponse>;
             }
 
+            logger.debug(`🟡 [${reqId}] Sending GET request to CPO in sendGetTariffs`, { 
+                data: { logData, url } 
+            });
             const response = await OCPIOutgoingRequestService.sendGetRequest({
                 url,
                 headers: {
@@ -61,23 +78,24 @@ export default class OCPIv221TariffsModuleOutgoingRequestService {
             });
 
             // Log response for debugging
-            logger.info('CPO tariffs response received', {
-                url,
-                status: response?.status,
-                hasData: !!response?.data,
-                dataType: typeof response?.data,
-                isArray: Array.isArray(response?.data),
+            logger.debug(`🟢 [${reqId}] Received response from CPO in sendGetTariffs`, {
+                data: { logData, url, status: response?.status, hasData: !!response?.data, dataType: typeof response?.data, isArray: Array.isArray(response?.data) },
             });
 
+            logger.debug(`🟡 [${reqId}] Processing response data in sendGetTariffs`, { data: logData });
             // Handle axios response structure - axios returns { data, status, headers, ... }
             const responseData = response?.data;
             let payload: OCPITariffsResponse;
 
             // Check if response is already in OCPI format
             if (responseData && typeof responseData === 'object' && 'data' in responseData) {
+                logger.debug(`🟡 [${reqId}] Response is in OCPI format in sendGetTariffs`, { data: logData });
                 payload = responseData as OCPITariffsResponse;
             }
             else if (Array.isArray(responseData)) {
+                logger.debug(`🟡 [${reqId}] Response is array, wrapping in OCPI format in sendGetTariffs`, { 
+                    data: { logData, arrayLength: responseData.length } 
+                });
                 // If response is directly an array, wrap it in OCPI format
                 payload = {
                     data: responseData,
@@ -86,6 +104,7 @@ export default class OCPIv221TariffsModuleOutgoingRequestService {
                 };
             }
             else if (!responseData) {
+                logger.debug(`🟡 [${reqId}] Empty response, returning empty array in sendGetTariffs`, { data: logData });
                 // Empty response - return empty array
                 payload = {
                     data: [],
@@ -94,10 +113,8 @@ export default class OCPIv221TariffsModuleOutgoingRequestService {
                 };
             }
             else {
-                logger.error('Unexpected response format from CPO', new Error('Invalid response format'), {
-                    responseData,
-                    url,
-                    responseDataType: typeof responseData,
+                logger.error(`🔴 [${reqId}] Unexpected response format from CPO in sendGetTariffs`, new Error('Invalid response format'), {
+                    data: { logData, responseData, url, responseDataType: typeof responseData },
                 });
                 return OCPIResponseService.clientError<unknown>({
                     message: 'Invalid response format from CPO tariffs endpoint',
@@ -107,6 +124,7 @@ export default class OCPIv221TariffsModuleOutgoingRequestService {
 
             // Validate payload structure
             if (!payload || !payload.data) {
+                logger.debug(`🟡 [${reqId}] Payload data missing, using empty array in sendGetTariffs`, { data: logData });
                 // Empty array is valid - no tariffs available
                 payload = {
                     data: [],
@@ -116,9 +134,8 @@ export default class OCPIv221TariffsModuleOutgoingRequestService {
             }
 
             if (!Array.isArray(payload.data)) {
-                logger.error('Payload data is not an array', new Error('Invalid payload structure'), {
-                    payload,
-                    url,
+                logger.error(`🔴 [${reqId}] Payload data is not an array in sendGetTariffs`, new Error('Invalid payload structure'), {
+                    data: { logData, payload, url },
                 });
                 return OCPIResponseService.clientError<unknown>({
                     message: 'Invalid response format from CPO tariffs endpoint',
@@ -126,6 +143,7 @@ export default class OCPIv221TariffsModuleOutgoingRequestService {
                 }) as HttpResponse<OCPITariffsResponse>;
             }
 
+            logger.debug(`🟡 [${reqId}] Persisting ${payload.data.length} tariffs to DB in sendGetTariffs`, { data: logData });
             // Persist all tariffs into DB
             let storedCount = 0;
             for (const ocpiTariff of payload.data) {
@@ -134,21 +152,18 @@ export default class OCPIv221TariffsModuleOutgoingRequestService {
                     storedCount++;
                 }
                 catch (error) {
-                    logger.error('Error storing tariff from CPO', error as Error, {
-                        tariffId: ocpiTariff?.id,
-                        countryCode: ocpiTariff?.country_code,
-                        partyId: ocpiTariff?.party_id,
+                    logger.error(`🔴 [${reqId}] Error storing tariff from CPO in sendGetTariffs`, error as Error, {
+                        data: { logData, tariffId: ocpiTariff?.id, countryCode: ocpiTariff?.country_code, partyId: ocpiTariff?.party_id },
                     });
                     // Continue processing other tariffs even if one fails
                 }
             }
 
-            logger.info('Tariffs fetched and stored from CPO', {
-                fetched: payload.data.length,
-                stored: storedCount,
-                url,
+            logger.debug(`🟢 [${reqId}] Tariffs fetched and stored from CPO in sendGetTariffs`, {
+                data: { logData, fetched: payload.data.length, stored: storedCount, url },
             });
 
+            logger.debug(`🟡 [${reqId}] Checking for pagination link header in sendGetTariffs`, { data: logData });
             // Handle pagination - follow Link header if present
             const linkHeader = response.headers?.['link'] || response.headers?.['Link'];
             if (linkHeader && typeof linkHeader === 'string') {
@@ -156,9 +171,15 @@ export default class OCPIv221TariffsModuleOutgoingRequestService {
                 const nextMatch = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
                 if (nextMatch && nextMatch[1]) {
                     // Could implement recursive fetching here if needed
-                    logger.info('More tariffs available via pagination', { nextLink: nextMatch[1] });
+                    logger.debug(`🟡 [${reqId}] More tariffs available via pagination in sendGetTariffs`, { 
+                        data: { logData, nextLink: nextMatch[1] } 
+                    });
                 }
             }
+
+            logger.debug(`🟢 [${reqId}] Returning GET /tariffs (outgoing) response in sendGetTariffs`, { 
+                data: { logData, httpStatus: 200, tariffsCount: payload.data.length } 
+            });
 
             return {
                 httpStatus: 200,
@@ -180,10 +201,8 @@ export default class OCPIv221TariffsModuleOutgoingRequestService {
                 errorDetails = axiosError.response.data;
                 errorMessage = `HTTP ${httpStatus} from CPO endpoint`;
 
-                logger.error('CPO returned error response', new Error(errorMessage), {
-                    url,
-                    httpStatus,
-                    responseData: axiosError.response.data,
+                logger.error(`🔴 [${reqId}] CPO returned error response in sendGetTariffs`, new Error(errorMessage), {
+                    data: { logData, url, httpStatus, responseData: axiosError.response.data },
                 });
 
                 // If CPO returned an OCPI error response, pass it through

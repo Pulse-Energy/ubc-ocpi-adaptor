@@ -21,6 +21,8 @@ import AdminTokensModule from './AdminTokensModule';
 import { OCPIToken } from '../../ocpi/schema/modules/tokens/types';
 import { OCPIPartnerEndpointDbService } from '../../db-services/OCPIPartnerEndpointDbService';
 import { OCPIVersionNumber } from '../../ocpi/schema/modules/verisons/enums';
+import { Logger } from 'winston';
+import { logger } from '../../services/logger.service';
 
 export default class AdminCredentialsModule {
     /**
@@ -65,7 +67,7 @@ export default class AdminCredentialsModule {
 
         // fetch from ocpi partner endpoints table
         const cpoCredentialsUrl = await databaseService.prisma.oCPIPartnerEndpoint.findFirst({
-            where: { partner_id: partner.id, module: 'credentials', role: 'SENDER' },
+            where: { partner_id: partner.id, module: 'credentials', role: 'RECEIVER' },
             select: { url: true },
         });
 
@@ -82,10 +84,20 @@ export default class AdminCredentialsModule {
             partner.id,
         );
 
-        await databaseService.prisma.oCPIPartnerCredentials.update({
-            where: { partner_id: partner.id },
-            data: { cpo_auth_token: response.payload.data?.token },
-        });
+        logger.debug('🟡 [AdminCredentialsModule] sendPostCredentials response', { response });
+
+        if (response.payload.data?.token) {
+            logger.debug('🟡 [AdminCredentialsModule] updating CPO partner credentials', { data: { partner_id: partner.id, cpo_auth_token: response.payload.data?.token } });
+            await databaseService.prisma.oCPIPartnerCredentials.update({
+                where: { partner_id: partner.id },
+                data: { cpo_auth_token: response.payload.data?.token },
+            });
+
+            await databaseService.prisma.oCPIPartner.update({
+                where: { id: partner.id },
+                data: { status: 'ACTIVE' },
+            });
+        }        
 
         return {
             httpStatus: response.httpStatus,
@@ -172,8 +184,9 @@ export default class AdminCredentialsModule {
                 throw new ValidationError('OCPI credentials payload is required');
             }
     
-            const { cpo_auth_token: cpoAuthToken, cpo_versions_url: cpoVersionsUrl, cpo_party_id: cpoPartyId, cpo_country_code: cpoCountryCode, cpo_name: cpoName, cpo_token: cpoToken, emsp_auth_token: emspAuthToken, emsp_ocpi_host: emspOcpiHost, emsp_party_id: emspPartyId = "EMSP", emsp_country_code: emspCountryCode = "IN", emsp_name: emspName = "EMSP PARTNER" } = payload;
-    
+            const { cpo_auth_token: cpoAuthToken, cpo_versions_url: cpoVersionsUrl, cpo_party_id: cpoPartyId, cpo_country_code: cpoCountryCode, cpo_name: cpoName, emsp_ocpi_host: emspOcpiHost, emsp_party_id: emspPartyId = "EMSP", emsp_country_code: emspCountryCode = "IN", emsp_name: emspName = "EMSP PARTNER"} = payload;
+            let { emsp_auth_token: emspAuthToken } = payload;
+
             if (!cpoAuthToken) {
                 throw new ValidationError('cpo_auth_token is required');
             }
@@ -189,11 +202,6 @@ export default class AdminCredentialsModule {
             if (!cpoName) {
                 throw new ValidationError('cpo_name is required');
             }
-
-            if (!cpoToken) {
-                throw new ValidationError('cpo_token is required');
-            }
-    
     
             // 1) Upsert OCPIPartner (by country_code + party_id + role = CPO)
             let partner = await OCPIPartnerDbService.getFirstByFilter({
@@ -235,7 +243,7 @@ export default class AdminCredentialsModule {
     
             if (!emspPartner) {
                 if (!emspAuthToken) {
-                    throw new ValidationError('emsp_auth_token is required for first time registration');
+                    emspAuthToken = randomUUID();
                 }
                 if (!emspName) {
                     throw new ValidationError('emsp_name is required for first time registration');
@@ -265,7 +273,7 @@ export default class AdminCredentialsModule {
                 const emspVersionCreateFields: Prisma.OCPIVersionCreateInput = {
                     partner: { connect: { id: emspPartner?.id || '' } },
                     version_id: OCPIVersionNumber.v2_2_1,
-                    version_url: `${emspOcpiHost}/ocpi/${OCPIVersionNumber.v2_2_1}/details`,
+                    version_url: `${emspOcpiHost}/ocpi/versions/${OCPIVersionNumber.v2_2_1}/details`,
                 };
 
                 await databaseService.prisma.oCPIVersion.create({ data: emspVersionCreateFields });
@@ -338,53 +346,10 @@ export default class AdminCredentialsModule {
                 throw new ValidationError('Failed to fetch version details from the CPO');
             }
 
-            // create credentials for the EMSP
-            const emspCredentials: OCPICredentials & { partner_id: string } = {
-                partner_id: partner.id,
-                token: credentials.emsp_auth_token || '', 
-                url: credentials.emsp_url || '',
-                roles: [
-                    {
-                        country_code: emspPartner.country_code as CountryCode,
-                        party_id: emspPartner.party_id as string,
-                        role: emspPartner.role as OCPIRole,
-                        business_details: {
-                            name: emspName,
-                        }
-                    },
-                ],
-            };
-
-            const errors: any[] = [];
-
-            try {
-                // Hit the admin credentials Post endpoint to create the credentials for the EMSP
-                const emspCredentialsResponse = await AdminCredentialsModule.sendPostCredentials({
-                    body: emspCredentials,
-                } as Request);
-
-                if (emspCredentialsResponse.httpStatus !== 200) {
-                    throw new ValidationError('Failed to create credentials for the EMSP');
-                }
-
-                // update CPO partner to active status
-                await OCPIPartnerDbService.update(partner.id, { status: 'ACTIVE' });
-            }
-            catch(error) {
-                errors.push(error as string);
-            }
-
-            // create a token for the EMSP
-            const cpoTokenResponse = await AdminTokensModule.upsertTokenAndSyncWithCPO({
-                body: {
-                    partner_id: partner.id,
-                    ...cpoToken,
-                },
-            } as Request);
-
-            if (cpoTokenResponse.httpStatus !== 200) {
-                throw new ValidationError('Failed to create token for the EMSP');
-            }
+            const emspEndpoints = await databaseService.prisma.oCPIPartnerEndpoint.findMany({
+                where: { partner_id: emspPartner.id },
+                select: { module: true, role: true, url: true },
+            });
 
             return OCPIResponseService.success({
                 data: {
@@ -392,11 +357,9 @@ export default class AdminCredentialsModule {
                     cpo_credentials: credentials,
                     cpo_version_details: cpoVersionDetails.payload.data as unknown as OCPIVersionDetailResponse,
                     cpo_versions: cpoVersions.payload.data as unknown as OCPIVersionClass[],
-                    cpo_token: cpoTokenResponse.payload.data as unknown as OCPIToken,
                     emsp_partner: emspPartner,
-                    emsp_credentials: emspCredentials,
-                    emsp_version_details: cpoVersionDetails.payload.data as unknown as OCPIVersionDetailResponse,
-                    emsp_versions: cpoVersions.payload.data as unknown as OCPIVersionClass[],
+                    emsp_endpoints: emspEndpoints,
+                    emsp_versions_url: credentials.emsp_url,
                 },
                 status_code: OCPIResponseStatusCode.status_1000,
                 timestamp: new Date().toISOString(),

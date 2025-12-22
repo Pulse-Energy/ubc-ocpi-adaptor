@@ -30,11 +30,18 @@ class LoggerService {
                 name: error.name,
             };
         }
+        else {
+            // Add call stack for error logs even when no error object is provided
+            allMeta.callstack = new Error().stack;
+        }
         this.logger.error(message, allMeta);
     }
 
     warn(message: string, meta?: Record<string, any>): void {
-        this.logger.warn(message, { ...this.getMeta(), ...meta });
+        const allMeta = { ...this.getMeta(), ...meta };
+        // Add call stack for warning logs
+        allMeta.callstack = new Error().stack;
+        this.logger.warn(message, allMeta);
     }
 
     info(message: string, meta?: Record<string, any>): void {

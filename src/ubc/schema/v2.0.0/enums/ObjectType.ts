@@ -14,4 +14,6 @@ export enum ObjectType {
     chargingOffer = "ChargingOffer",
     chargingSession = "ChargingSession",
     timePeriod = "beckn:TimePeriod",
-};
+    catalog = "beckn:Catalog",
+    rating = "beckn:Rating",
+}

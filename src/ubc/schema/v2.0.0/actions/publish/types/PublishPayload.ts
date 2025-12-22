@@ -4,8 +4,6 @@ import { Context } from "../../../types/Context";
 
 export type UBCPublishRequestPayload = {
     context: Context;
-    message: {
-        catalogs: BecknCatalog[];
-    };
+    catalogs: BecknCatalog[];
 };
 
