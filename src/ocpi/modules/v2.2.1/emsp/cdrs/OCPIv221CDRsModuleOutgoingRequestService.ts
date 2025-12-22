@@ -6,6 +6,7 @@ import OCPIOutgoingRequestService from '../../../../services/OCPIOutgoingRequest
 import Utils from '../../../../../utils/Utils';
 import { OCPIResponsePayload } from '../../../../schema/general/types/responses';
 import { OCPILogCommand } from '../../../../types';
+import { logger } from '../../../../../services/logger.service';
 
 /**
  * OCPI 2.2.1 – CDRs module (outgoing, EMSP → CPO).
@@ -33,30 +34,60 @@ export default class OCPIv221CDRsModuleOutgoingRequestService {
     public static async sendGetCDRs(
         req: Request,
     ): Promise<HttpResponse<OCPICDRsResponse>> {
-        const baseUrl = await OCPIv221CDRsModuleOutgoingRequestService.getCpoCdrsBaseUrl();
+        const reqId = req.headers['x-correlation-id'] as string || req.headers['x-request-id'] as string || `outgoing-${Date.now()}`;
+        const logData = { action: 'sendGetCDRs' };
 
-        const params = new globalThis.URLSearchParams();
-        if (req.query.offset) params.append('offset', String(req.query.offset));
-        if (req.query.limit) params.append('limit', String(req.query.limit));
-        if (req.query.date_from) params.append('date_from', String(req.query.date_from));
-        if (req.query.date_to) params.append('date_to', String(req.query.date_to));
-        if (req.query.country_code) params.append('country_code', String(req.query.country_code));
-        if (req.query.party_id) params.append('party_id', String(req.query.party_id));
+        try {
+            logger.debug(`🟡 [${reqId}] Starting sendGetCDRs in OCPIv221CDRsModuleOutgoingRequestService`, { data: logData });
 
-        const url = params.toString() ? `${baseUrl}?${params.toString()}` : baseUrl;
+            logger.debug(`🟡 [${reqId}] Getting CPO CDRs base URL in sendGetCDRs`, { data: logData });
+            const baseUrl = await OCPIv221CDRsModuleOutgoingRequestService.getCpoCdrsBaseUrl();
 
-        const response = await OCPIOutgoingRequestService.sendGetRequest({
-            url,
-            headers: OCPIv221CDRsModuleOutgoingRequestService.getAuthHeaders(),
-            command: OCPILogCommand.SendGetCdrsReq,
-        });
+            logger.debug(`🟡 [${reqId}] Building query parameters in sendGetCDRs`, { 
+                data: { ...logData, query: req.query } 
+            });
+            const params = new globalThis.URLSearchParams();
+            if (req.query.offset) params.append('offset', String(req.query.offset));
+            if (req.query.limit) params.append('limit', String(req.query.limit));
+            if (req.query.date_from) params.append('date_from', String(req.query.date_from));
+            if (req.query.date_to) params.append('date_to', String(req.query.date_to));
+            if (req.query.country_code) params.append('country_code', String(req.query.country_code));
+            if (req.query.party_id) params.append('party_id', String(req.query.party_id));
 
-        const payload = response.data as OCPICDRsResponse;
+            const url = params.toString() ? `${baseUrl}?${params.toString()}` : baseUrl;
 
-        return {
-            httpStatus: 200,
-            payload,
-        };
+            logger.debug(`🟡 [${reqId}] Sending GET request to CPO /cdrs in sendGetCDRs`, { 
+                data: { ...logData, url } 
+            });
+            const response = await OCPIOutgoingRequestService.sendGetRequest({
+                url,
+                headers: OCPIv221CDRsModuleOutgoingRequestService.getAuthHeaders(),
+                command: OCPILogCommand.SendGetCdrsReq,
+            });
+
+            logger.debug(`🟢 [${reqId}] Received response from CPO /cdrs in sendGetCDRs`, { 
+                data: { ...logData, hasData: !!response.data } 
+            });
+            const payload = response.data as OCPICDRsResponse;
+
+            logger.debug(`🟢 [${reqId}] Returning sendGetCDRs response`, { 
+                data: { ...logData, payload } 
+            });
+
+            return {
+                httpStatus: 200,
+                payload,
+            };
+        }
+        catch (e: any) {
+            logger.error(`🔴 [${reqId}] Error in sendGetCDRs: ${e?.toString()}`, e, {
+                data: {
+                    ...logData,
+                    error: e,
+                },
+            });
+            throw e;
+        }
     }
 
     /**
@@ -65,23 +96,53 @@ export default class OCPIv221CDRsModuleOutgoingRequestService {
     public static async sendGetCDR(
         req: Request,
     ): Promise<HttpResponse<OCPICDRResponse>> {
-        const baseUrl = await OCPIv221CDRsModuleOutgoingRequestService.getCpoCdrsBaseUrl();
-        const { cdr_id } = req.params as { cdr_id: string };
+        const reqId = req.headers['x-correlation-id'] as string || req.headers['x-request-id'] as string || `outgoing-${Date.now()}`;
+        const logData = { action: 'sendGetCDR' };
 
-        const path = `${baseUrl}/${cdr_id}`;
+        try {
+            logger.debug(`🟡 [${reqId}] Starting sendGetCDR in OCPIv221CDRsModuleOutgoingRequestService`, { data: logData });
 
-        const response = await OCPIOutgoingRequestService.sendGetRequest({
-            url: path,
-            headers: OCPIv221CDRsModuleOutgoingRequestService.getAuthHeaders(),
-            command: OCPILogCommand.SendGetCdrReq,
-        });
+            logger.debug(`🟡 [${reqId}] Getting CPO CDRs base URL in sendGetCDR`, { data: logData });
+            const baseUrl = await OCPIv221CDRsModuleOutgoingRequestService.getCpoCdrsBaseUrl();
+            const { cdr_id } = req.params as { cdr_id: string };
 
-        const payload = response.data as OCPICDRResponse;
+            logger.debug(`🟡 [${reqId}] Building URL path in sendGetCDR`, { 
+                data: { ...logData, cdr_id } 
+            });
+            const path = `${baseUrl}/${cdr_id}`;
 
-        return {
-            httpStatus: 200,
-            payload,
-        };
+            logger.debug(`🟡 [${reqId}] Sending GET request to CPO /cdrs/:cdr_id in sendGetCDR`, { 
+                data: { ...logData, url: path } 
+            });
+            const response = await OCPIOutgoingRequestService.sendGetRequest({
+                url: path,
+                headers: OCPIv221CDRsModuleOutgoingRequestService.getAuthHeaders(),
+                command: OCPILogCommand.SendGetCdrReq,
+            });
+
+            logger.debug(`🟢 [${reqId}] Received response from CPO /cdrs/:cdr_id in sendGetCDR`, { 
+                data: { ...logData, hasData: !!response.data } 
+            });
+            const payload = response.data as OCPICDRResponse;
+
+            logger.debug(`🟢 [${reqId}] Returning sendGetCDR response`, { 
+                data: { ...logData, payload } 
+            });
+
+            return {
+                httpStatus: 200,
+                payload,
+            };
+        }
+        catch (e: any) {
+            logger.error(`🔴 [${reqId}] Error in sendGetCDR: ${e?.toString()}`, e, {
+                data: {
+                    ...logData,
+                    error: e,
+                },
+            });
+            throw e;
+        }
     }
 
     /**
@@ -90,21 +151,52 @@ export default class OCPIv221CDRsModuleOutgoingRequestService {
     public static async sendPostCDR(
         req: Request,
     ): Promise<HttpResponse<OCPICDRResponse>> {
-        const baseUrl = await OCPIv221CDRsModuleOutgoingRequestService.getCpoCdrsBaseUrl();
-        const payload = req.body as OCPICDR;
+        const reqId = req.headers['x-correlation-id'] as string || req.headers['x-request-id'] as string || `outgoing-${Date.now()}`;
+        const logData = { action: 'sendPostCDR' };
 
-        const response = await OCPIOutgoingRequestService.sendPostRequest({
-            url: baseUrl,
-            headers: OCPIv221CDRsModuleOutgoingRequestService.getAuthHeaders(),
-            data: payload,
-            command: OCPILogCommand.SendPostCdrReq,
-        });
+        try {
+            logger.debug(`🟡 [${reqId}] Starting sendPostCDR in OCPIv221CDRsModuleOutgoingRequestService`, { data: logData });
 
-        const payloadOut = response as OCPIResponsePayload<OCPICDR>;
+            logger.debug(`🟡 [${reqId}] Getting CPO CDRs base URL in sendPostCDR`, { data: logData });
+            const baseUrl = await OCPIv221CDRsModuleOutgoingRequestService.getCpoCdrsBaseUrl();
+            const payload = req.body as OCPICDR;
 
-        return {
-            httpStatus: 200,
-            payload: payloadOut,
-        };
+            logger.debug(`🟡 [${reqId}] Parsing POST CDR payload in sendPostCDR`, { 
+                data: { ...logData, payload } 
+            });
+
+            logger.debug(`🟡 [${reqId}] Sending POST request to CPO /cdrs in sendPostCDR`, { 
+                data: { ...logData, url: baseUrl } 
+            });
+            const response = await OCPIOutgoingRequestService.sendPostRequest({
+                url: baseUrl,
+                headers: OCPIv221CDRsModuleOutgoingRequestService.getAuthHeaders(),
+                data: payload,
+                command: OCPILogCommand.SendPostCdrReq,
+            });
+
+            logger.debug(`🟢 [${reqId}] Received response from CPO /cdrs in sendPostCDR`, { 
+                data: { ...logData, hasData: !!response } 
+            });
+            const payloadOut = response as OCPIResponsePayload<OCPICDR>;
+
+            logger.debug(`🟢 [${reqId}] Returning sendPostCDR response`, { 
+                data: { ...logData, payload: payloadOut } 
+            });
+
+            return {
+                httpStatus: 200,
+                payload: payloadOut,
+            };
+        }
+        catch (e: any) {
+            logger.error(`🔴 [${reqId}] Error in sendPostCDR: ${e?.toString()}`, e, {
+                data: {
+                    ...logData,
+                    error: e,
+                },
+            });
+            throw e;
+        }
     }
 }

@@ -30,56 +30,121 @@ export default class OCPIv221CommandsModuleIncomingRequestService {
         res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPICommandResponseResponse>> {
-        // Log incoming request (non-blocking)
-        OCPIRequestLogService.logIncomingRequest({
-            req,
-            partnerId: partnerCredentials.partner_id,
-            command: OCPILogCommand.PostCommandResultReq,
-        });
+        const reqId = req.headers['x-correlation-id'] as string || req.headers['x-request-id'] as string || 'unknown';
+        const logData = { action: 'POST /commands/:command_type/:command_id', partnerId: partnerCredentials.partner_id };
 
-        const { command_type, command_id } = req.params as {
-            command_type?: string;
-            command_id?: string;
-        };
-        
+        try {
+            logger.debug(`🟡 [${reqId}] Starting POST /commands/:command_type/:command_id in handlePostCommand`, { data: logData });
 
-        const result = req.body as OCPICommandResult | undefined;
+            // Log incoming request (non-blocking)
+            OCPIRequestLogService.logIncomingRequest({
+                req,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.PostCommandResultReq,
+            });
 
-        logger.info('Received OCPI command result from CPO', {
-            command_type,
-            command_id,
-            result,
-        });
+            const { command_type, command_id } = req.params as {
+                command_type?: string;
+                command_id?: string;
+            };
+            
 
-        let status = OCPISessionStatus.ACTIVE;
-        let session = null;
+            const result = req.body as OCPICommandResult | undefined;
 
-        if (command_type === OCPICommandType.START_SESSION) {
-            if (result?.result !== OCPICommandResultType.ACCEPTED) {
-                status = OCPISessionStatus.INVALID;
+            logger.debug(`🟡 [${reqId}] Parsing command result in handlePostCommand`, { 
+                data: { ...logData, command_type, command_id, result } 
+            });
+
+            logger.info('Received OCPI command result from CPO', {
+                command_type,
+                command_id,
+                result,
+            });
+
+            let status = OCPISessionStatus.ACTIVE;
+            let session = null;
+
+            if (command_type === OCPICommandType.START_SESSION) {
+                logger.debug(`🟡 [${reqId}] Processing START_SESSION command in handlePostCommand`, { 
+                    data: { ...logData, command_type, command_id } 
+                });
+                if (result?.result !== OCPICommandResultType.ACCEPTED) {
+                    status = OCPISessionStatus.INVALID;
+                }
+                logger.debug(`🟡 [${reqId}] Finding session by authorization_reference in handlePostCommand`, { 
+                    data: { ...logData, authorization_reference: command_id } 
+                });
+                session = await databaseService.prisma.session.findFirst({
+                    where: {
+                        authorization_reference: command_id,
+                    },
+                });
+            } 
+            else if (command_type === OCPICommandType.STOP_SESSION) {
+                logger.debug(`🟡 [${reqId}] Processing STOP_SESSION command in handlePostCommand`, { 
+                    data: { ...logData, command_type, command_id } 
+                });
+                if (result?.result == OCPICommandResultType.ACCEPTED) {
+                    status = OCPISessionStatus.COMPLETED;
+                }
+                logger.debug(`🟡 [${reqId}] Finding session by cpo_session_id in handlePostCommand`, { 
+                    data: { ...logData, cpo_session_id: command_id } 
+                });
+                session = await databaseService.prisma.session.findFirst({
+                    where: {
+                        cpo_session_id: command_id,
+                    },
+                });
             }
-            session = await databaseService.prisma.session.findFirst({
-                where: {
-                    authorization_reference: command_id,
+
+            if (!session) {
+                logger.warn(`🟡 [${reqId}] Session not found for command in handlePostCommand`, { 
+                    data: { ...logData, command_type, command_id } 
+                });
+                const response = {
+                    httpStatus: 404,
+                    payload: {
+                        status_code: OCPIResponseStatusCode.status_2001,
+                        timestamp: new Date().toISOString(),
+                    },
+                };
+
+                // Log outgoing response (non-blocking)
+                OCPIRequestLogService.logIncomingResponse({
+                    req,
+                    res,
+                    responseBody: response.payload,
+                    statusCode: response.httpStatus,
+                    partnerId: partnerCredentials.partner_id,
+                    command: OCPILogCommand.PostCommandResultRes,
+                });
+
+                logger.debug(`🟢 [${reqId}] Returning 404 response in handlePostCommand`, { 
+                    data: { ...logData, response: response.payload } 
+                });
+
+                return response;
+            }
+            
+            logger.debug(`🟡 [${reqId}] Updating session status in handlePostCommand`, { 
+                data: { ...logData, sessionId: session.id, status } 
+            });
+            // update the session status
+            await databaseService.prisma.session.update({
+                where: { id: session?.id },
+                data: {
+                    status,
                 },
             });
-        } 
-        else if (command_type === OCPICommandType.STOP_SESSION) {
-            if (result?.result == OCPICommandResultType.ACCEPTED) {
-                status = OCPISessionStatus.COMPLETED;
-            }
-            session = await databaseService.prisma.session.findFirst({
-                where: {
-                    cpo_session_id: command_id,
-                },
-            });
-        }
 
-        if (!session) {
+            logger.debug(`🟢 [${reqId}] Updated session status in handlePostCommand`, { 
+                data: { ...logData, sessionId: session.id, status } 
+            });
+
             const response = {
-                httpStatus: 404,
+                httpStatus: 200,
                 payload: {
-                    status_code: OCPIResponseStatusCode.status_2001,
+                    status_code: OCPIResponseStatusCode.status_1000,
                     timestamp: new Date().toISOString(),
                 },
             };
@@ -94,35 +159,20 @@ export default class OCPIv221CommandsModuleIncomingRequestService {
                 command: OCPILogCommand.PostCommandResultRes,
             });
 
+            logger.debug(`🟢 [${reqId}] Returning POST /commands response in handlePostCommand`, { 
+                data: { ...logData, response: response.payload } 
+            });
+
             return response;
         }
-        
-        // update the session status
-        await databaseService.prisma.session.update({
-            where: { id: session?.id },
-            data: {
-                status,
-            },
-        });
-
-        const response = {
-            httpStatus: 200,
-            payload: {
-                status_code: OCPIResponseStatusCode.status_1000,
-                timestamp: new Date().toISOString(),
-            },
-        };
-
-        // Log outgoing response (non-blocking)
-        OCPIRequestLogService.logIncomingResponse({
-            req,
-            res,
-            responseBody: response.payload,
-            statusCode: response.httpStatus,
-            partnerId: partnerCredentials.partner_id,
-            command: OCPILogCommand.PostCommandResultRes,
-        });
-
-        return response;
+        catch (e: any) {
+            logger.error(`🔴 [${reqId}] Error in handlePostCommand: ${e?.toString()}`, e, {
+                data: {
+                    ...logData,
+                    error: e,
+                },
+            });
+            throw e;
+        }
     }
 }

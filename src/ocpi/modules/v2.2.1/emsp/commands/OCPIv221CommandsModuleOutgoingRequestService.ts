@@ -12,6 +12,7 @@ import { OCPICommandType } from '../../../../schema/modules/commands/enums';
 import OCPIOutgoingRequestService from '../../../../services/OCPIOutgoingRequestService';
 import Utils from '../../../../../utils/Utils';
 import { OCPILogCommand } from '../../../../types';
+import { logger } from '../../../../../services/logger.service';
 
 /**
  * OCPI 2.2.1 – Commands module (outgoing, EMSP → CPO).
@@ -64,46 +65,73 @@ export default class OCPIv221CommandsModuleOutgoingRequestService {
         cpoAuthToken: string,
         partnerId?: string,
     ): Promise<HttpResponse<OCPICommandResponseResponse>> {
-        const baseUrl = await OCPIv221CommandsModuleOutgoingRequestService.getCpoCommandsBaseUrl(
-            partnerId,
-        );
-        const url = `${baseUrl}/${commandType}`;
+        const reqId = `outgoing-${Date.now()}`;
+        const logData = { action: 'sendCommand', commandType, partnerId };
 
-        const logCommand = OCPIv221CommandsModuleOutgoingRequestService.getLogCommandForCommandType(commandType);
+        try {
+            logger.debug(`🟡 [${reqId}] Starting sendCommand in OCPIv221CommandsModuleOutgoingRequestService`, { data: logData });
 
-        // Extract IDs from command body for logging
-        const logParams: any = {};
-        if ('location_id' in body) {
-            logParams.ocpi_location_id = body.location_id;
-        }
-        if ('evse_uid' in body) {
-            logParams.ocpi_evse_uid = body.evse_uid;
-        }
-        if ('connector_id' in body) {
-            logParams.ocpi_connector_id = body.connector_id;
-        }
-        if ('authorization_reference' in body) {
-            logParams.authorization_reference = body.authorization_reference;
-        }
-        if ('session_id' in body) {
-            logParams.cpo_session_id = body.session_id;
-        }
+            logger.debug(`🟡 [${reqId}] Getting CPO commands base URL in sendCommand`, { data: logData });
+            const baseUrl = await OCPIv221CommandsModuleOutgoingRequestService.getCpoCommandsBaseUrl(
+                partnerId,
+            );
+            const url = `${baseUrl}/${commandType}`;
 
-        const response = await OCPIOutgoingRequestService.sendPostRequest({
-            url,
-            headers: OCPIv221CommandsModuleOutgoingRequestService.getAuthHeaders(cpoAuthToken),
-            data: body,
-            partnerId,
-            command: logCommand,
-            logParams,
-        });
+            const logCommand = OCPIv221CommandsModuleOutgoingRequestService.getLogCommandForCommandType(commandType);
 
-        const payload = response as OCPICommandResponseResponse;
+            // Extract IDs from command body for logging
+            const logParams: any = {};
+            if ('location_id' in body) {
+                logParams.ocpi_location_id = body.location_id;
+            }
+            if ('evse_uid' in body) {
+                logParams.ocpi_evse_uid = body.evse_uid;
+            }
+            if ('connector_id' in body) {
+                logParams.ocpi_connector_id = body.connector_id;
+            }
+            if ('authorization_reference' in body) {
+                logParams.authorization_reference = body.authorization_reference;
+            }
+            if ('session_id' in body) {
+                logParams.cpo_session_id = body.session_id;
+            }
 
-        return {
-            httpStatus: 200,
-            payload,
-        };
+            logger.debug(`🟡 [${reqId}] Sending POST command request to CPO in sendCommand`, { 
+                data: { ...logData, url, logParams } 
+            });
+            const response = await OCPIOutgoingRequestService.sendPostRequest({
+                url,
+                headers: OCPIv221CommandsModuleOutgoingRequestService.getAuthHeaders(cpoAuthToken),
+                data: body,
+                partnerId,
+                command: logCommand,
+                logParams,
+            });
+
+            logger.debug(`🟢 [${reqId}] Received response from CPO command in sendCommand`, { 
+                data: { ...logData, hasData: !!response } 
+            });
+            const payload = response as OCPICommandResponseResponse;
+
+            logger.debug(`🟢 [${reqId}] Returning sendCommand response`, { 
+                data: { ...logData, payload } 
+            });
+
+            return {
+                httpStatus: 200,
+                payload,
+            };
+        }
+        catch (e: any) {
+            logger.error(`🔴 [${reqId}] Error in sendCommand: ${e?.toString()}`, e, {
+                data: {
+                    ...logData,
+                    error: e,
+                },
+            });
+            throw e;
+        }
     }
 
     /**
@@ -182,23 +210,46 @@ export default class OCPIv221CommandsModuleOutgoingRequestService {
         req: Request,
         cpoAuthToken: string,
     ): Promise<HttpResponse<OCPICommandResponseResponse>> {
-        const { command_type } = req.params as { command_type?: string };
-        if (!command_type || !(command_type in OCPICommandType)) {
-            throw new Error('Invalid or missing command_type path parameter');
+        const reqId = req.headers['x-correlation-id'] as string || req.headers['x-request-id'] as string || `outgoing-${Date.now()}`;
+        const logData = { action: 'sendPostCommand' };
+
+        try {
+            logger.debug(`🟡 [${reqId}] Starting sendPostCommand in OCPIv221CommandsModuleOutgoingRequestService`, { data: logData });
+
+            const { command_type } = req.params as { command_type?: string };
+            if (!command_type || !(command_type in OCPICommandType)) {
+                logger.error(`🔴 [${reqId}] Invalid or missing command_type in sendPostCommand`, undefined, { 
+                    data: { ...logData, command_type } 
+                });
+                throw new Error('Invalid or missing command_type path parameter');
+            }
+
+            const type = OCPICommandType[command_type as keyof typeof OCPICommandType];
+            const body = req.body as
+                | OCPICancelReservation
+                | OCPIReserveNow
+                | OCPIStartSession
+                | OCPIStopSession
+                | OCPIUnlockConnector;
+
+            logger.debug(`🟡 [${reqId}] Calling sendCommand in sendPostCommand`, { 
+                data: { ...logData, command_type, commandType: type } 
+            });
+
+            return OCPIv221CommandsModuleOutgoingRequestService.sendCommand(
+                type,
+                body,
+                cpoAuthToken,
+            );
         }
-
-        const type = OCPICommandType[command_type as keyof typeof OCPICommandType];
-        const body = req.body as
-            | OCPICancelReservation
-            | OCPIReserveNow
-            | OCPIStartSession
-            | OCPIStopSession
-            | OCPIUnlockConnector;
-
-        return OCPIv221CommandsModuleOutgoingRequestService.sendCommand(
-            type,
-            body,
-            cpoAuthToken,
-        );
+        catch (e: any) {
+            logger.error(`🔴 [${reqId}] Error in sendPostCommand: ${e?.toString()}`, e, {
+                data: {
+                    ...logData,
+                    error: e,
+                },
+            });
+            throw e;
+        }
     }
 }

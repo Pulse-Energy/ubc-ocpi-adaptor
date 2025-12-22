@@ -1,4 +1,5 @@
 import axios from "axios";
+import { randomUUID } from "crypto";
 import { logger } from "../../services/logger.service";
 import { OCPIRequestLogService } from "./OCPIRequestLogService";
 import { OCPILogCommand } from "../types";
@@ -82,8 +83,13 @@ export default class OCPIOutgoingRequestService {
             command,
         } = requestConfig;
 
-        const requestId = headers['X-Request-Id'];
-        const correlationId = headers['X-Correlation-Id'];
+        // Generate UUIDs for outgoing requests if not provided
+        const requestId = headers['X-Request-Id'] || randomUUID();
+        const correlationId = headers['X-Correlation-Id'] || randomUUID();
+
+        // Ensure headers include the generated IDs
+        headers['X-Request-Id'] = requestId;
+        headers['X-Correlation-Id'] = correlationId;
 
         logger.info('Outgoing Request', {
             url: url,
@@ -101,7 +107,7 @@ export default class OCPIOutgoingRequestService {
         OCPIRequestLogService.logOutgoingRequest({
             url,
             method: 'GET',
-            headers,
+            headers: headers,
             partnerId,
             command,
             ...requestConfig.logParams,
@@ -111,9 +117,7 @@ export default class OCPIOutgoingRequestService {
         });
 
         return axios.get(url, {
-            headers: {
-                ...headers,
-            },
+            headers: headers,
         })
             .then((response) => {
                 logger.info('Outgoing Request Response', {
@@ -167,7 +171,7 @@ export default class OCPIOutgoingRequestService {
                 OCPIRequestLogService.logOutgoingResponse({
                     url,
                     method: 'GET',
-                    headers,
+                    headers: headers,
                     error: e.response?.data || e.message || e,
                     statusCode: e.response?.status,
                     partnerId,
@@ -191,8 +195,13 @@ export default class OCPIOutgoingRequestService {
             command,
         } = requestConfig;
 
-        const requestId = headers['X-Request-Id'];
-        const correlationId = headers['X-Correlation-Id'];
+        // Generate UUIDs for outgoing requests if not provided
+        const requestId = headers['X-Request-Id'] || randomUUID();
+        const correlationId = headers['X-Correlation-Id'] || randomUUID();
+
+        // Ensure headers include the generated IDs
+        headers['X-Request-Id'] = requestId;
+        headers['X-Correlation-Id'] = correlationId;
 
         logger.info('Outgoing Request', {
             url: url,
@@ -211,7 +220,7 @@ export default class OCPIOutgoingRequestService {
         OCPIRequestLogService.logOutgoingRequest({
             url,
             method: 'POST',
-            headers,
+            headers: headers,
             requestBody: data,
             partnerId,
             command,
@@ -281,7 +290,7 @@ export default class OCPIOutgoingRequestService {
                 OCPIRequestLogService.logOutgoingResponse({
                     url,
                     method: 'POST',
-                    headers,
+                    headers: headers,
                     error: e.response?.data || e.message || e,
                     statusCode: e.response?.status,
                     partnerId,
@@ -305,8 +314,13 @@ export default class OCPIOutgoingRequestService {
             command,
         } = requestConfig;
 
-        const requestId = headers['X-Request-Id'];
-        const correlationId = headers['X-Correlation-Id'];
+        // Generate UUIDs for outgoing requests if not provided
+        const requestId = headers['X-Request-Id'] || randomUUID();
+        const correlationId = headers['X-Correlation-Id'] || randomUUID();
+
+        // Ensure headers include the generated IDs
+        headers['X-Request-Id'] = requestId;
+        headers['X-Correlation-Id'] = correlationId;
 
         logger.info('Outgoing Request', {
             url: url,
@@ -325,7 +339,7 @@ export default class OCPIOutgoingRequestService {
         OCPIRequestLogService.logOutgoingRequest({
             url,
             method: 'PUT',
-            headers,
+            headers: headers,
             requestBody: data,
             partnerId,
             command,
@@ -393,7 +407,7 @@ export default class OCPIOutgoingRequestService {
                 OCPIRequestLogService.logOutgoingResponse({
                     url,
                     method: 'PUT',
-                    headers,
+                    headers: headers,
                     error: e.response?.data || e.message || e,
                     statusCode: e.response?.status,
                     partnerId,
@@ -417,8 +431,13 @@ export default class OCPIOutgoingRequestService {
             command,
         } = requestConfig;
 
-        const requestId = headers['X-Request-Id'];
-        const correlationId = headers['X-Correlation-Id'];
+        // Generate UUIDs for outgoing requests if not provided
+        const requestId = headers['X-Request-Id'] || randomUUID();
+        const correlationId = headers['X-Correlation-Id'] || randomUUID();
+
+        // Ensure headers include the generated IDs
+        headers['X-Request-Id'] = requestId;
+        headers['X-Correlation-Id'] = correlationId;
 
         logger.info('Outgoing Request', {
             url: url,
@@ -437,7 +456,7 @@ export default class OCPIOutgoingRequestService {
         OCPIRequestLogService.logOutgoingRequest({
             url,
             method: 'PATCH',
-            headers,
+            headers: headers,
             requestBody: data,
             partnerId,
             command,
@@ -505,7 +524,7 @@ export default class OCPIOutgoingRequestService {
                 OCPIRequestLogService.logOutgoingResponse({
                     url,
                     method: 'PATCH',
-                    headers,
+                    headers: headers,
                     error: e.response?.data || e.message || e,
                     statusCode: e.response?.status,
                     partnerId,
@@ -529,8 +548,13 @@ export default class OCPIOutgoingRequestService {
             command,
         } = requestConfig;
 
-        const requestId = headers['X-Request-Id'];
-        const correlationId = headers['X-Correlation-Id'];
+        // Generate UUIDs for outgoing requests if not provided
+        const requestId = headers['X-Request-Id'] || randomUUID();
+        const correlationId = headers['X-Correlation-Id'] || randomUUID();
+
+        // Ensure headers include the generated IDs
+        headers['X-Request-Id'] = requestId;
+        headers['X-Correlation-Id'] = correlationId;
 
         logger.info('Outgoing Request', {
             url: url,
@@ -549,7 +573,7 @@ export default class OCPIOutgoingRequestService {
         OCPIRequestLogService.logOutgoingRequest({
             url,
             method: 'DELETE',
-            headers,
+            headers: headers,
             requestBody: data,
             partnerId,
             command,
@@ -560,9 +584,7 @@ export default class OCPIOutgoingRequestService {
         });
 
         return axios.delete(url, {
-            headers: {
-                ...headers,
-            },
+            headers: headers,
         })
             .then((response) => {
                 logger.info('Outgoing Request Response', {
@@ -616,7 +638,7 @@ export default class OCPIOutgoingRequestService {
                 OCPIRequestLogService.logOutgoingResponse({
                     url,
                     method: 'DELETE',
-                    headers,
+                    headers: headers,
                     error: e.response?.data || e.message || e,
                     statusCode: e.response?.status,
                     partnerId,
