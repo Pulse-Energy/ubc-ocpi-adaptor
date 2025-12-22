@@ -11,7 +11,7 @@ import CountryCode from '../../ocpi/schema/general/enum/country-codes';
 import OCPIv221CredentialsModuleOutgoingRequestService from '../../ocpi/modules/v2.2.1/credentials/OCPIv221CredentialsModuleOutgoingRequestService';
 import OCPIResponseService from '../../ocpi/services/OCPIResponseService';
 import OCPIPartnerDbService from '../../db-services/OCPIPartnerDbService';
-import { OCPIPartnerEndpoint, Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { OCPIPartnerCredentialsDbService } from '../../db-services/OCPIPartnerCredentialsDbService';
 import { AdminRegisterRequestPayload } from '../types/request';
 import AdminVersionsModule from './AdminVersionsModule';
@@ -194,7 +194,6 @@ export default class AdminCredentialsModule {
                 throw new ValidationError('cpo_token is required');
             }
     
-            const prisma = databaseService.prisma;
     
             // 1) Upsert OCPIPartner (by country_code + party_id + role = CPO)
             let partner = await OCPIPartnerDbService.getFirstByFilter({
