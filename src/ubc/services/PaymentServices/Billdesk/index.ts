@@ -22,7 +22,12 @@
  */
 import axios from 'axios';
 import * as jose from 'jose';
-import { randomUUID } from 'crypto';
+import { randomUUID, webcrypto } from 'crypto';
+
+// Polyfill crypto for Node.js (required by jose library)
+if (typeof globalThis.crypto === 'undefined') {
+    (globalThis as any).crypto = webcrypto;
+}
 import { logger } from '../../../../services/logger.service';
 import BillDeskInitializerService from './BillDeskInitializerService';
 import {
@@ -90,8 +95,6 @@ const encryptAndSignPayload = async (
         const jweHeader = {
             alg: 'dir' as const,
             enc: 'A256GCM' as const,
-            kid: keyId,
-            clientid: clientId,
         };
         
         const jwe = await new jose.CompactEncrypt(
@@ -100,17 +103,24 @@ const encryptAndSignPayload = async (
             .setProtectedHeader(jweHeader)
             .encrypt(encryptionKeyBytes);
 
+        logger.info('BillDesk: Payload encrypted with JWE', {
+            jweLength: jwe.length,
+        });
+
         // Step 2: Sign with JWS (HS256)
         const signingKeyBytes = new TextEncoder().encode(signingKey);
         const jwsHeader = {
             alg: 'HS256' as const,
-            kid: keyId,
             clientid: clientId,
         };
 
         const jws = await new jose.CompactSign(new TextEncoder().encode(jwe))
             .setProtectedHeader(jwsHeader)
             .sign(signingKeyBytes);
+
+        logger.info('BillDesk: Payload signed with JWS', {
+            jwsLength: jws.length,
+        });
 
         return jws;
     }
@@ -137,6 +147,11 @@ const verifyAndDecryptResponse = async (
     signingKey: string
 ): Promise<any> => {
     try {
+        if (typeof token !== 'string') {
+            logger.warn('BillDesk: Response token is not a string', { tokenType: typeof token });
+            return token; // Return as-is if it's already parsed JSON
+        }
+
         // Step 1: Verify JWS signature
         const signingKeyBytes = new TextEncoder().encode(signingKey);
         const { payload: jwsPayload } = await jose.compactVerify(token, signingKeyBytes);
@@ -150,7 +165,10 @@ const verifyAndDecryptResponse = async (
     }
     catch (error) {
         const err = error instanceof Error ? error : new Error(getErrorMessage(error));
-        logger.error('BillDesk: Failed to verify and decrypt response', err, { token });
+        logger.error('BillDesk: Failed to verify and decrypt response', err, { 
+            tokenType: typeof token,
+            tokenPreview: typeof token === 'string' ? token.substring(0, 100) : 'non-string',
+        });
         return null;
     }
 };
@@ -209,6 +227,8 @@ export default class BillDeskPaymentGatewayService {
         success: boolean;
         bill_desk_order?: BillDeskCreateOrderResponse;
         external_integration_id?: string;
+        error?: string;
+        error_details?: any;
     }> {
         let credentials: { encryption_key: string; secret_key: string } | null = null;
         try {
@@ -218,7 +238,7 @@ export default class BillDeskPaymentGatewayService {
                     order,
                     partnerId,
                 });
-                return { success: false };
+                return { success: false, error: 'BillDesk credentials not found for partner' };
             }
 
             const {
@@ -242,6 +262,15 @@ export default class BillDeskPaymentGatewayService {
                 itemcode: 'DIRECT',
             };
 
+            logger.info('BillDesk: Creating order with credentials', {
+                merchantId,
+                clientId,
+                keyId,
+                apiUrl,
+                encryptionKeyLength: encryptionKey?.length,
+                secretKeyLength: secretKey?.length,
+            });
+
             // Encrypt and sign the payload as per BillDesk JOSE spec
             const signedEncryptedPayload = await encryptAndSignPayload(
                 updatedOrder,
@@ -251,31 +280,35 @@ export default class BillDeskPaymentGatewayService {
                 secretKey
             );
 
+            const traceId = randomUUID().replace(/-/g, '');
+            const timestamp = Math.floor(Date.now() / 1000).toString();
+
             const headers = {
                 'Content-Type': 'application/jose',
                 Accept: 'application/jose',
-                'BD-Traceid': randomUUID().replace(/-/g, ''),
-                'BD-Timestamp': Math.floor(Date.now() / 1000).toString(),
+                'BD-Traceid': traceId,
+                'BD-Timestamp': timestamp,
             };
 
-            // Build axios config - only add proxy if host is provided
-            const axiosConfig: any = { headers };
-            if (proxyHost && proxyPort) {
-                axiosConfig.proxy = {
+            logger.info('BillDesk: Sending request to create order', {
+                url: `${apiUrl}/payments/ve1_2/orders/create`,
+                traceId,
+                timestamp,
+                payloadPreview: signedEncryptedPayload.substring(0, 100) + '...',
+            });
+
+            const response = await axios.post<string>(`${apiUrl}/payments/ve1_2/orders/create`, signedEncryptedPayload, {
+                headers,
+                proxy: proxyHost && proxyPort ? {
                     host: proxyHost,
                     port: proxyPort,
                     protocol: "http",
-                };
-            }
-
-            const response = await axios.post<string>(
-                `${apiUrl}/payments/ve1_2/orders/create`,
-                signedEncryptedPayload,
-                axiosConfig
-            );
+                } : false,
+            });
 
             logger.info('BillDesk: Order created - raw response received', {
                 order: updatedOrder,
+                statusCode: response.status,
             });
 
             // Verify and decrypt the response
@@ -312,14 +345,43 @@ export default class BillDeskPaymentGatewayService {
                 );
             }
 
+            // Get more error details from axios error
+            const axiosError = e as any;
+            const statusCode = axiosError?.response?.status;
+            const responseHeaders = axiosError?.response?.headers;
+            const rawResponseData = axiosError?.response?.data;
+
             logger.error(`BillDesk: Failed to create order - ${errorMessage}`, err, {
                 order,
                 partnerId,
+                statusCode,
+                responseHeaders,
+                rawResponseData,
                 response_data: errorData,
                 decrypted_data: decryptedErrorData,
             });
 
-            return { success: false };
+            // Parse the raw response if it's JSON
+            let parsedError = rawResponseData;
+            if (typeof rawResponseData === 'string') {
+                try {
+                    parsedError = JSON.parse(rawResponseData);
+                }
+                catch {
+                    // Keep as string if not valid JSON
+                }
+            }
+
+            return { 
+                success: false, 
+                error: parsedError?.message || `${errorMessage} (Status: ${statusCode})`,
+                error_details: {
+                    billdesk_error: parsedError,
+                    status_code: statusCode,
+                    error_code: parsedError?.error_code,
+                    error_type: parsedError?.error_type,
+                },
+            };
         }
     }
 
@@ -381,21 +443,14 @@ export default class BillDeskPaymentGatewayService {
                 secretKey
             );
 
-            // Build axios config - only add proxy if host is provided
-            const axiosConfig: any = { headers };
-            if (proxyHost && proxyPort) {
-                axiosConfig.proxy = {
+            const response = await axios.post<string>(`${apiUrl}/payments/ve1_2/transactions/get`, signedEncryptedPayload, {
+                headers,
+                proxy: proxyHost && proxyPort ? {
                     host: proxyHost,
                     port: proxyPort,
                     protocol: "http",
-                };
-            }
-
-            const response = await axios.post<string>(
-                `${apiUrl}/payments/ve1_2/transactions/get`,
-                signedEncryptedPayload,
-                axiosConfig
-            );
+                } : false,
+            });
 
             logger.info('BillDesk: Transaction retrieved - raw response received', {
                 orderid,
@@ -513,21 +568,14 @@ export default class BillDeskPaymentGatewayService {
                 'BD-Timestamp': Math.floor(Date.now() / 1000).toString(),
             };
 
-            // Build axios config - only add proxy if host is provided
-            const axiosConfig: any = { headers };
-            if (proxyHost && proxyPort) {
-                axiosConfig.proxy = {
+            const response = await axios.post(`${apiUrl}/payments/ve1_2/refunds/create`, signedEncryptedPayload, {
+                headers,
+                proxy: proxyHost && proxyPort ? {
                     host: proxyHost,
                     port: proxyPort,
                     protocol: "http",
-                };
-            }
-
-            const response = await axios.post(
-                `${apiUrl}/payments/ve1_2/refunds/create`,
-                signedEncryptedPayload,
-                axiosConfig
-            );
+                } : false,
+            });
 
             logger.info('BillDesk: Refund created - raw response received', {
                 request: updatedRequest,
@@ -632,21 +680,14 @@ export default class BillDeskPaymentGatewayService {
                 secretKey
             );
 
-            // Build axios config - only add proxy if host is provided
-            const axiosConfig: any = { headers };
-            if (proxyHost && proxyPort) {
-                axiosConfig.proxy = {
+            const response = await axios.post<string>(`${apiUrl}/payments/ve1_2/refunds/get`, signedEncryptedPayload, {
+                headers,
+                proxy: proxyHost && proxyPort ? {
                     host: proxyHost,
                     port: proxyPort,
                     protocol: "http",
-                };
-            }
-
-            const response = await axios.post<string>(
-                `${apiUrl}/payments/ve1_2/refunds/get`,
-                signedEncryptedPayload,
-                axiosConfig
-            );
+                } : false,
+            });
 
             logger.info('BillDesk: Refund retrieved - raw response received', { payload });
 
