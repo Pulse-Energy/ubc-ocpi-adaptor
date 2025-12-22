@@ -10,6 +10,7 @@ import { OCPILogCommand } from '../../../../types';
 import ChargingService from '../../../../../ubc/actions/services/ChargingService';
 import { CDRService } from './CDRService';
 import { isEmpty } from 'lodash';
+import InvoiceGenerationService from '../../../../../ubc/services/invoice/InvoiceGeneration';
 // NOTE: Utils import removed – not used in this module.
 
 /**
@@ -297,6 +298,8 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
         });
 
         ChargingService.handleActionOnChargingCompleted(stored?.authorization_reference ?? '');
+
+        InvoiceGenerationService.generateInvoice(stored?.authorization_reference ?? '', partnerId);
 
         return response;
     }
