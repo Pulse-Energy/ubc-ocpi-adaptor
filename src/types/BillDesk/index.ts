@@ -41,9 +41,17 @@ export enum BillDeskPaymentMethodType {
 // ============ Credentials ============
 
 export interface BillDeskCredentials {
+    /** BillDesk Client ID */
     CLIENT_ID: string;
+    /** Key ID for JWT headers (used in both JWE and JWS headers) */
+    KEY_ID: string;
+    /** Signing key/password for JWS (HS256) - used to sign encrypted requests */
     SECRET_KEY: string;
+    /** Encryption key/password for JWE (A256GCM) - used to encrypt/decrypt API requests */
+    ENCRYPTION_KEY: string;
+    /** BillDesk Merchant ID */
     MERCHANT_ID: string;
+    /** BillDesk API URL (UAT: https://uat1.billdesk.com/u2, Prod: https://api.billdesk.com) */
     API_URL: string;
     PROXY_HOST?: string;
     PROXY_PORT?: string;

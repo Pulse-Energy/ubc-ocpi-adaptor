@@ -1,3 +1,5 @@
+import { BillDeskCredentials } from '../BillDesk';
+
 export enum PaymentServiceProvider {
     BillDesk = 'BILLDESK',
     CPO = 'CPO',
@@ -5,15 +7,6 @@ export enum PaymentServiceProvider {
 
 export enum InvoiceServiceProvider {
     TataPower = 'TATA_POWER',
-}
-
-export interface BillDeskPaymentServicesConfig {
-    API_URL: string;
-    SECRET_KEY: string;
-    CLIENT_ID: string;
-    MERCHANT_ID: string;
-    PROXY_HOST?: string;
-    PROXY_PORT?: string;
 }
 
 export interface TataPowerInvoiceConfig {
@@ -45,7 +38,7 @@ export type OCPIPartnerAdditionalProps = {
     };
     payment_service_provider?: PaymentServiceProvider;
     payment_services?: {
-        BillDesk?: BillDeskPaymentServicesConfig;
+        BillDesk?: BillDeskCredentials;
     };
     invoice_service_provider?: InvoiceServiceProvider;
     invoice_services?: {

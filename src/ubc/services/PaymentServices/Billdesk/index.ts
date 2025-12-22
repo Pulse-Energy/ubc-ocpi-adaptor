@@ -1,15 +1,27 @@
 /**
  * BillDesk Payment Gateway Service
  * Documentation: https://docs.billdesk.io/docs/neo-full-redirect
+ * Authentication: https://docs.billdesk.io/reference/authentications-and-endpoints
  * 
  * Implements:
  * - Create Order (Payment Link): https://docs.billdesk.io/reference/createorder
  * - Retrieve Transaction: https://docs.billdesk.io/reference/post-payments-v1_2-transactions-get
  * - Create Refund: https://docs.billdesk.io/reference/createrefund
  * - Retrieve Refund: https://docs.billdesk.io/reference/retrieverefund
+ * 
+ * JOSE Implementation (as per BillDesk docs):
+ * 1. Create JSON payload
+ * 2. Encrypt with JWE using encryption key (DIR algorithm, A256GCM)
+ * 3. Sign with JWS using signing key (HS256)
+ * 4. Send to BillDesk
+ * 
+ * Response handling:
+ * 1. Verify JWS signature with signing key
+ * 2. Decrypt JWE with encryption key
+ * 3. Parse JSON response
  */
 import axios from 'axios';
-import jwt from 'jsonwebtoken';
+import * as jose from 'jose';
 import { randomUUID } from 'crypto';
 import { logger } from '../../../../services/logger.service';
 import BillDeskInitializerService from './BillDeskInitializerService';
@@ -53,26 +65,92 @@ const getAxiosErrorStatus = (error: unknown): number | undefined => {
     return undefined;
 };
 
-const createJWTToken = (payload: object, clientId: string, secretKey: string): string => {
-    const header = {
-        alg: 'HS256',
-        clientid: clientId,
-    };
-    const token = jwt.sign(payload, secretKey, {
-        header,
-        expiresIn: 600,
-    });
-    return token;
+/**
+ * Encrypt and sign request payload as per BillDesk JOSE specification
+ * Step 1: Encrypt with JWE (DIR + A256GCM)
+ * Step 2: Sign with JWS (HS256)
+ * 
+ * @param payload - JSON payload to encrypt and sign
+ * @param clientId - BillDesk client ID
+ * @param keyId - Key ID for JWT headers
+ * @param encryptionKey - Key/password for JWE encryption
+ * @param signingKey - Key/password for JWS signing
+ * @returns Signed and encrypted token
+ */
+const encryptAndSignPayload = async (
+    payload: object,
+    clientId: string,
+    keyId: string,
+    encryptionKey: string,
+    signingKey: string
+): Promise<string> => {
+    try {
+        // Step 1: Encrypt with JWE (DIR algorithm, A256GCM encryption)
+        const encryptionKeyBytes = new TextEncoder().encode(encryptionKey);
+        const jweHeader = {
+            alg: 'dir' as const,
+            enc: 'A256GCM' as const,
+            kid: keyId,
+            clientid: clientId,
+        };
+        
+        const jwe = await new jose.CompactEncrypt(
+            new TextEncoder().encode(JSON.stringify(payload))
+        )
+            .setProtectedHeader(jweHeader)
+            .encrypt(encryptionKeyBytes);
+
+        // Step 2: Sign with JWS (HS256)
+        const signingKeyBytes = new TextEncoder().encode(signingKey);
+        const jwsHeader = {
+            alg: 'HS256' as const,
+            kid: keyId,
+            clientid: clientId,
+        };
+
+        const jws = await new jose.CompactSign(new TextEncoder().encode(jwe))
+            .setProtectedHeader(jwsHeader)
+            .sign(signingKeyBytes);
+
+        return jws;
+    }
+    catch (error) {
+        const err = error instanceof Error ? error : new Error(getErrorMessage(error));
+        logger.error('BillDesk: Failed to encrypt and sign payload', err, { payload });
+        throw err;
+    }
 };
 
-const getDataFromJWTtoken = (token: string, secretKey: string): any => {
+/**
+ * Verify and decrypt response from BillDesk
+ * Step 1: Verify JWS signature
+ * Step 2: Decrypt JWE
+ * 
+ * @param token - Signed and encrypted token from BillDesk
+ * @param encryptionKey - Key for JWE decryption
+ * @param signingKey - Key for JWS verification
+ * @returns Decrypted JSON payload
+ */
+const verifyAndDecryptResponse = async (
+    token: string,
+    encryptionKey: string,
+    signingKey: string
+): Promise<any> => {
     try {
-        const decoded = jwt.verify(token, secretKey);
-        return decoded;
+        // Step 1: Verify JWS signature
+        const signingKeyBytes = new TextEncoder().encode(signingKey);
+        const { payload: jwsPayload } = await jose.compactVerify(token, signingKeyBytes);
+        const jweToken = new TextDecoder().decode(jwsPayload);
+
+        // Step 2: Decrypt JWE
+        const encryptionKeyBytes = new TextEncoder().encode(encryptionKey);
+        const { plaintext } = await jose.compactDecrypt(jweToken, encryptionKeyBytes);
+        
+        return JSON.parse(new TextDecoder().decode(plaintext));
     }
-    catch (e: unknown) {
-        const err = e instanceof Error ? e : new Error(getErrorMessage(e));
-        logger.error(`BillDesk: Failed to get data from JWT token`, err, { token });
+    catch (error) {
+        const err = error instanceof Error ? error : new Error(getErrorMessage(error));
+        logger.error('BillDesk: Failed to verify and decrypt response', err, { token });
         return null;
     }
 };
@@ -86,7 +164,9 @@ export default class BillDeskPaymentGatewayService {
         external_integration_id: string;
         credentials: {
             client_id: string;
+            key_id: string;
             secret_key: string;
+            encryption_key: string;
             merchant_id: string;
             proxy_host: string;
             proxy_port: number;
@@ -107,9 +187,11 @@ export default class BillDeskPaymentGatewayService {
             credentials: {
                 api_url: credentials.API_URL || '',
                 client_id: credentials.CLIENT_ID || '',
+                key_id: credentials.KEY_ID || '',
                 proxy_host: credentials.PROXY_HOST || '',
                 proxy_port: Number(credentials.PROXY_PORT) || 0,
                 secret_key: credentials.SECRET_KEY || '',
+                encryption_key: credentials.ENCRYPTION_KEY || '',
                 merchant_id: credentials.MERCHANT_ID || '',
             },
         };
@@ -128,7 +210,7 @@ export default class BillDeskPaymentGatewayService {
         bill_desk_order?: BillDeskCreateOrderResponse;
         external_integration_id?: string;
     }> {
-        let savedSecretKey: string | null = null;
+        let credentials: { encryption_key: string; secret_key: string } | null = null;
         try {
             const billDeskCredentials = await this.getCredentials(partnerId);
             if (!billDeskCredentials || !billDeskCredentials.credentials) {
@@ -141,15 +223,17 @@ export default class BillDeskPaymentGatewayService {
 
             const {
                 client_id: clientId,
+                key_id: keyId,
                 secret_key: secretKey,
+                encryption_key: encryptionKey,
                 merchant_id: merchantId,
                 proxy_host: proxyHost,
                 proxy_port: proxyPort,
                 api_url: apiUrl,
             } = billDeskCredentials.credentials;
 
+            credentials = { encryption_key: encryptionKey, secret_key: secretKey };
             const billDeskCredentialsId = billDeskCredentials.external_integration_id;
-            savedSecretKey = secretKey;
 
             const updatedOrder: BillDeskCreateOrderRequest = {
                 ...order,
@@ -158,12 +242,18 @@ export default class BillDeskPaymentGatewayService {
                 itemcode: 'DIRECT',
             };
 
-            const jwtToken = createJWTToken(updatedOrder, clientId, secretKey);
+            // Encrypt and sign the payload as per BillDesk JOSE spec
+            const signedEncryptedPayload = await encryptAndSignPayload(
+                updatedOrder,
+                clientId,
+                keyId,
+                encryptionKey,
+                secretKey
+            );
 
             const headers = {
                 'Content-Type': 'application/jose',
                 Accept: 'application/jose',
-                clientid: clientId,
                 'BD-Traceid': randomUUID().replace(/-/g, ''),
                 'BD-Timestamp': Math.floor(Date.now() / 1000).toString(),
             };
@@ -178,14 +268,22 @@ export default class BillDeskPaymentGatewayService {
                 };
             }
 
-            const response = await axios.post<string>(`${apiUrl}/payments/ve1_2/orders/create`, jwtToken, axiosConfig);
+            const response = await axios.post<string>(
+                `${apiUrl}/payments/ve1_2/orders/create`,
+                signedEncryptedPayload,
+                axiosConfig
+            );
 
-            logger.info('BillDesk: Order created successfully', {
+            logger.info('BillDesk: Order created - raw response received', {
                 order: updatedOrder,
-                responseData: response.data,
             });
 
-            const decryptedData = getDataFromJWTtoken(response.data, secretKey);
+            // Verify and decrypt the response
+            const decryptedData = await verifyAndDecryptResponse(
+                response.data,
+                encryptionKey,
+                secretKey
+            );
 
             logger.info('BillDesk: Order created successfully - Decrypted Data', {
                 order: updatedOrder,
@@ -205,13 +303,20 @@ export default class BillDeskPaymentGatewayService {
             const errorData = getAxiosErrorData(e);
             const err = e instanceof Error ? e : new Error(errorMessage);
 
-            const data = getDataFromJWTtoken(errorData || 'testing', savedSecretKey || 'testing');
+            let decryptedErrorData = null;
+            if (errorData && credentials) {
+                decryptedErrorData = await verifyAndDecryptResponse(
+                    errorData,
+                    credentials.encryption_key,
+                    credentials.secret_key
+                );
+            }
 
             logger.error(`BillDesk: Failed to create order - ${errorMessage}`, err, {
                 order,
                 partnerId,
                 response_data: errorData,
-                decrypted_data: data,
+                decrypted_data: decryptedErrorData,
             });
 
             return { success: false };
@@ -231,7 +336,7 @@ export default class BillDeskPaymentGatewayService {
         response?: BillDeskRetrieveTransactionResponse;
         status?: number;
     }> {
-        let savedSecretKey: string | null = null;
+        let credentials: { encryption_key: string; secret_key: string } | null = null;
         try {
             const billDeskCredentials = await this.getCredentials(partnerId);
             if (!billDeskCredentials || !billDeskCredentials.credentials) {
@@ -244,18 +349,21 @@ export default class BillDeskPaymentGatewayService {
 
             const {
                 client_id: clientId,
+                key_id: keyId,
                 secret_key: secretKey,
+                encryption_key: encryptionKey,
                 merchant_id: merchantId,
                 proxy_host: proxyHost,
                 proxy_port: proxyPort,
                 api_url: apiUrl,
             } = billDeskCredentials.credentials;
 
+            credentials = { encryption_key: encryptionKey, secret_key: secretKey };
+
             const payload: BillDeskRetrieveTransactionRequest = {
                 orderid,
                 mercid: merchantId,
             };
-            savedSecretKey = secretKey;
 
             const headers = {
                 'Content-Type': 'application/jose',
@@ -264,7 +372,14 @@ export default class BillDeskPaymentGatewayService {
                 'BD-Timestamp': Math.floor(Date.now() / 1000).toString(),
             };
 
-            const jwtToken = createJWTToken(payload, clientId, secretKey);
+            // Encrypt and sign the payload
+            const signedEncryptedPayload = await encryptAndSignPayload(
+                payload,
+                clientId,
+                keyId,
+                encryptionKey,
+                secretKey
+            );
 
             // Build axios config - only add proxy if host is provided
             const axiosConfig: any = { headers };
@@ -276,14 +391,23 @@ export default class BillDeskPaymentGatewayService {
                 };
             }
 
-            const response = await axios.post<string>(`${apiUrl}/payments/ve1_2/transactions/get`, jwtToken, axiosConfig);
+            const response = await axios.post<string>(
+                `${apiUrl}/payments/ve1_2/transactions/get`,
+                signedEncryptedPayload,
+                axiosConfig
+            );
 
-            logger.info('BillDesk: Transaction retrieved successfully', {
+            logger.info('BillDesk: Transaction retrieved - raw response received', {
                 orderid,
                 partnerId,
             });
 
-            const decryptedData = getDataFromJWTtoken(response.data, secretKey);
+            // Verify and decrypt the response
+            const decryptedData = await verifyAndDecryptResponse(
+                response.data,
+                encryptionKey,
+                secretKey
+            );
 
             logger.info('BillDesk: Transaction retrieved successfully - Decrypted Data', {
                 orderid,
@@ -303,13 +427,20 @@ export default class BillDeskPaymentGatewayService {
             const errorStatus = getAxiosErrorStatus(e);
             const err = e instanceof Error ? e : new Error(errorMessage);
 
-            const data = getDataFromJWTtoken(errorData || 'testing', savedSecretKey || 'testing');
+            let decryptedErrorData = null;
+            if (errorData && credentials) {
+                decryptedErrorData = await verifyAndDecryptResponse(
+                    errorData,
+                    credentials.encryption_key,
+                    credentials.secret_key
+                );
+            }
 
             if (errorStatus === 404 || errorMessage.includes('404')) {
                 logger.error(`BillDesk: Failed to retrieve transaction - ${errorMessage}`, err, {
                     orderid,
                     partnerId,
-                    data,
+                    data: decryptedErrorData,
                 });
                 return { success: false, status: 404 };
             }
@@ -317,7 +448,7 @@ export default class BillDeskPaymentGatewayService {
             logger.error(`BillDesk: Failed to retrieve transaction - ${errorMessage} - ${errorStatus}`, err, {
                 orderid,
                 partnerId,
-                data,
+                data: decryptedErrorData,
             });
 
             return { success: false };
@@ -336,7 +467,7 @@ export default class BillDeskPaymentGatewayService {
         success: boolean;
         data?: BillDeskRefundResponse;
     }> {
-        let savedSecretKey: string | null = null;
+        let credentials: { encryption_key: string; secret_key: string } | null = null;
         try {
             const billDeskCredentials = await this.getCredentials(partnerId);
             if (!billDeskCredentials || !billDeskCredentials.credentials) {
@@ -349,14 +480,16 @@ export default class BillDeskPaymentGatewayService {
 
             const {
                 client_id: clientId,
+                key_id: keyId,
                 secret_key: secretKey,
+                encryption_key: encryptionKey,
                 merchant_id: merchantId,
                 proxy_host: proxyHost,
                 proxy_port: proxyPort,
                 api_url: apiUrl,
             } = billDeskCredentials.credentials;
 
-            savedSecretKey = secretKey;
+            credentials = { encryption_key: encryptionKey, secret_key: secretKey };
 
             const updatedRequest: BillDeskRefundRequest = {
                 ...request,
@@ -364,7 +497,14 @@ export default class BillDeskPaymentGatewayService {
                 mercid: merchantId,
             };
 
-            const jwtToken = createJWTToken(updatedRequest, clientId, secretKey);
+            // Encrypt and sign the payload
+            const signedEncryptedPayload = await encryptAndSignPayload(
+                updatedRequest,
+                clientId,
+                keyId,
+                encryptionKey,
+                secretKey
+            );
 
             const headers = {
                 'Content-Type': 'application/jose',
@@ -383,13 +523,22 @@ export default class BillDeskPaymentGatewayService {
                 };
             }
 
-            const response = await axios.post(`${apiUrl}/payments/ve1_2/refunds/create`, jwtToken, axiosConfig);
+            const response = await axios.post(
+                `${apiUrl}/payments/ve1_2/refunds/create`,
+                signedEncryptedPayload,
+                axiosConfig
+            );
 
-            logger.info('BillDesk: Refund created successfully', {
+            logger.info('BillDesk: Refund created - raw response received', {
                 request: updatedRequest,
             });
 
-            const decryptedData: BillDeskRefundResponse = getDataFromJWTtoken(response.data, secretKey);
+            // Verify and decrypt the response
+            const decryptedData: BillDeskRefundResponse = await verifyAndDecryptResponse(
+                response.data,
+                encryptionKey,
+                secretKey
+            );
 
             logger.info('BillDesk: Refund created successfully - Decrypted Data', {
                 request: updatedRequest,
@@ -406,13 +555,20 @@ export default class BillDeskPaymentGatewayService {
             const errorData = getAxiosErrorData(e);
             const err = e instanceof Error ? e : new Error(errorMessage);
 
-            const data = getDataFromJWTtoken(errorData || 'testing', savedSecretKey || 'testing');
+            let decryptedErrorData = null;
+            if (errorData && credentials) {
+                decryptedErrorData = await verifyAndDecryptResponse(
+                    errorData,
+                    credentials.encryption_key,
+                    credentials.secret_key
+                );
+            }
 
             logger.error(`BillDesk: Failed to create refund - ${errorMessage}`, err, {
                 request,
                 partnerId,
                 response_data: errorData,
-                decrypted_data: data,
+                decrypted_data: decryptedErrorData,
             });
 
             return { success: false };
@@ -431,6 +587,7 @@ export default class BillDeskPaymentGatewayService {
         success: boolean;
         response?: BillDeskRefundResponse;
     }> {
+        let credentials: { encryption_key: string; secret_key: string } | null = null;
         try {
             const billDeskCredentials = await this.getCredentials(partnerId);
             if (!billDeskCredentials || !billDeskCredentials.credentials) {
@@ -443,12 +600,16 @@ export default class BillDeskPaymentGatewayService {
 
             const {
                 client_id: clientId,
+                key_id: keyId,
                 secret_key: secretKey,
+                encryption_key: encryptionKey,
                 merchant_id: merchantId,
                 proxy_host: proxyHost,
                 proxy_port: proxyPort,
                 api_url: apiUrl,
             } = billDeskCredentials.credentials;
+
+            credentials = { encryption_key: encryptionKey, secret_key: secretKey };
 
             const payload: BillDeskRetrieveRefundRequest = {
                 merc_refund_ref_no: mercRefundRefNo,
@@ -462,7 +623,14 @@ export default class BillDeskPaymentGatewayService {
                 'BD-Timestamp': Math.floor(Date.now() / 1000).toString(),
             };
 
-            const jwtToken = createJWTToken(payload, clientId, secretKey);
+            // Encrypt and sign the payload
+            const signedEncryptedPayload = await encryptAndSignPayload(
+                payload,
+                clientId,
+                keyId,
+                encryptionKey,
+                secretKey
+            );
 
             // Build axios config - only add proxy if host is provided
             const axiosConfig: any = { headers };
@@ -474,11 +642,20 @@ export default class BillDeskPaymentGatewayService {
                 };
             }
 
-            const response = await axios.post<string>(`${apiUrl}/payments/ve1_2/refunds/get`, jwtToken, axiosConfig);
+            const response = await axios.post<string>(
+                `${apiUrl}/payments/ve1_2/refunds/get`,
+                signedEncryptedPayload,
+                axiosConfig
+            );
 
-            logger.info('BillDesk: Refund retrieved successfully', { payload });
+            logger.info('BillDesk: Refund retrieved - raw response received', { payload });
 
-            const decryptedData = getDataFromJWTtoken(response.data, secretKey);
+            // Verify and decrypt the response
+            const decryptedData = await verifyAndDecryptResponse(
+                response.data,
+                encryptionKey,
+                secretKey
+            );
 
             logger.info('BillDesk: Refund retrieved successfully - Decrypted Data', {
                 payload,
@@ -493,11 +670,22 @@ export default class BillDeskPaymentGatewayService {
         }
         catch (e: unknown) {
             const errorMessage = getErrorMessage(e);
+            const errorData = getAxiosErrorData(e);
             const err = e instanceof Error ? e : new Error(errorMessage);
+
+            let decryptedErrorData = null;
+            if (errorData && credentials) {
+                decryptedErrorData = await verifyAndDecryptResponse(
+                    errorData,
+                    credentials.encryption_key,
+                    credentials.secret_key
+                );
+            }
 
             logger.error(`BillDesk: Failed to retrieve refund - ${errorMessage}`, err, {
                 mercRefundRefNo,
                 partnerId,
+                decrypted_data: decryptedErrorData,
             });
 
             return { success: false };
@@ -505,15 +693,20 @@ export default class BillDeskPaymentGatewayService {
     }
 
     /**
-     * Decode an encoded JWT string (for callback handling)
-     * @param encodedString - JWT encoded string
+     * Decode an encoded JOSE string (for callback handling)
+     * Verifies JWS signature and decrypts JWE
+     * @param encodedString - Signed and encrypted JOSE string
      * @param partnerId - Partner ID for credentials (optional - uses first available if not provided)
      */
     public static async decodeString(encodedString: string, partnerId?: string): Promise<any> {
         if (partnerId) {
             const billDeskCredentials = await this.getCredentials(partnerId);
-            if (billDeskCredentials?.credentials?.secret_key) {
-                return getDataFromJWTtoken(encodedString, billDeskCredentials.credentials.secret_key);
+            if (billDeskCredentials?.credentials?.secret_key && billDeskCredentials?.credentials?.encryption_key) {
+                return verifyAndDecryptResponse(
+                    encodedString,
+                    billDeskCredentials.credentials.encryption_key,
+                    billDeskCredentials.credentials.secret_key
+                );
             }
         }
         

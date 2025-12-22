@@ -60,7 +60,7 @@ export default class BillDeskInitializerService {
             const billDeskConfig = additionalProps?.payment_services?.BillDesk;
 
             if (!billDeskConfig) {
-                logger.warn(`BillDesk: No BillDesk configuration found for partnerId: ${partnerId}`);
+                logger.warn(`BillDesk: No BillDesk configuration found in partner config for partnerId: ${partnerId}`);
                 return null;
             }
 
@@ -68,9 +68,28 @@ export default class BillDeskInitializerService {
             const credentials: BillDeskCredentials = {
                 API_URL: billDeskConfig.API_URL,
                 CLIENT_ID: billDeskConfig.CLIENT_ID,
+                KEY_ID: billDeskConfig.KEY_ID,
                 SECRET_KEY: billDeskConfig.SECRET_KEY,
+                ENCRYPTION_KEY: billDeskConfig.ENCRYPTION_KEY,
                 MERCHANT_ID: billDeskConfig.MERCHANT_ID,
             };
+
+            // Validate that we have all required credentials
+            if (!credentials.API_URL || !credentials.CLIENT_ID || !credentials.KEY_ID || 
+                !credentials.SECRET_KEY || !credentials.ENCRYPTION_KEY || !credentials.MERCHANT_ID) {
+                logger.error(`BillDesk: Missing required credentials in partner config`, undefined, {
+                    partnerId,
+                    hasApiUrl: !!credentials.API_URL,
+                    hasClientId: !!credentials.CLIENT_ID,
+                    hasKeyId: !!credentials.KEY_ID,
+                    hasSecretKey: !!credentials.SECRET_KEY,
+                    hasEncryptionKey: !!credentials.ENCRYPTION_KEY,
+                    hasMerchantId: !!credentials.MERCHANT_ID,
+                });
+                return null;
+            }
+
+            logger.info(`BillDesk credentials loaded from partner config for partnerId: ${partnerId}`);
 
             // Cache the credentials
             const cacheEntry: BillDeskCacheEntry = {
@@ -84,14 +103,27 @@ export default class BillDeskInitializerService {
                 bill_desk: cacheEntry,
             };
 
-            logger.info(`BillDesk credentials loaded for partnerId: ${partnerId}`);
-
             return cacheEntry;
         }
         catch (error: unknown) {
             const err = error instanceof Error ? error : new Error(String(error));
             logger.error(`Error in fetching BillDesk credentials`, err, { partnerId });
             return null;
+        }
+    }
+
+    /**
+     * Clear cache for a specific partner or all partners
+     * @param partnerId - Optional partner ID to clear cache for
+     */
+    public static clearCache(partnerId?: string): void {
+        if (partnerId) {
+            delete this.cache[partnerId];
+            logger.info(`BillDesk cache cleared for partnerId: ${partnerId}`);
+        }
+        else {
+            this.cache = {};
+            logger.info('BillDesk cache cleared for all partners');
         }
     }
 }
