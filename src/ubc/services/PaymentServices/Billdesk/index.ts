@@ -318,7 +318,7 @@ export default class BillDeskPaymentGatewayService {
                 payloadPreview: signedEncryptedPayload.substring(0, 100) + '...',
             });
 
-            const response = await axios.post<string>(`${apiUrl}/payments/ve1_2/orders/create`, signedEncryptedPayload, {
+            const response = await axios.post<string>(`${apiUrl}/u2/payments/ve1_2/orders/create`, signedEncryptedPayload, {
                 headers,
                 proxy: proxyHost && proxyPort ? {
                     host: proxyHost,
