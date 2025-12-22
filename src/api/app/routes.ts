@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
-import { BillDeskCallbackPayload, BillDeskPaymentServiceProps, BillDeskCredentials } from '../../types/BillDesk';
+import { BillDeskCallbackPayload, BillDeskPaymentServiceProps, BillDeskCredentials, BillDeskCreateLinkRequest } from '../../types/BillDesk';
 import BillDeskPaymentService from '../../ubc/services/PaymentServices/Billdesk/BillDeskPaymentService';
+import BillDeskPaymentGatewayService from '../../ubc/services/PaymentServices/Billdesk/index';
 import BillDeskInitializerService from '../../ubc/services/PaymentServices/Billdesk/BillDeskInitializerService';
 import PaymentTxnDbService from '../../db-services/PaymentTxnDbService';
 import OCPIPartnerDbService from '../../db-services/OCPIPartnerDbService';
@@ -178,7 +179,8 @@ router.post('/billdesk/create-order/:paymentTxnId', async (req: Request, res: Re
             const uniqueOrderId = `ORD${Date.now()}`;
             // Clear existing order and set new authorization_reference
             const existingAdditionalProps = paymentTxn.additional_props as Record<string, unknown> || {};
-            const { payment_gateway_create_object: _unused, ...restAdditionalProps } = existingAdditionalProps;
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            const { payment_gateway_create_object: _, ...restAdditionalProps } = existingAdditionalProps;
             
             await PaymentTxnDbService.update(paymentTxnId, {
                 authorization_reference: uniqueOrderId,
@@ -254,5 +256,181 @@ router.post('/billdesk/create-order/:paymentTxnId', async (req: Request, res: Re
     }
 });
 
+/**
+ * Create Payment Link
+ * POST /api/app/billdesk/create-link/:partnerId
+ * Reference: https://docs.billdesk.io/reference/create-link
+ * 
+ * Body:
+ * {
+ *   "linkrefno": "unique-link-ref-123",
+ *   "amount": "100.00",
+ *   "link_expiry_date": "2025-12-31T23:59:59+05:30",
+ *   "customer_name": "John Doe",
+ *   "customer_email": "john@example.com",
+ *   "customer_mobile": "9876543210",
+ *   "link_description": "Payment for Order #123",
+ *   "dissemination_mode": "EMAIL" // or "SMS" or "BOTH"
+ * }
+ */
+router.post('/billdesk/create-link/:partnerId', async (req: Request, res: Response) => {
+    try {
+        const { partnerId } = req.params;
+        const linkRequest = req.body as Partial<BillDeskCreateLinkRequest>;
+
+        if (!partnerId) {
+            res.status(400).json({
+                success: false,
+                message: 'Missing required parameter: partnerId',
+                timestamp: new Date().toISOString(),
+            });
+            return;
+        }
+
+        if (!linkRequest.linkrefno || !linkRequest.amount) {
+            res.status(400).json({
+                success: false,
+                message: 'Missing required fields: linkrefno and amount are required',
+                timestamp: new Date().toISOString(),
+            });
+            return;
+        }
+
+        // Set default expiry if not provided (24 hours from now)
+        if (!linkRequest.link_expiry_date) {
+            const expiryDate = new Date();
+            expiryDate.setHours(expiryDate.getHours() + 24);
+            const tzOffset = -expiryDate.getTimezoneOffset();
+            const tzSign = tzOffset >= 0 ? '+' : '-';
+            const tzHours = String(Math.floor(Math.abs(tzOffset) / 60)).padStart(2, '0');
+            const tzMinutes = String(Math.abs(tzOffset) % 60).padStart(2, '0');
+            linkRequest.link_expiry_date = expiryDate.toISOString().slice(0, 19) + tzSign + tzHours + ':' + tzMinutes;
+        }
+
+        const createLinkRequest: BillDeskCreateLinkRequest = {
+            mercid: '', // Will be set by the service
+            linkrefno: linkRequest.linkrefno,
+            amount: linkRequest.amount,
+            currency: linkRequest.currency || '356',
+            link_expiry_date: linkRequest.link_expiry_date,
+            customer_name: linkRequest.customer_name,
+            customer_email: linkRequest.customer_email,
+            customer_mobile: linkRequest.customer_mobile,
+            link_description: linkRequest.link_description,
+            dissemination_mode: linkRequest.dissemination_mode,
+            additional_info: linkRequest.additional_info,
+        };
+
+        const result = await BillDeskPaymentGatewayService.createLink(createLinkRequest, partnerId);
+
+        if (result.success && result.link) {
+            res.status(200).json({
+                success: true,
+                message: 'Payment link created successfully',
+                data: {
+                    bdlinkid: result.link.bdlinkid,
+                    linkrefno: result.link.linkrefno,
+                    link_url: result.link.link_url,
+                    short_link_url: result.link.short_link_url,
+                    amount: result.link.amount,
+                    status: result.link.status,
+                    link_expiry_date: result.link.link_expiry_date,
+                    createdon: result.link.createdon,
+                },
+                timestamp: new Date().toISOString(),
+            });
+        }
+        else {
+            res.status(400).json({
+                success: false,
+                message: result.error || 'Failed to create payment link',
+                error: result.error,
+                error_details: result.error_details,
+                timestamp: new Date().toISOString(),
+            });
+        }
+    }
+    catch (error) {
+        res.status(500).json({
+            success: false,
+            message: 'Failed to create payment link',
+            timestamp: new Date().toISOString(),
+            error: error instanceof Error ? error.message : 'Unknown error',
+        });
+    }
+});
+
+/**
+ * Retrieve Payment Link Status
+ * GET /api/app/billdesk/link/:partnerId/:linkrefno
+ * Reference: https://docs.billdesk.io/reference/retrieve-link
+ */
+router.get('/billdesk/link/:partnerId/:linkrefno', async (req: Request, res: Response) => {
+    try {
+        const { partnerId, linkrefno } = req.params;
+        const { bdlinkid } = req.query;
+
+        if (!partnerId) {
+            res.status(400).json({
+                success: false,
+                message: 'Missing required parameter: partnerId',
+                timestamp: new Date().toISOString(),
+            });
+            return;
+        }
+
+        if (!linkrefno && !bdlinkid) {
+            res.status(400).json({
+                success: false,
+                message: 'Either linkrefno or bdlinkid is required',
+                timestamp: new Date().toISOString(),
+            });
+            return;
+        }
+
+        const result = await BillDeskPaymentGatewayService.retrieveLink(
+            linkrefno,
+            partnerId,
+            bdlinkid as string | undefined
+        );
+
+        if (result.success && result.link) {
+            res.status(200).json({
+                success: true,
+                message: 'Payment link retrieved successfully',
+                data: {
+                    bdlinkid: result.link.bdlinkid,
+                    linkrefno: result.link.linkrefno,
+                    link_url: result.link.link_url,
+                    short_link_url: result.link.short_link_url,
+                    amount: result.link.amount,
+                    status: result.link.status,
+                    link_expiry_date: result.link.link_expiry_date,
+                    createdon: result.link.createdon,
+                    transactionid: result.link.transactionid,
+                    orderid: result.link.orderid,
+                    payment_status: result.link.payment_status,
+                },
+                timestamp: new Date().toISOString(),
+            });
+        }
+        else {
+            res.status(404).json({
+                success: false,
+                message: result.error || 'Payment link not found',
+                error: result.error,
+                timestamp: new Date().toISOString(),
+            });
+        }
+    }
+    catch (error) {
+        res.status(500).json({
+            success: false,
+            message: 'Failed to retrieve payment link',
+            timestamp: new Date().toISOString(),
+            error: error instanceof Error ? error.message : 'Unknown error',
+        });
+    }
+});
 
 export default router;

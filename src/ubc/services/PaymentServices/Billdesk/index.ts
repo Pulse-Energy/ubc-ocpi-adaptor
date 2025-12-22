@@ -8,6 +8,8 @@
  * - Retrieve Transaction: https://docs.billdesk.io/reference/post-payments-v1_2-transactions-get
  * - Create Refund: https://docs.billdesk.io/reference/createrefund
  * - Retrieve Refund: https://docs.billdesk.io/reference/retrieverefund
+ * - Create Link: https://docs.billdesk.io/reference/create-link
+ * - Retrieve Link: https://docs.billdesk.io/reference/retrieve-link
  * 
  * JOSE Implementation (as per BillDesk docs):
  * 1. Create JSON payload
@@ -33,9 +35,13 @@ import BillDeskInitializerService from './BillDeskInitializerService';
 import {
     BillDeskCreateOrderRequest,
     BillDeskCreateOrderResponse,
+    BillDeskCreateLinkRequest,
+    BillDeskCreateLinkResponse,
     BillDeskRefundRequest,
     BillDeskRefundResponse,
     BillDeskRetrieveRefundRequest,
+    BillDeskRetrieveLinkRequest,
+    BillDeskRetrieveLinkResponse,
     BillDeskRetrieveTransactionRequest,
     BillDeskRetrieveTransactionResponse,
     BillDeskPaymentLinkData,
@@ -753,6 +759,303 @@ export default class BillDeskPaymentGatewayService {
             });
 
             return { success: false };
+        }
+    }
+
+    /**
+     * Create a Payment Link
+     * Reference: https://docs.billdesk.io/reference/create-link
+     * @param request - Create Link request payload
+     * @param partnerId - Partner ID for credentials
+     */
+    public static async createLink(
+        request: BillDeskCreateLinkRequest,
+        partnerId: string,
+    ): Promise<{
+        success: boolean;
+        link?: BillDeskCreateLinkResponse;
+        error?: string;
+        error_details?: any;
+    }> {
+        let credentials: { encryption_key: string; secret_key: string } | null = null;
+        try {
+            const billDeskCredentials = await this.getCredentials(partnerId);
+            if (!billDeskCredentials || !billDeskCredentials.credentials) {
+                logger.error('BillDesk: Failed to create link - External Integration not found', undefined, {
+                    request,
+                    partnerId,
+                });
+                return { success: false, error: 'BillDesk credentials not found for partner' };
+            }
+
+            const {
+                client_id: clientId,
+                key_id: keyId,
+                secret_key: secretKey,
+                encryption_key: encryptionKey,
+                merchant_id: merchantId,
+                proxy_host: proxyHost,
+                proxy_port: proxyPort,
+                api_url: apiUrl,
+            } = billDeskCredentials.credentials;
+
+            credentials = { encryption_key: encryptionKey, secret_key: secretKey };
+
+            // Set merchant ID in request
+            const updatedRequest: BillDeskCreateLinkRequest = {
+                ...request,
+                mercid: merchantId,
+            };
+
+            // Note: Payment Links use a different base URL (linkpay instead of u2)
+            const linkPayUrl = apiUrl.replace('/u2', '');
+            
+            logger.info('BillDesk: Creating payment link', {
+                linkrefno: updatedRequest.linkrefno,
+                mercid: updatedRequest.mercid,
+                amount: updatedRequest.amount,
+                partnerId,
+                apiUrl: `${linkPayUrl}/linkpay/links/create`,
+                proxyEnabled: !!(proxyHost && proxyPort),
+            });
+
+            const headers = {
+                'Content-Type': 'application/jose',
+                Accept: 'application/jose',
+                'BD-Traceid': randomUUID().replace(/-/g, ''),
+                'BD-Timestamp': Math.floor(Date.now() / 1000).toString(),
+            };
+
+            // Encrypt and sign the payload
+            const signedEncryptedPayload = await encryptAndSignPayload(
+                updatedRequest,
+                clientId,
+                keyId,
+                encryptionKey,
+                secretKey
+            );
+
+            const response = await axios.post<string>(`${linkPayUrl}/linkpay/links/create`, signedEncryptedPayload, {
+                headers,
+                proxy: proxyHost && proxyPort ? {
+                    host: proxyHost,
+                    port: proxyPort,
+                    protocol: "http",
+                } : false,
+            });
+
+            logger.info('BillDesk: Link created - raw response received', {
+                linkrefno: updatedRequest.linkrefno,
+                statusCode: response.status,
+            });
+
+            // Verify and decrypt the response
+            const decryptedData = await verifyAndDecryptResponse(
+                response.data,
+                encryptionKey,
+                secretKey
+            );
+
+            logger.info('BillDesk: Link created successfully - Decrypted Data', {
+                linkrefno: updatedRequest.linkrefno,
+                decryptedData,
+            });
+
+            const responseData: BillDeskCreateLinkResponse = decryptedData;
+
+            return {
+                success: true,
+                link: responseData,
+            };
+        }
+        catch (e: unknown) {
+            const errorMessage = getErrorMessage(e);
+            const errorData = getAxiosErrorData(e);
+            const err = e instanceof Error ? e : new Error(errorMessage);
+
+            let decryptedErrorData = null;
+            if (errorData && credentials) {
+                decryptedErrorData = await verifyAndDecryptResponse(
+                    errorData,
+                    credentials.encryption_key,
+                    credentials.secret_key
+                );
+            }
+
+            const axiosError = e as any;
+            const statusCode = axiosError?.response?.status;
+            const rawResponseData = axiosError?.response?.data;
+
+            logger.error(`BillDesk: Failed to create link - ${errorMessage}`, err, {
+                request,
+                partnerId,
+                statusCode,
+                rawResponseData,
+                decrypted_data: decryptedErrorData,
+            });
+
+            let parsedError = decryptedErrorData || rawResponseData;
+            if (!decryptedErrorData && typeof rawResponseData === 'string') {
+                try {
+                    parsedError = JSON.parse(rawResponseData);
+                }
+                catch {
+                    // Keep as string
+                }
+            }
+
+            return {
+                success: false,
+                error: parsedError?.message || `${errorMessage} (Status: ${statusCode})`,
+                error_details: {
+                    billdesk_error: parsedError,
+                    status_code: statusCode,
+                    error_code: parsedError?.error_code,
+                    error_type: parsedError?.error_type,
+                },
+            };
+        }
+    }
+
+    /**
+     * Retrieve a Payment Link status
+     * Reference: https://docs.billdesk.io/reference/retrieve-link
+     * @param linkrefno - Link reference number (or use bdlinkid)
+     * @param partnerId - Partner ID for credentials
+     * @param bdlinkid - BillDesk Link ID (optional, use instead of linkrefno)
+     */
+    public static async retrieveLink(
+        linkrefno: string | undefined,
+        partnerId: string,
+        bdlinkid?: string,
+    ): Promise<{
+        success: boolean;
+        link?: BillDeskRetrieveLinkResponse;
+        error?: string;
+    }> {
+        let credentials: { encryption_key: string; secret_key: string } | null = null;
+        try {
+            const billDeskCredentials = await this.getCredentials(partnerId);
+            if (!billDeskCredentials || !billDeskCredentials.credentials) {
+                logger.error('BillDesk: Failed to retrieve link - External Integration not found', undefined, {
+                    linkrefno,
+                    bdlinkid,
+                    partnerId,
+                });
+                return { success: false, error: 'BillDesk credentials not found for partner' };
+            }
+
+            const {
+                client_id: clientId,
+                key_id: keyId,
+                secret_key: secretKey,
+                encryption_key: encryptionKey,
+                merchant_id: merchantId,
+                proxy_host: proxyHost,
+                proxy_port: proxyPort,
+                api_url: apiUrl,
+            } = billDeskCredentials.credentials;
+
+            credentials = { encryption_key: encryptionKey, secret_key: secretKey };
+
+            const payload: BillDeskRetrieveLinkRequest = {
+                mercid: merchantId,
+                ...(linkrefno && { linkrefno }),
+                ...(bdlinkid && { bdlinkid }),
+            };
+
+            logger.info('BillDesk: Retrieving payment link', {
+                linkrefno,
+                bdlinkid,
+                partnerId,
+            });
+
+            const headers = {
+                'Content-Type': 'application/jose',
+                Accept: 'application/jose',
+                'BD-Traceid': randomUUID().replace(/-/g, ''),
+                'BD-Timestamp': Math.floor(Date.now() / 1000).toString(),
+            };
+
+            // Encrypt and sign the payload
+            const signedEncryptedPayload = await encryptAndSignPayload(
+                payload,
+                clientId,
+                keyId,
+                encryptionKey,
+                secretKey
+            );
+
+            // Note: Payment Links use a different base URL (linkpay instead of u2)
+            const linkPayUrl = apiUrl.replace('/u2', '');
+            const response = await axios.post<string>(`${linkPayUrl}/linkpay/links/fetch`, signedEncryptedPayload, {
+                headers,
+                proxy: proxyHost && proxyPort ? {
+                    host: proxyHost,
+                    port: proxyPort,
+                    protocol: "http",
+                } : false,
+            });
+
+            logger.info('BillDesk: Link retrieved - raw response received', {
+                linkrefno,
+                bdlinkid,
+                statusCode: response.status,
+            });
+
+            // Verify and decrypt the response
+            const decryptedData = await verifyAndDecryptResponse(
+                response.data,
+                encryptionKey,
+                secretKey
+            );
+
+            logger.info('BillDesk: Link retrieved successfully - Decrypted Data', {
+                linkrefno,
+                bdlinkid,
+                decryptedData,
+            });
+
+            const responseData: BillDeskRetrieveLinkResponse = decryptedData;
+
+            return {
+                success: true,
+                link: responseData,
+            };
+        }
+        catch (e: unknown) {
+            const errorMessage = getErrorMessage(e);
+            const errorData = getAxiosErrorData(e);
+            const errorStatus = getAxiosErrorStatus(e);
+            const err = e instanceof Error ? e : new Error(errorMessage);
+
+            let decryptedErrorData = null;
+            if (errorData && credentials) {
+                decryptedErrorData = await verifyAndDecryptResponse(
+                    errorData,
+                    credentials.encryption_key,
+                    credentials.secret_key
+                );
+            }
+
+            if (errorStatus === 404 || errorMessage.includes('404')) {
+                logger.error(`BillDesk: Link not found - ${errorMessage}`, err, {
+                    linkrefno,
+                    bdlinkid,
+                    partnerId,
+                    data: decryptedErrorData,
+                });
+                return { success: false, error: 'Link not found' };
+            }
+
+            logger.error(`BillDesk: Failed to retrieve link - ${errorMessage}`, err, {
+                linkrefno,
+                bdlinkid,
+                partnerId,
+                decrypted_data: decryptedErrorData,
+            });
+
+            return { success: false, error: errorMessage };
         }
     }
 

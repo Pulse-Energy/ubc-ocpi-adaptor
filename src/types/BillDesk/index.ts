@@ -437,6 +437,128 @@ export enum BillDeskTransactionAuthStatus {
 
 // ============ Payment SDK Enum ============
 
+// ============ Create Payment Link ============
+// Reference: https://docs.billdesk.io/reference/create-link
+
+export interface BillDeskCreateLinkRequest {
+    /** Merchant ID */
+    mercid: string;
+    /** Unique Link reference number (max 35 chars) */
+    linkrefno: string;
+    /** Transaction amount in decimal format (e.g., "100.00") */
+    amount: string;
+    /** Currency code (356 for INR) */
+    currency: string;
+    /** Link expiry date in ISO 8601 format */
+    link_expiry_date: string;
+    /** Customer name */
+    customer_name?: string;
+    /** Customer email */
+    customer_email?: string;
+    /** Customer mobile */
+    customer_mobile?: string;
+    /** Link description */
+    link_description?: string;
+    /** Return URL after payment */
+    ru?: string;
+    /** Additional information */
+    additional_info?: BillDeskAdditionalInfo;
+    /** Dissemination mode: EMAIL, SMS, or BOTH */
+    dissemination_mode?: 'EMAIL' | 'SMS' | 'BOTH';
+    /** Invoice number */
+    invoice_no?: string;
+    /** Invoice date */
+    invoice_date?: string;
+}
+
+export interface BillDeskCreateLinkResponse {
+    /** Object type - "link" */
+    objectid: string;
+    /** Merchant ID */
+    mercid: string;
+    /** Link reference number */
+    linkrefno: string;
+    /** BillDesk generated link ID */
+    bdlinkid: string;
+    /** Transaction amount */
+    amount: string;
+    /** Currency code */
+    currency: string;
+    /** Link expiry date */
+    link_expiry_date: string;
+    /** Customer name */
+    customer_name?: string;
+    /** Customer email */
+    customer_email?: string;
+    /** Customer mobile */
+    customer_mobile?: string;
+    /** Link description */
+    link_description?: string;
+    /** Created timestamp */
+    createdon: string;
+    /** Link status: ACTIVE, EXPIRED, PAID, CANCELLED */
+    status: 'ACTIVE' | 'EXPIRED' | 'PAID' | 'CANCELLED';
+    /** Payment link URL that can be shared with customer */
+    link_url: string;
+    /** Short link URL */
+    short_link_url?: string;
+    /** Additional information */
+    additional_info?: BillDeskAdditionalInfo;
+}
+
+// ============ Retrieve Payment Link ============
+// Reference: https://docs.billdesk.io/reference/retrieve-link
+
+export interface BillDeskRetrieveLinkRequest {
+    /** Merchant ID */
+    mercid: string;
+    /** Link reference number (use either linkrefno or bdlinkid) */
+    linkrefno?: string;
+    /** BillDesk Link ID (use either linkrefno or bdlinkid) */
+    bdlinkid?: string;
+}
+
+export interface BillDeskRetrieveLinkResponse {
+    /** Object type - "link" */
+    objectid: string;
+    /** Merchant ID */
+    mercid: string;
+    /** Link reference number */
+    linkrefno: string;
+    /** BillDesk generated link ID */
+    bdlinkid: string;
+    /** Transaction amount */
+    amount: string;
+    /** Currency code */
+    currency: string;
+    /** Link expiry date */
+    link_expiry_date: string;
+    /** Customer name */
+    customer_name?: string;
+    /** Customer email */
+    customer_email?: string;
+    /** Customer mobile */
+    customer_mobile?: string;
+    /** Link description */
+    link_description?: string;
+    /** Created timestamp */
+    createdon: string;
+    /** Link status: ACTIVE, EXPIRED, PAID, CANCELLED */
+    status: 'ACTIVE' | 'EXPIRED' | 'PAID' | 'CANCELLED';
+    /** Payment link URL */
+    link_url: string;
+    /** Short link URL */
+    short_link_url?: string;
+    /** Additional information */
+    additional_info?: BillDeskAdditionalInfo;
+    /** Transaction ID if payment was made */
+    transactionid?: string;
+    /** Order ID if payment was made */
+    orderid?: string;
+    /** Payment status if payment was made */
+    payment_status?: string;
+}
+
 export enum PaymentSDK {
     BillDesk = 'BILLDESK',
     Razorpay = 'RAZORPAY',
