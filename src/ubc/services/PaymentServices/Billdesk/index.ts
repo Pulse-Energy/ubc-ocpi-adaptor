@@ -23,12 +23,12 @@
 import axios from 'axios';
 import * as jose from 'jose';
 import { randomUUID, webcrypto } from 'crypto';
+import { logger } from '../../../../services/logger.service';
 
 // Polyfill crypto for Node.js (required by jose library)
 if (typeof globalThis.crypto === 'undefined') {
     (globalThis as any).crypto = webcrypto;
 }
-import { logger } from '../../../../services/logger.service';
 import BillDeskInitializerService from './BillDeskInitializerService';
 import {
     BillDeskCreateOrderRequest,
@@ -72,13 +72,17 @@ const getAxiosErrorStatus = (error: unknown): number | undefined => {
 
 /**
  * Encrypt and sign request payload as per BillDesk JOSE specification
- * Step 1: Encrypt with JWE (DIR + A256GCM)
- * Step 2: Sign with JWS (HS256)
+ * Reference: https://docs.billdesk.io/reference/authentications-and-endpoints
+ * 
+ * Step 1: Encrypt with JWE (DIR algorithm, A256GCM encryption)
+ *   - Header includes: alg=dir, enc=A256GCM, kid=keyId, clientid=clientId
+ * Step 2: Sign with JWS (HS256 algorithm)
+ *   - Header includes: alg=HS256, kid=keyId, clientid=clientId
  * 
  * @param payload - JSON payload to encrypt and sign
  * @param clientId - BillDesk client ID
- * @param keyId - Key ID for JWT headers
- * @param encryptionKey - Key/password for JWE encryption
+ * @param keyId - Key ID for JWT headers (provided by BillDesk)
+ * @param encryptionKey - Key/password for JWE encryption (32 bytes for A256GCM)
  * @param signingKey - Key/password for JWS signing
  * @returns Signed and encrypted token
  */
@@ -90,32 +94,54 @@ const encryptAndSignPayload = async (
     signingKey: string
 ): Promise<string> => {
     try {
-        logger.info('BillDesk: Starting JOSE signing', {
+        logger.info('BillDesk: Starting JOSE encrypt and sign', {
             clientId,
             keyId,
+            encryptionKeyLength: encryptionKey?.length,
             signingKeyLength: signingKey?.length,
             payloadKeys: Object.keys(payload),
         });
 
-        // Sign with JWS (HS256) - use only clientid header
+        // Step 1: Encrypt with JWE (DIR algorithm, A256GCM encryption)
+        // JWE Header: { alg: "dir", enc: "A256GCM", kid: keyId, clientid: clientId }
+        const encryptionKeyBytes = new TextEncoder().encode(encryptionKey);
+        const jweHeader = {
+            alg: 'dir' as const,
+            enc: 'A256GCM' as const,
+            kid: keyId,
+            clientid: clientId,
+        };
+        
+        const jweEncryptedData = await new jose.CompactEncrypt(
+            new TextEncoder().encode(JSON.stringify(payload))
+        )
+            .setProtectedHeader(jweHeader)
+            .encrypt(encryptionKeyBytes);
+
+        logger.info('BillDesk: Payload encrypted with JWE', {
+            jweLength: jweEncryptedData.length,
+        });
+
+        // Step 2: Sign with JWS (HS256) - sign the encrypted JWE data
+        // JWS Header: { alg: "HS256", kid: keyId, clientid: clientId }
         const signingKeyBytes = new TextEncoder().encode(signingKey);
         const jwsHeader = {
             alg: 'HS256' as const,
+            kid: keyId,
             clientid: clientId,
         };
 
-        const jws = await new jose.CompactSign(
-            new TextEncoder().encode(JSON.stringify(payload))
+        const jwsSignedData = await new jose.CompactSign(
+            new TextEncoder().encode(jweEncryptedData)
         )
             .setProtectedHeader(jwsHeader)
             .sign(signingKeyBytes);
 
-        logger.info('BillDesk: Payload signed with JWS', {
-            jwsLength: jws.length,
-            jwsPreview: jws.substring(0, 50),
+        logger.info('BillDesk: Encrypted payload signed with JWS', {
+            jwsLength: jwsSignedData.length,
         });
 
-        return jws;
+        return jwsSignedData;
     }
     catch (error) {
         const err = error instanceof Error ? error : new Error(getErrorMessage(error));
@@ -125,13 +151,16 @@ const encryptAndSignPayload = async (
 };
 
 /**
- * Verify response from BillDesk
- * Verifies JWS signature
+ * Verify and decrypt response from BillDesk
+ * Reference: https://docs.billdesk.io/reference/authentications-and-endpoints
  * 
- * @param token - Signed token from BillDesk
- * @param encryptionKey - Not used (kept for compatibility)
+ * Step 1: Verify JWS signature using signing key
+ * Step 2: Decrypt JWE using encryption key
+ * 
+ * @param token - Signed and encrypted token from BillDesk
+ * @param encryptionKey - Key for JWE decryption
  * @param signingKey - Key for JWS verification
- * @returns Verified JSON payload
+ * @returns Decrypted JSON payload
  */
 const verifyAndDecryptResponse = async (
     token: string,
@@ -144,15 +173,20 @@ const verifyAndDecryptResponse = async (
             return token; // Return as-is if it's already parsed JSON
         }
 
-        // Verify JWS signature
+        // Step 1: Verify JWS signature
         const signingKeyBytes = new TextEncoder().encode(signingKey);
         const { payload: jwsPayload } = await jose.compactVerify(token, signingKeyBytes);
+        const jweToken = new TextDecoder().decode(jwsPayload);
+
+        // Step 2: Decrypt JWE
+        const encryptionKeyBytes = new TextEncoder().encode(encryptionKey);
+        const { plaintext } = await jose.compactDecrypt(jweToken, encryptionKeyBytes);
         
-        return JSON.parse(new TextDecoder().decode(jwsPayload));
+        return JSON.parse(new TextDecoder().decode(plaintext));
     }
     catch (error) {
         const err = error instanceof Error ? error : new Error(getErrorMessage(error));
-        logger.error('BillDesk: Failed to verify response', err, { 
+        logger.error('BillDesk: Failed to verify and decrypt response', err, { 
             tokenType: typeof token,
             tokenPreview: typeof token === 'string' ? token.substring(0, 100) : 'non-string',
         });

@@ -491,11 +491,19 @@ export default class BillDeskPaymentService {
                 };
             }
 
+            // Format date as ISO 8601 with timezone offset (e.g., "2023-07-16T10:59:15+05:30")
+            const now = new Date();
+            const tzOffset = -now.getTimezoneOffset();
+            const tzSign = tzOffset >= 0 ? '+' : '-';
+            const tzHours = String(Math.floor(Math.abs(tzOffset) / 60)).padStart(2, '0');
+            const tzMinutes = String(Math.abs(tzOffset) % 60).padStart(2, '0');
+            const orderDate = now.toISOString().slice(0, 19) + tzSign + tzHours + ':' + tzMinutes;
+
             const createOrderRequest: BillDeskCreateOrderRequest = {
                 mercid: '', // Will be populated by createOrder
                 orderid: orderId,
                 amount: amountStr.includes('.') ? amountStr : `${amountStr}.00`,
-                order_date: new Date().toISOString(),
+                order_date: orderDate,
                 currency: '356',
                 ru: billDeskPaymentServiceProps.return_url,
                 itemcode: 'DIRECT',
