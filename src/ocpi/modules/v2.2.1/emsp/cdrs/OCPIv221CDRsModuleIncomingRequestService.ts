@@ -11,6 +11,7 @@ import ChargingService from '../../../../../ubc/actions/services/ChargingService
 import { CDRService } from './CDRService';
 import { isEmpty } from 'lodash';
 import { logger } from '../../../../../services/logger.service';
+import InvoiceGenerationService from '../../../../../ubc/services/invoice/InvoiceGeneration';
 // NOTE: Utils import removed – not used in this module.
 
 /**

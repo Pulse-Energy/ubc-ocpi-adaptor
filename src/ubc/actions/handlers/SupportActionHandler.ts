@@ -1,4 +1,5 @@
 import { Request } from "express";
+import { Prisma } from "@prisma/client";
 import { HttpResponse } from "../../../types/responses";
 import { logger } from "../../../services/logger.service";
 import { UBCSupportRequestPayload } from "../../schema/v2.0.0/actions/support/types/SupportPayload";
@@ -212,18 +213,19 @@ export default class SupportActionHandler {
                 throw new Error('Partner not found');
             }
             const partnerAdditionalProps = partner.additional_props as OCPIPartnerAdditionalProps;
-            await OCPIPartnerDbService.update(partner.id, {
-                additional_props: {
-                    ...partnerAdditionalProps,
-                    support: {
-                        name: payload.name ?? '',
-                        phone: payload.phone ?? '',
-                        email: payload.email ?? '',
-                        url: payload.url ?? '',
-                        hours: payload.hours ?? '',
-                        channels: payload.channels ?? [],
-                    },
+            const updatedAdditionalProps: OCPIPartnerAdditionalProps = {
+                ...(partnerAdditionalProps ? partnerAdditionalProps : {}),
+                support: {
+                    name: payload.name ?? '',
+                    phone: payload.phone ?? '',
+                    email: payload.email ?? '',
+                    url: payload.url ?? '',
+                    hours: payload.hours ?? '',
+                    channels: payload.channels ?? [],
                 },
+            };
+            await OCPIPartnerDbService.update(partner.id, {
+                additional_props: updatedAdditionalProps as unknown as Prisma.InputJsonValue,
             });
             return UBCResponseService.ack();
         } 
