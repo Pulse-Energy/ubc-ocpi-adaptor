@@ -5,6 +5,7 @@ import {
     OCPIConnector,
 } from '../../../../schema/modules/locations/types';
 import { isEqual } from 'lodash';
+import { logger } from '../../../../../services/logger.service';
 
 /**
  * Service for building create and update fields from OCPI payloads
@@ -18,7 +19,13 @@ export class LocationService {
         payload: OCPILocation,
         partnerId: string,
     ): Prisma.LocationUncheckedCreateInput {
-        const locationCreateFields: Prisma.LocationUncheckedCreateInput = {
+        const reqId = 'internal';
+        const logData = { action: 'buildLocationCreateFields', partnerId, locationId: payload.id };
+
+        try {
+            logger.debug(`🟡 [${reqId}] Starting buildLocationCreateFields in LocationService`, { data: logData });
+
+            const locationCreateFields: Prisma.LocationUncheckedCreateInput = {
             partner_id: partnerId,
             ocpi_location_id: payload.id,
             country_code: payload.country_code,
@@ -49,7 +56,21 @@ export class LocationService {
         if (payload.images !== undefined) locationCreateFields.images = payload.images as Prisma.InputJsonValue;
         if (payload.energy_mix !== undefined) locationCreateFields.energy_mix = payload.energy_mix as Prisma.InputJsonValue;
 
-        return locationCreateFields;
+            logger.debug(`🟢 [${reqId}] Completed buildLocationCreateFields in LocationService`, { 
+                data: { ...logData, fieldCount: Object.keys(locationCreateFields).length } 
+            });
+
+            return locationCreateFields;
+        }
+        catch (e: any) {
+            logger.error(`🔴 [${reqId}] Error in buildLocationCreateFields: ${e?.toString()}`, e, {
+                data: {
+                    ...logData,
+                    error: e,
+                },
+            });
+            throw e;
+        }
     }
 
     /**
@@ -59,7 +80,13 @@ export class LocationService {
         payload: OCPILocation,
         existing?: Location | null,
     ): Prisma.LocationUncheckedUpdateInput {
-        const locationUpdateFields: Prisma.LocationUncheckedUpdateInput = {};
+        const reqId = 'internal';
+        const logData = { action: 'buildLocationUpdateFields', locationId: payload.id, hasExisting: !!existing };
+
+        try {
+            logger.debug(`🟡 [${reqId}] Starting buildLocationUpdateFields in LocationService`, { data: logData });
+
+            const locationUpdateFields: Prisma.LocationUncheckedUpdateInput = {};
 
         if (payload.country_code !== undefined && (!existing || existing.country_code !== payload.country_code)) {
             locationUpdateFields.country_code = payload.country_code;
@@ -139,7 +166,21 @@ export class LocationService {
             }
         }
 
-        return locationUpdateFields;
+            logger.debug(`🟢 [${reqId}] Completed buildLocationUpdateFields in LocationService`, { 
+                data: { ...logData, fieldCount: Object.keys(locationUpdateFields).length } 
+            });
+
+            return locationUpdateFields;
+        }
+        catch (e: any) {
+            logger.error(`🔴 [${reqId}] Error in buildLocationUpdateFields: ${e?.toString()}`, e, {
+                data: {
+                    ...logData,
+                    error: e,
+                },
+            });
+            throw e;
+        }
     }
 
     /**
@@ -150,7 +191,13 @@ export class LocationService {
         locationId: string,
         partnerId: string,
     ): Prisma.EVSEUncheckedCreateInput {
-        const evseCreateFields: Prisma.EVSEUncheckedCreateInput = {
+        const reqId = 'internal';
+        const logData = { action: 'buildEVSECreateFields', locationId, partnerId, evseUid: payload.uid };
+
+        try {
+            logger.debug(`🟡 [${reqId}] Starting buildEVSECreateFields in LocationService`, { data: logData });
+
+            const evseCreateFields: Prisma.EVSEUncheckedCreateInput = {
             location_id: locationId,
             partner_id: partnerId,
             uid: payload.uid,
@@ -174,7 +221,21 @@ export class LocationService {
         if (payload.status_errorcode !== undefined) evseCreateFields.status_errorcode = payload.status_errorcode;
         if (payload.status_errordescription !== undefined) evseCreateFields.status_errordescription = payload.status_errordescription;
 
-        return evseCreateFields;
+            logger.debug(`🟢 [${reqId}] Completed buildEVSECreateFields in LocationService`, { 
+                data: { ...logData, fieldCount: Object.keys(evseCreateFields).length } 
+            });
+
+            return evseCreateFields;
+        }
+        catch (e: any) {
+            logger.error(`🔴 [${reqId}] Error in buildEVSECreateFields: ${e?.toString()}`, e, {
+                data: {
+                    ...logData,
+                    error: e,
+                },
+            });
+            throw e;
+        }
     }
 
     /**
@@ -184,7 +245,13 @@ export class LocationService {
         payload: OCPIEVSE,
         existing?: EVSE | null,
     ): Prisma.EVSEUncheckedUpdateInput {
-        const evseUpdateFields: Prisma.EVSEUncheckedUpdateInput = {};
+        const reqId = 'internal';
+        const logData = { action: 'buildEVSEUpdateFields', evseUid: payload.uid, hasExisting: !!existing };
+
+        try {
+            logger.debug(`🟡 [${reqId}] Starting buildEVSEUpdateFields in LocationService`, { data: logData });
+
+            const evseUpdateFields: Prisma.EVSEUncheckedUpdateInput = {};
 
         if (payload.uid !== undefined && (!existing || existing.uid !== payload.uid)) {
             evseUpdateFields.uid = payload.uid;
@@ -237,7 +304,21 @@ export class LocationService {
             }
         }
 
-        return evseUpdateFields;
+            logger.debug(`🟢 [${reqId}] Completed buildEVSEUpdateFields in LocationService`, { 
+                data: { ...logData, fieldCount: Object.keys(evseUpdateFields).length } 
+            });
+
+            return evseUpdateFields;
+        }
+        catch (e: any) {
+            logger.error(`🔴 [${reqId}] Error in buildEVSEUpdateFields: ${e?.toString()}`, e, {
+                data: {
+                    ...logData,
+                    error: e,
+                },
+            });
+            throw e;
+        }
     }
 
     /**
@@ -248,7 +329,13 @@ export class LocationService {
         evseId: string,
         partnerId: string,
     ): Prisma.EVSEConnectorUncheckedCreateInput {
-        const connectorCreateFields: Prisma.EVSEConnectorUncheckedCreateInput = {
+        const reqId = 'internal';
+        const logData = { action: 'buildConnectorCreateFields', evseId, partnerId, connectorId: payload.id };
+
+        try {
+            logger.debug(`🟡 [${reqId}] Starting buildConnectorCreateFields in LocationService`, { data: logData });
+
+            const connectorCreateFields: Prisma.EVSEConnectorUncheckedCreateInput = {
             evse_id: evseId,
             partner_id: partnerId,
             connector_id: (payload as any).connector_id ?? payload.id,
@@ -266,7 +353,21 @@ export class LocationService {
         if (payload.terms_and_conditions !== undefined) connectorCreateFields.terms_and_conditions = payload.terms_and_conditions;
         if (payload.tariff_ids !== undefined) connectorCreateFields.tariff_ids = payload.tariff_ids;
 
-        return connectorCreateFields;
+            logger.debug(`🟢 [${reqId}] Completed buildConnectorCreateFields in LocationService`, { 
+                data: { ...logData, fieldCount: Object.keys(connectorCreateFields).length } 
+            });
+
+            return connectorCreateFields;
+        }
+        catch (e: any) {
+            logger.error(`🔴 [${reqId}] Error in buildConnectorCreateFields: ${e?.toString()}`, e, {
+                data: {
+                    ...logData,
+                    error: e,
+                },
+            });
+            throw e;
+        }
     }
 
     /**
@@ -276,8 +377,14 @@ export class LocationService {
         payload: OCPIConnector & { connector_id?: string },
         existing?: EVSEConnector | null,
     ): Prisma.EVSEConnectorUncheckedUpdateInput {
-        const connectorUpdateFields: Prisma.EVSEConnectorUncheckedUpdateInput = {};
+        const reqId = 'internal';
         const connectorId = (payload as any).connector_id ?? payload.id;
+        const logData = { action: 'buildConnectorUpdateFields', connectorId, hasExisting: !!existing };
+
+        try {
+            logger.debug(`🟡 [${reqId}] Starting buildConnectorUpdateFields in LocationService`, { data: logData });
+
+            const connectorUpdateFields: Prisma.EVSEConnectorUncheckedUpdateInput = {};
 
         if ((payload.id !== undefined || (payload as any).connector_id !== undefined) && (!existing || existing.connector_id !== connectorId)) {
             connectorUpdateFields.connector_id = connectorId;
@@ -325,7 +432,21 @@ export class LocationService {
             }
         }
 
-        return connectorUpdateFields;
+            logger.debug(`🟢 [${reqId}] Completed buildConnectorUpdateFields in LocationService`, { 
+                data: { ...logData, fieldCount: Object.keys(connectorUpdateFields).length } 
+            });
+
+            return connectorUpdateFields;
+        }
+        catch (e: any) {
+            logger.error(`🔴 [${reqId}] Error in buildConnectorUpdateFields: ${e?.toString()}`, e, {
+                data: {
+                    ...logData,
+                    error: e,
+                },
+            });
+            throw e;
+        }
     }
 }
 

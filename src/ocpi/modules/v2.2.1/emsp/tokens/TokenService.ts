@@ -4,6 +4,7 @@ import {
     OCPIPatchToken,
 } from '../../../../schema/modules/tokens/types';
 import { isEqual } from 'lodash';
+import { logger } from '../../../../../services/logger.service';
 
 /**
  * Service for building create and update fields from OCPI token payloads
@@ -17,7 +18,13 @@ export class TokenService {
         payload: OCPIToken,
         partnerId: string,
     ): Prisma.TokenUncheckedCreateInput {
-        const tokenCreateFields: Prisma.TokenUncheckedCreateInput = {
+        const reqId = 'internal';
+        const logData = { action: 'buildTokenCreateFields', partnerId, tokenUid: payload.uid };
+
+        try {
+            logger.debug(`🟡 [${reqId}] Starting buildTokenCreateFields in TokenService`, { data: logData });
+
+            const tokenCreateFields: Prisma.TokenUncheckedCreateInput = {
             partner_id: partnerId,
             deleted: false,
             country_code: payload.country_code,
@@ -46,7 +53,21 @@ export class TokenService {
         if (payload.energy_contract !== undefined) tokenCreateFields.energy_contract = payload.energy_contract as Prisma.InputJsonValue;
         if (payload.last_updated !== undefined) tokenCreateFields.last_updated = new Date(payload.last_updated ?? new Date().toISOString());
 
-        return tokenCreateFields;
+            logger.debug(`🟢 [${reqId}] Completed buildTokenCreateFields in TokenService`, { 
+                data: { ...logData, fieldCount: Object.keys(tokenCreateFields).length } 
+            });
+
+            return tokenCreateFields;
+        }
+        catch (e: any) {
+            logger.error(`🔴 [${reqId}] Error in buildTokenCreateFields: ${e?.toString()}`, e, {
+                data: {
+                    ...logData,
+                    error: e,
+                },
+            });
+            throw e;
+        }
     }
 
     /**
@@ -56,7 +77,13 @@ export class TokenService {
         payload: OCPIToken | OCPIPatchToken,
         existing?: Token | null,
     ): Prisma.TokenUncheckedUpdateInput {
-        const tokenUpdateFields: Prisma.TokenUncheckedUpdateInput = {};
+        const reqId = 'internal';
+        const logData = { action: 'buildTokenUpdateFields', tokenUid: payload.uid, hasExisting: !!existing };
+
+        try {
+            logger.debug(`🟡 [${reqId}] Starting buildTokenUpdateFields in TokenService`, { data: logData });
+
+            const tokenUpdateFields: Prisma.TokenUncheckedUpdateInput = {};
 
         if (payload.country_code !== undefined && (!existing || existing.country_code !== payload.country_code)) {
             tokenUpdateFields.country_code = payload.country_code;
@@ -104,7 +131,21 @@ export class TokenService {
             }
         }
 
-        return tokenUpdateFields;
+            logger.debug(`🟢 [${reqId}] Completed buildTokenUpdateFields in TokenService`, { 
+                data: { ...logData, fieldCount: Object.keys(tokenUpdateFields).length } 
+            });
+
+            return tokenUpdateFields;
+        }
+        catch (e: any) {
+            logger.error(`🔴 [${reqId}] Error in buildTokenUpdateFields: ${e?.toString()}`, e, {
+                data: {
+                    ...logData,
+                    error: e,
+                },
+            });
+            throw e;
+        }
     }
 }
 

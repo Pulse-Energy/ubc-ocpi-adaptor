@@ -4,6 +4,7 @@ import {
     OCPIPatchTariff,
 } from '../../../../schema/modules/tariffs/types';
 import { isEqual } from 'lodash';
+import { logger } from '../../../../../services/logger.service';
 
 /**
  * Service for building create and update fields from OCPI tariff payloads
@@ -17,7 +18,13 @@ export class TariffService {
         payload: OCPITariff,
         partnerId: string,
     ): Prisma.TariffUncheckedCreateInput {
-        const tariffCreateFields: Prisma.TariffUncheckedCreateInput = {
+        const reqId = 'internal';
+        const logData = { action: 'buildTariffCreateFields', partnerId, tariffId: payload.id };
+
+        try {
+            logger.debug(`🟡 [${reqId}] Starting buildTariffCreateFields in TariffService`, { data: logData });
+
+            const tariffCreateFields: Prisma.TariffUncheckedCreateInput = {
             partner_id: partnerId,
             country_code: payload.country_code,
             party_id: payload.party_id,
@@ -37,7 +44,21 @@ export class TariffService {
         if (payload.elements !== undefined) tariffCreateFields.ocpi_tariff_element = payload.elements as unknown as Prisma.InputJsonValue;
         if (payload.last_updated !== undefined) tariffCreateFields.last_updated = new Date(payload.last_updated);
 
-        return tariffCreateFields;
+            logger.debug(`🟢 [${reqId}] Completed buildTariffCreateFields in TariffService`, { 
+                data: { ...logData, fieldCount: Object.keys(tariffCreateFields).length } 
+            });
+
+            return tariffCreateFields;
+        }
+        catch (e: any) {
+            logger.error(`🔴 [${reqId}] Error in buildTariffCreateFields: ${e?.toString()}`, e, {
+                data: {
+                    ...logData,
+                    error: e,
+                },
+            });
+            throw e;
+        }
     }
 
     /**
@@ -47,7 +68,14 @@ export class TariffService {
         payload: OCPITariff | OCPIPatchTariff,
         existing?: Tariff | null,
     ): Prisma.TariffUncheckedUpdateInput {
-        const tariffUpdateFields: Prisma.TariffUncheckedUpdateInput = {};
+        const reqId = 'internal';
+        const tariffId = 'id' in payload ? payload.id : undefined;
+        const logData = { action: 'buildTariffUpdateFields', tariffId, hasExisting: !!existing };
+
+        try {
+            logger.debug(`🟡 [${reqId}] Starting buildTariffUpdateFields in TariffService`, { data: logData });
+
+            const tariffUpdateFields: Prisma.TariffUncheckedUpdateInput = {};
 
         if (payload.country_code !== undefined && (!existing || existing.country_code !== payload.country_code)) {
             tariffUpdateFields.country_code = payload.country_code;
@@ -103,7 +131,21 @@ export class TariffService {
             }
         }
 
-        return tariffUpdateFields;
+            logger.debug(`🟢 [${reqId}] Completed buildTariffUpdateFields in TariffService`, { 
+                data: { ...logData, fieldCount: Object.keys(tariffUpdateFields).length } 
+            });
+
+            return tariffUpdateFields;
+        }
+        catch (e: any) {
+            logger.error(`🔴 [${reqId}] Error in buildTariffUpdateFields: ${e?.toString()}`, e, {
+                data: {
+                    ...logData,
+                    error: e,
+                },
+            });
+            throw e;
+        }
     }
 }
 

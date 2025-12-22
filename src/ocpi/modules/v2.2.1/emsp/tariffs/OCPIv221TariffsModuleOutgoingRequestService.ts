@@ -74,7 +74,8 @@ export default class OCPIv221TariffsModuleOutgoingRequestService {
                     ),
                 },
                 partnerId,
-                command: OCPILogCommand.SendGetTariffsReq,
+                requestCommand: OCPILogCommand.SendGetTariffsReq,
+                responseCommand: OCPILogCommand.SendGetTariffsRes,
             });
 
             // Log response for debugging
@@ -334,7 +335,8 @@ export default class OCPIv221TariffsModuleOutgoingRequestService {
                     ),
                 },
                 partnerId: partnerId,
-                command: OCPILogCommand.SendGetTariffReq,
+                requestCommand: OCPILogCommand.SendGetTariffReq,
+                responseCommand: OCPILogCommand.SendGetTariffRes,
             });
 
             // Handle axios response structure

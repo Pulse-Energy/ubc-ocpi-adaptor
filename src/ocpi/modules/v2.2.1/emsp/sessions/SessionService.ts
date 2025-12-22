@@ -4,6 +4,7 @@ import {
     OCPIPatchSession,
 } from '../../../../schema/modules/sessions/types';
 import { isEqual } from 'lodash';
+import { logger } from '../../../../../services/logger.service';
 
 /**
  * Service for building create and update fields from OCPI session payloads
@@ -17,7 +18,13 @@ export class SessionService {
         payload: OCPISession,
         partnerId: string,
     ): Prisma.SessionUncheckedCreateInput {
-        const sessionCreateFields: Prisma.SessionUncheckedCreateInput = {
+        const reqId = 'internal';
+        const logData = { action: 'buildSessionCreateFields', partnerId, sessionId: payload.id };
+
+        try {
+            logger.debug(`🟡 [${reqId}] Starting buildSessionCreateFields in SessionService`, { data: logData });
+
+            const sessionCreateFields: Prisma.SessionUncheckedCreateInput = {
             partner_id: partnerId,
             deleted: false,
             deleted_at: null,
@@ -42,7 +49,21 @@ export class SessionService {
         if (payload.status !== undefined) sessionCreateFields.status = String(payload.status);
         if (payload.last_updated !== undefined) sessionCreateFields.last_updated = new Date(payload.last_updated ?? new Date().toISOString());
 
-        return sessionCreateFields;
+            logger.debug(`🟢 [${reqId}] Completed buildSessionCreateFields in SessionService`, { 
+                data: { ...logData, fieldCount: Object.keys(sessionCreateFields).length } 
+            });
+
+            return sessionCreateFields;
+        }
+        catch (e: any) {
+            logger.error(`🔴 [${reqId}] Error in buildSessionCreateFields: ${e?.toString()}`, e, {
+                data: {
+                    ...logData,
+                    error: e,
+                },
+            });
+            throw e;
+        }
     }
 
     /**
@@ -52,7 +73,13 @@ export class SessionService {
         payload: OCPISession | OCPIPatchSession,
         existing?: Session | null,
     ): Prisma.SessionUncheckedUpdateInput {
-        const sessionUpdateFields: Prisma.SessionUncheckedUpdateInput = {};
+        const reqId = 'internal';
+        const logData = { action: 'buildSessionUpdateFields', sessionId: payload.id, hasExisting: !!existing };
+
+        try {
+            logger.debug(`🟡 [${reqId}] Starting buildSessionUpdateFields in SessionService`, { data: logData });
+
+            const sessionUpdateFields: Prisma.SessionUncheckedUpdateInput = {};
 
         if (payload.country_code !== undefined && (!existing || existing.country_code !== payload.country_code)) {
             sessionUpdateFields.country_code = payload.country_code;
@@ -123,7 +150,21 @@ export class SessionService {
             }
         }
 
-        return sessionUpdateFields;
+            logger.debug(`🟢 [${reqId}] Completed buildSessionUpdateFields in SessionService`, { 
+                data: { ...logData, fieldCount: Object.keys(sessionUpdateFields).length } 
+            });
+
+            return sessionUpdateFields;
+        }
+        catch (e: any) {
+            logger.error(`🔴 [${reqId}] Error in buildSessionUpdateFields: ${e?.toString()}`, e, {
+                data: {
+                    ...logData,
+                    error: e,
+                },
+            });
+            throw e;
+        }
     }
 }
 

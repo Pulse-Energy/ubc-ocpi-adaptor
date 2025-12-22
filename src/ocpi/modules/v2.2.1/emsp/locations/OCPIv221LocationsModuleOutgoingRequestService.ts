@@ -63,9 +63,14 @@ export default class OCPIv221LocationsModuleOutgoingRequestService {
                         url,
                         cpoAuthToken,
                     ),
+                    ...(req.headers['X-Correlation-Id'] && { 'X-Correlation-Id': req.headers['X-Correlation-Id'] as string }),
+                    ...(req.headers['x-correlation-id'] && { 'X-Correlation-Id': req.headers['x-correlation-id'] as string }),
+                    ...(req.headers['X-Request-Id'] && { 'X-Request-Id': req.headers['X-Request-Id'] as string }),
+                    ...(req.headers['x-request-id'] && { 'X-Request-Id': req.headers['x-request-id'] as string }),
                 },
                 partnerId,
-                command: OCPILogCommand.SendGetLocationReq,
+                requestCommand: OCPILogCommand.SendGetLocationReq,
+                responseCommand: OCPILogCommand.SendGetLocationRes,
             });
 
             logger.debug(`🟢 [${reqId}] Received response from CPO in sendGetLocations`, { 
@@ -139,9 +144,14 @@ export default class OCPIv221LocationsModuleOutgoingRequestService {
                         url,
                         cpoAuthToken,
                     ),
+                    ...(req.headers['X-Correlation-Id'] && { 'X-Correlation-Id': req.headers['X-Correlation-Id'] as string }),
+                    ...(req.headers['x-correlation-id'] && { 'X-Correlation-Id': req.headers['x-correlation-id'] as string }),
+                    ...(req.headers['X-Request-Id'] && { 'X-Request-Id': req.headers['X-Request-Id'] as string }),
+                    ...(req.headers['x-request-id'] && { 'X-Request-Id': req.headers['x-request-id'] as string }),
                 },
                 partnerId,
-                command: OCPILogCommand.SendGetLocationOneReq,
+                requestCommand: OCPILogCommand.SendGetLocationOneReq,
+                responseCommand: OCPILogCommand.SendGetLocationOneRes,
                 logParams: {
                     ocpi_location_id: locationId,
                 },

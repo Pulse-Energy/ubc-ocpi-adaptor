@@ -3,6 +3,7 @@ import {
     OCPICDR,
 } from '../../../../schema/modules/cdrs/types';
 import { isEqual } from 'lodash';
+import { logger } from '../../../../../services/logger.service';
 
 /**
  * Service for building create and update fields from OCPI CDR payloads
@@ -16,11 +17,17 @@ export class CDRService {
         payload: OCPICDR,
         partnerId: string,
     ): Prisma.CDRUncheckedCreateInput {
-        const cdrCreateFields: Partial<Prisma.CDRUncheckedCreateInput> = {
-            partner_id: partnerId,
-            deleted: false,
-            deleted_at: null,
-        };
+        const reqId = 'internal';
+        const logData = { action: 'buildCdrCreateFields', partnerId, cdrId: payload.id };
+
+        try {
+            logger.debug(`🟡 [${reqId}] Starting buildCdrCreateFields in CDRService`, { data: logData });
+
+            const cdrCreateFields: Partial<Prisma.CDRUncheckedCreateInput> = {
+                partner_id: partnerId,
+                deleted: false,
+                deleted_at: null,
+            };
 
         if (payload.country_code !== undefined) cdrCreateFields.country_code = payload.country_code;
         if (payload.party_id !== undefined) cdrCreateFields.party_id = payload.party_id;
@@ -61,7 +68,21 @@ export class CDRService {
         if (payload.remarks !== undefined) cdrCreateFields.remarks = payload.remarks ?? null;
         if (payload.last_updated !== undefined) cdrCreateFields.last_updated = new Date(payload.last_updated ?? new Date().toISOString());
 
-        return cdrCreateFields as Prisma.CDRUncheckedCreateInput;
+            logger.debug(`🟢 [${reqId}] Completed buildCdrCreateFields in CDRService`, { 
+                data: { ...logData, fieldCount: Object.keys(cdrCreateFields).length } 
+            });
+
+            return cdrCreateFields as Prisma.CDRUncheckedCreateInput;
+        }
+        catch (e: any) {
+            logger.error(`🔴 [${reqId}] Error in buildCdrCreateFields: ${e?.toString()}`, e, {
+                data: {
+                    ...logData,
+                    error: e,
+                },
+            });
+            throw e;
+        }
     }
 
     /**
@@ -71,7 +92,13 @@ export class CDRService {
         payload: OCPICDR,
         existing?: CDR | null,
     ): Prisma.CDRUncheckedUpdateInput {
-        const cdrUpdateFields: Prisma.CDRUncheckedUpdateInput = {};
+        const reqId = 'internal';
+        const logData = { action: 'buildCdrUpdateFields', cdrId: payload.id, hasExisting: !!existing };
+
+        try {
+            logger.debug(`🟡 [${reqId}] Starting buildCdrUpdateFields in CDRService`, { data: logData });
+
+            const cdrUpdateFields: Prisma.CDRUncheckedUpdateInput = {};
 
         if (payload.country_code !== undefined && (!existing || existing.country_code !== payload.country_code)) {
             cdrUpdateFields.country_code = payload.country_code;
@@ -186,7 +213,21 @@ export class CDRService {
             }
         }
 
-        return cdrUpdateFields;
+            logger.debug(`🟢 [${reqId}] Completed buildCdrUpdateFields in CDRService`, { 
+                data: { ...logData, fieldCount: Object.keys(cdrUpdateFields).length } 
+            });
+
+            return cdrUpdateFields;
+        }
+        catch (e: any) {
+            logger.error(`🔴 [${reqId}] Error in buildCdrUpdateFields: ${e?.toString()}`, e, {
+                data: {
+                    ...logData,
+                    error: e,
+                },
+            });
+            throw e;
+        }
     }
 }
 

@@ -31,11 +31,13 @@ export type StartChargingCommandParams = {
     connectorId: string;
     transactionId: string;
     partnerId: string;
+    headers?: Record<string, string>;
 };
 
 export type StopChargingCommandParams = {
     sessionId: string;
     partnerId: string;
+    headers?: Record<string, string>;
 };
 
 export default class CommandsService {
@@ -46,7 +48,7 @@ export default class CommandsService {
     public static async startSession(
         params: StartChargingCommandParams,
     ): Promise<HttpResponse<OCPIResponse<OCPICommandResponseResponse>>> {
-        const { locationId, evseUid, connectorId, transactionId, partnerId } = params;
+        const { locationId, evseUid, connectorId, transactionId, partnerId, headers } = params;
 
         const prisma = databaseService.prisma;
 
@@ -111,6 +113,7 @@ export default class CommandsService {
                 commandBody,
                 creds.cpo_auth_token,
                 partnerId,
+                headers,
             );
             return cpoResponse;
         }
@@ -128,7 +131,7 @@ export default class CommandsService {
     public static async stopSession(
         params: StopChargingCommandParams,
     ): Promise<HttpResponse<OCPIResponse<OCPICommandResponseResponse>>> {
-        const { sessionId, partnerId } = params;
+        const { sessionId, partnerId, headers } = params;
 
         const prisma = databaseService.prisma;
 
@@ -158,6 +161,7 @@ export default class CommandsService {
                 commandBody,
                 creds.cpo_auth_token,
                 partnerId,
+                headers,
             );
 
         return {
