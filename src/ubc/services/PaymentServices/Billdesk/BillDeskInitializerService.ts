@@ -72,6 +72,8 @@ export default class BillDeskInitializerService {
                 SECRET_KEY: billDeskConfig.SECRET_KEY,
                 ENCRYPTION_KEY: billDeskConfig.ENCRYPTION_KEY,
                 MERCHANT_ID: billDeskConfig.MERCHANT_ID,
+                PROXY_HOST: billDeskConfig.PROXY_HOST,
+                PROXY_PORT: billDeskConfig.PROXY_PORT,
             };
 
             // Validate that we have all required credentials
