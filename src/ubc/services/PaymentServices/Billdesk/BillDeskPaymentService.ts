@@ -13,6 +13,7 @@ import {
     BillDeskCallbackDecodedResponse,
     BillDeskRetrieveTransactionResponse,
     BillDeskCreateOrderRequest,
+    BillDeskCreateOrderResponse,
     BillDeskObject,
     BillDeskPaymentServiceProps,
     BillDeskTransactionAuthStatus,
@@ -25,6 +26,7 @@ import { HttpResponse } from "../../../../types/responses";
 import OnStatusActionHandler from "../../../actions/handlers/OnStatusActionHandler";
 import { BecknPaymentStatus } from "../../../schema/v2.0.0/enums/PaymentStatus";
 import { PaymentTxnAdditionalProps } from "../../../../types/PaymentTxn";
+import Utils from "../../../../utils/Utils";
 
 // Helper function to extract error message
 const getErrorMessage = (error: unknown): string => {
@@ -467,6 +469,32 @@ export default class BillDeskPaymentService {
                 };
             }
 
+            // Check if an order was already created and is still active
+            const existingProps = paymentTxn.additional_props as Record<string, unknown> | null;
+            const existingOrder = existingProps?.payment_gateway_create_object as BillDeskCreateOrderResponse | undefined;
+            
+            if (existingOrder && existingOrder.bdorderid && existingOrder.status === 'ACTIVE') {
+                logger.info('BillDesk: Returning existing active order', { 
+                    paymentTxnId: paymentTxn.id, 
+                    bdorderid: existingOrder.bdorderid,
+                    orderid: existingOrder.orderid,
+                });
+
+                // Extract redirect link from existing order
+                const redirectLink = existingOrder.links?.find(link => link.rel === 'redirect');
+                const billDeskObject: BillDeskObject | undefined = redirectLink ? {
+                    ...redirectLink,
+                    payment_url: redirectLink.href,
+                    authorization_reference: existingOrder.orderid,
+                } : undefined;
+
+                return {
+                    success: true,
+                    billDeskOrder: existingOrder,
+                    billDeskObject: billDeskObject,
+                };
+            }
+
             // Build additional info
             const additionalInfo = {
                 additional_info1: partnerId || "NA",
@@ -481,7 +509,7 @@ export default class BillDeskPaymentService {
             const amountStr = amount.toString();
 
             // Use authorization_reference as the order_id for BillDesk
-            const orderId = paymentTxn.authorization_reference;
+            const orderId = paymentTxn.authorization_reference + Utils.generateRandomString(5);
             
             if (!orderId) {
                 logger.error('BillDesk: Authorization reference not found in payment txn', undefined, { paymentTxn });
@@ -531,9 +559,9 @@ export default class BillDeskPaymentService {
             logger.info('BillDesk order created', { paymentTxnId: paymentTxn.id, billDeskOrderId: billDeskOrder.orderid });
 
             // Prepare additional props update - use JSON parse/stringify for deep clone and type safety
-            const existingProps = paymentTxn.additional_props as Record<string, unknown> | null;
+            const currentProps = paymentTxn.additional_props as Record<string, unknown> | null;
             const updatedAdditionalProps = JSON.parse(JSON.stringify({
-                ...(existingProps || {}),
+                ...(currentProps || {}),
                 payment_sdk: PaymentSDK.BillDesk,
                 payment_gateway_create_object: billDeskOrder,
             }));

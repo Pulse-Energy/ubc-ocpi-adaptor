@@ -123,11 +123,12 @@ const encryptAndSignPayload = async (
         });
 
         // Step 2: Sign with JWS (HS256) - sign the encrypted JWE data
-        // JWS Header: { alg: "HS256", kid: keyId, clientid: clientId }
+        // JWS Header: { alg: "HS256", kid: "HMAC", clientid: clientId }
+        // Note: BillDesk uses "HMAC" as kid for JWS signing, while keyId is used for JWE encryption
         const signingKeyBytes = new TextEncoder().encode(signingKey);
         const jwsHeader = {
             alg: 'HS256' as const,
-            kid: keyId,
+            kid: 'HMAC',
             clientid: clientId,
         };
 
@@ -256,7 +257,7 @@ export default class BillDeskPaymentGatewayService {
             const billDeskCredentials = await this.getCredentials(partnerId);
             if (!billDeskCredentials || !billDeskCredentials.credentials) {
                 logger.error('BillDesk: Failed to create order - External Integration not found', undefined, {
-                    order,
+                            order,
                     partnerId,
                 });
                 return { success: false, error: 'BillDesk credentials not found for partner' };
@@ -318,7 +319,7 @@ export default class BillDeskPaymentGatewayService {
                 payloadPreview: signedEncryptedPayload.substring(0, 100) + '...',
             });
 
-            const response = await axios.post<string>(`${apiUrl}/u2/payments/ve1_2/orders/create`, signedEncryptedPayload, {
+            const response = await axios.post<string>(`${apiUrl}/payments/ve1_2/orders/create`, signedEncryptedPayload, {
                 headers,
                 proxy: proxyHost && proxyPort ? {
                     host: proxyHost,
@@ -328,7 +329,7 @@ export default class BillDeskPaymentGatewayService {
             });
 
             logger.info('BillDesk: Order created - raw response received', {
-                order: updatedOrder,
+                        order: updatedOrder,
                 statusCode: response.status,
             });
 
@@ -340,7 +341,7 @@ export default class BillDeskPaymentGatewayService {
             );
 
             logger.info('BillDesk: Order created successfully - Decrypted Data', {
-                order: updatedOrder,
+                        order: updatedOrder,
                 decryptedData,
             });
 
@@ -382,9 +383,10 @@ export default class BillDeskPaymentGatewayService {
                 decrypted_data: decryptedErrorData,
             });
 
-            // Parse the raw response if it's JSON
-            let parsedError = rawResponseData;
-            if (typeof rawResponseData === 'string') {
+            // Prefer decrypted error data if available (for JOSE encrypted responses)
+            // Otherwise try to parse raw response as JSON
+            let parsedError = decryptedErrorData || rawResponseData;
+            if (!decryptedErrorData && typeof rawResponseData === 'string') {
                 try {
                     parsedError = JSON.parse(rawResponseData);
                 }
@@ -393,8 +395,8 @@ export default class BillDeskPaymentGatewayService {
                 }
             }
 
-            return { 
-                success: false, 
+            return {
+                success: false,
                 error: parsedError?.message || `${errorMessage} (Status: ${statusCode})`,
                 error_details: {
                     billdesk_error: parsedError,
@@ -424,7 +426,7 @@ export default class BillDeskPaymentGatewayService {
             const billDeskCredentials = await this.getCredentials(partnerId);
             if (!billDeskCredentials || !billDeskCredentials.credentials) {
                 logger.error('BillDesk: Failed to retrieve transaction - External Integration not found', undefined, {
-                    orderid,
+                            orderid,
                     partnerId,
                 });
                 return { success: false };
@@ -474,7 +476,7 @@ export default class BillDeskPaymentGatewayService {
             });
 
             logger.info('BillDesk: Transaction retrieved - raw response received', {
-                orderid,
+                        orderid,
                 partnerId,
             });
 
@@ -486,7 +488,7 @@ export default class BillDeskPaymentGatewayService {
             );
 
             logger.info('BillDesk: Transaction retrieved successfully - Decrypted Data', {
-                orderid,
+                        orderid,
                 partnerId,
                 decryptedData,
             });
@@ -514,7 +516,7 @@ export default class BillDeskPaymentGatewayService {
 
             if (errorStatus === 404 || errorMessage.includes('404')) {
                 logger.error(`BillDesk: Failed to retrieve transaction - ${errorMessage}`, err, {
-                    orderid,
+                            orderid,
                     partnerId,
                     data: decryptedErrorData,
                 });
@@ -522,7 +524,7 @@ export default class BillDeskPaymentGatewayService {
             }
 
             logger.error(`BillDesk: Failed to retrieve transaction - ${errorMessage} - ${errorStatus}`, err, {
-                orderid,
+                        orderid,
                 partnerId,
                 data: decryptedErrorData,
             });
@@ -548,7 +550,7 @@ export default class BillDeskPaymentGatewayService {
             const billDeskCredentials = await this.getCredentials(partnerId);
             if (!billDeskCredentials || !billDeskCredentials.credentials) {
                 logger.error('BillDesk: Failed to create refund - External Integration not found', undefined, {
-                    request,
+                            request,
                     partnerId,
                 });
                 return { success: false };
@@ -599,7 +601,7 @@ export default class BillDeskPaymentGatewayService {
             });
 
             logger.info('BillDesk: Refund created - raw response received', {
-                request: updatedRequest,
+                        request: updatedRequest,
             });
 
             // Verify and decrypt the response
@@ -610,7 +612,7 @@ export default class BillDeskPaymentGatewayService {
             );
 
             logger.info('BillDesk: Refund created successfully - Decrypted Data', {
-                request: updatedRequest,
+                        request: updatedRequest,
                 decryptedData,
             });
 
@@ -661,7 +663,7 @@ export default class BillDeskPaymentGatewayService {
             const billDeskCredentials = await this.getCredentials(partnerId);
             if (!billDeskCredentials || !billDeskCredentials.credentials) {
                 logger.error('BillDesk: Failed to retrieve refund - External Integration not found', undefined, {
-                    mercRefundRefNo,
+                            mercRefundRefNo,
                     partnerId,
                 });
                 return { success: false };
@@ -720,7 +722,7 @@ export default class BillDeskPaymentGatewayService {
             );
 
             logger.info('BillDesk: Refund retrieved successfully - Decrypted Data', {
-                payload,
+                        payload,
                 decryptedData,
             });
 
@@ -745,7 +747,7 @@ export default class BillDeskPaymentGatewayService {
             }
 
             logger.error(`BillDesk: Failed to retrieve refund - ${errorMessage}`, err, {
-                mercRefundRefNo,
+                        mercRefundRefNo,
                 partnerId,
                 decrypted_data: decryptedErrorData,
             });
