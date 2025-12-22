@@ -69,6 +69,67 @@ router.get('/callback/billdesk', async (req: Request, res: Response) => {
  *   "newOrderId": true (optional, generates a new unique order ID)
  * }
  */
+/**
+ * Configure BillDesk credentials for a partner
+ * POST /api/app/billdesk/configure/:partnerId
+ */
+router.post('/billdesk/configure/:partnerId', async (req: Request, res: Response) => {
+    try {
+        const { partnerId } = req.params;
+        const credentials: BillDeskCredentials = req.body;
+
+        if (!partnerId) {
+            res.status(400).json({ success: false, error: 'Missing partnerId' });
+            return;
+        }
+
+        // Get existing partner
+        const partner = await OCPIPartnerDbService.getById(partnerId);
+        if (!partner) {
+            res.status(404).json({ success: false, error: 'Partner not found' });
+            return;
+        }
+
+        // Update additional_props with BillDesk credentials
+        const existingProps = partner.additional_props as OCPIPartnerAdditionalProps || {};
+        const updatedProps: OCPIPartnerAdditionalProps = {
+            ...existingProps,
+            payment_services: {
+                ...existingProps.payment_services,
+                BillDesk: {
+                    API_URL: credentials.API_URL,
+                    CLIENT_ID: credentials.CLIENT_ID,
+                    KEY_ID: credentials.KEY_ID,
+                    SECRET_KEY: credentials.SECRET_KEY,
+                    ENCRYPTION_KEY: credentials.ENCRYPTION_KEY,
+                    MERCHANT_ID: credentials.MERCHANT_ID,
+                    PROXY_HOST: credentials.PROXY_HOST,
+                    PROXY_PORT: credentials.PROXY_PORT,
+                },
+            },
+        };
+
+        await OCPIPartnerDbService.update(partnerId, {
+            additional_props: updatedProps as any,
+        });
+
+        // Clear credentials cache
+        BillDeskInitializerService.clearCache(partnerId);
+
+        res.status(200).json({
+            success: true,
+            message: 'BillDesk credentials updated successfully',
+            partnerId,
+        });
+    }
+    catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error',
+        });
+    }
+});
+
 router.post('/billdesk/create-order/:paymentTxnId', async (req: Request, res: Response) => {
     try {
         const { paymentTxnId } = req.params;
@@ -115,8 +176,13 @@ router.post('/billdesk/create-order/:paymentTxnId', async (req: Request, res: Re
         // Generate new unique order ID if requested (to avoid 409 conflict on retries)
         if (newOrderId) {
             const uniqueOrderId = `ORD${Date.now()}`;
+            // Clear existing order and set new authorization_reference
+            const existingAdditionalProps = paymentTxn.additional_props as Record<string, unknown> || {};
+            const { payment_gateway_create_object: _unused, ...restAdditionalProps } = existingAdditionalProps;
+            
             await PaymentTxnDbService.update(paymentTxnId, {
                 authorization_reference: uniqueOrderId,
+                additional_props: restAdditionalProps as any, // Clear the existing order
             });
             // Refetch the updated payment txn
             const updatedPaymentTxn = await PaymentTxnDbService.getById(paymentTxnId);
