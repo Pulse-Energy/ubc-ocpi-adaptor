@@ -61,6 +61,20 @@ router.get('/callback/billdesk', async (req: Request, res: Response) => {
 });
 
 /**
+ * BillDesk Redirect Callback Endpoint (GET)
+ * Shows a redirect page after payment completion
+ */
+router.get('/redirect/billdesk', async (_req: Request, res: Response) => {
+    // Simple redirect page - no transaction info is passed via URL
+    const html = BillDeskPaymentService.generateRedirectPage({
+        message: 'Payment Complete',
+    });
+
+    res.setHeader('Content-Type', 'text/html');
+    res.status(200).send(html);
+});
+
+/**
  * Create BillDesk Order from existing PaymentTxn
  * POST /api/app/billdesk/create-order/:paymentTxnId
  * 
@@ -172,7 +186,7 @@ router.post('/billdesk/create-order/:paymentTxnId', async (req: Request, res: Re
         
         const callbackUrl = returnUrl || 
             partnerAdditionalProps?.communication_urls?.webhook_callback?.url ||
-            `${req.protocol}://${req.get('host')}/api/app/callback/billdesk`;
+            `${req.protocol}://${req.get('host')}/api/app/redirect/billdesk`;
 
         // Generate new unique order ID if requested (to avoid 409 conflict on retries)
         if (newOrderId) {

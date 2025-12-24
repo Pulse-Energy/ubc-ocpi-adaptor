@@ -509,16 +509,9 @@ export default class BillDeskPaymentService {
             const amountStr = amount.toString();
 
             // Use authorization_reference as the order_id for BillDesk
-            const orderId = paymentTxn.authorization_reference + Utils.generateRandomString(5);
+            const orderId = 'ORD' + Utils.generateRandomString(10);
             
-            if (!orderId) {
-                logger.error('BillDesk: Authorization reference not found in payment txn', undefined, { paymentTxn });
-                return {
-                    success: false,
-                    error: 'Authorization reference not found',
-                };
-            }
-
+           
             // Format date as ISO 8601 with timezone offset (e.g., "2023-07-16T10:59:15+05:30")
             const now = new Date();
             const tzOffset = -now.getTimezoneOffset();
@@ -678,5 +671,207 @@ export default class BillDeskPaymentService {
                 error: errorMessage,
             };
         }
+    }
+
+    /**
+     * Generate redirect HTML page after payment
+     * Shows a styled page with payment status and auto-redirect back to app
+     */
+    public static generateRedirectPage(params: {
+        success?: boolean;
+        cancelled?: boolean;
+        message: string;
+        orderId?: string;
+        transactionId?: string;
+        error?: string;
+    }): string {
+        const { message, orderId, transactionId, error } = params;
+        
+        // Neutral blue color and info icon
+        const iconColor = '#667eea';
+        const iconPath = 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z'; // Checkmark
+
+        return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${message}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            max-width: 400px;
+            width: 100%;
+        }
+        .icon {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 24px;
+        }
+        .icon svg {
+            width: 100%;
+            height: 100%;
+            stroke: ${iconColor};
+            stroke-width: 1.5;
+            fill: none;
+        }
+        h1 {
+            color: #1f2937;
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 12px;
+        }
+        .subtitle {
+            color: #6b7280;
+            font-size: 16px;
+            margin-bottom: 24px;
+            line-height: 1.5;
+        }
+        .details {
+            background: #f9fafb;
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 24px;
+            text-align: left;
+        }
+        .detail-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .detail-row:last-child {
+            border-bottom: none;
+        }
+        .detail-label {
+            color: #6b7280;
+            font-size: 14px;
+        }
+        .detail-value {
+            color: #1f2937;
+            font-size: 14px;
+            font-weight: 500;
+        }
+        .btn {
+            display: inline-block;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-decoration: none;
+            padding: 14px 32px;
+            font-size: 16px;
+            font-weight: 500;
+            border-radius: 10px;
+            transition: transform 0.2s, box-shadow 0.2s;
+            border: none;
+            cursor: pointer;
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+        .timer {
+            color: #9ca3af;
+            font-size: 14px;
+            margin-top: 16px;
+        }
+        .close-hint {
+            color: #6b7280;
+            font-size: 14px;
+            margin-top: 12px;
+            font-style: italic;
+        }
+        .error-text {
+            color: #ef4444;
+            font-size: 14px;
+            margin-bottom: 16px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="icon">
+            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path stroke-linecap="round" stroke-linejoin="round" d="${iconPath}"/>
+            </svg>
+        </div>
+        
+        <h1>${message}</h1>
+        <p class="subtitle">
+            Please go back to the app to check your payment status.
+        </p>
+        
+        ${error ? `<p class="error-text">${error}</p>` : ''}
+        
+        ${(orderId || transactionId) ? `
+        <div class="details">
+            ${orderId ? `
+            <div class="detail-row">
+                <span class="detail-label">Order ID</span>
+                <span class="detail-value">${orderId}</span>
+            </div>
+            ` : ''}
+            ${transactionId ? `
+            <div class="detail-row">
+                <span class="detail-label">Transaction ID</span>
+                <span class="detail-value">${transactionId}</span>
+            </div>
+            ` : ''}
+        </div>
+        ` : ''}
+        
+        <button class="btn" onclick="goBack()">Return to App</button>
+        
+        <p class="timer">Redirecting automatically in <span id="countdown">5</span> seconds...</p>
+        <p class="close-hint">You may close this page</p>
+    </div>
+    
+    <script>
+        let seconds = 5;
+        const countdownEl = document.getElementById('countdown');
+        
+        const timer = setInterval(() => {
+            seconds--;
+            countdownEl.textContent = seconds;
+            if (seconds <= 0) {
+                clearInterval(timer);
+                goBack();
+            }
+        }, 1000);
+        
+        function goBack() {
+            // Try to close the window (works if opened by JS)
+            if (window.opener) {
+                window.close();
+            }
+            // Try going back in history
+            if (window.history.length > 1) {
+                window.history.back();
+            }
+            // Fallback: try to trigger app deep link (customize as needed)
+            // window.location.href = 'yourapp://payment-complete';
+        }
+    </script>
+</body>
+</html>
+        `.trim();
     }
 }

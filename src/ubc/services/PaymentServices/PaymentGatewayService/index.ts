@@ -418,7 +418,7 @@ export default class PaymentGatewayService {
                 browser_language: "en-US",
                 browser_javascript_enabled: "true"
             },
-            return_url: `${returnUrl}/api/app/callback/billdesk`
+            return_url: `${returnUrl}/api/app/redirect/billdesk`
         };
     }
 }
