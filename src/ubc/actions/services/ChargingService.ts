@@ -101,7 +101,7 @@ export default class ChargingService {
             );
 
             // Store invoice response in CDR table if invoice was generated successfully
-            if (invoiceResponse.success && invoiceResponse.invoice_data) {
+            if (invoiceResponse.success && invoiceResponse) {
                 try {
                     
                     // Find CDR by authorization_reference
@@ -110,7 +110,7 @@ export default class ChargingService {
                     if (cdr) {
                         // Update CDR with invoice details
                         await CdrDbService.update(cdr.id, {
-                            invoice_details: invoiceResponse.invoice_data
+                            invoice_details: invoiceResponse
                         });
                         
                         logger.info(
