@@ -291,6 +291,8 @@ export interface BillDeskCallbackPayload {
     bdcres?: string;
     /** Encrypted transaction response (for redirect callbacks) */
     transaction_response?: string;
+    /** Encrypted transaction response (for redirect callbacks) */
+    encrypted_response?: string;
     /** Return URL */
     return_url?: string;
     /** Message for pipe-separated callbacks */

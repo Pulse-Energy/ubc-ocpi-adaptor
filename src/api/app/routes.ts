@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, response } from 'express';
 import { BillDeskCallbackPayload, BillDeskPaymentServiceProps, BillDeskCredentials, BillDeskCreateLinkRequest } from '../../types/BillDesk';
 import BillDeskPaymentService from '../../ubc/services/PaymentServices/Billdesk/BillDeskPaymentService';
 import BillDeskPaymentGatewayService from '../../ubc/services/PaymentServices/Billdesk/index';
@@ -6,6 +6,7 @@ import BillDeskInitializerService from '../../ubc/services/PaymentServices/Billd
 import PaymentTxnDbService from '../../db-services/PaymentTxnDbService';
 import OCPIPartnerDbService from '../../db-services/OCPIPartnerDbService';
 import { OCPIPartnerAdditionalProps } from '../../types/OCPIPartner';
+import { logger } from '../../services/logger.service';
 
 const router = Router();
 
@@ -60,18 +61,110 @@ router.get('/callback/billdesk', async (req: Request, res: Response) => {
     }
 });
 
-/**
- * BillDesk Redirect Callback Endpoint (GET)
- * Shows a redirect page after payment completion
- */
-router.get('/redirect/billdesk', async (_req: Request, res: Response) => {
-    // Simple redirect page - no transaction info is passed via URL
-    const html = BillDeskPaymentService.generateRedirectPage({
-        message: 'Payment Complete',
-    });
+router.get('/check-payment-status/billdesk/:paymentTxnId', async (req: Request, res: Response) => {
+    try {
+        // Convert query params to body format
 
-    res.setHeader('Content-Type', 'text/html');
-    res.status(200).send(html);
+        const paymentTxn = await PaymentTxnDbService.getById(req.params.paymentTxnId);
+
+        
+        const paymentStatusResponse = await BillDeskPaymentGatewayService.retrieveTransaction(paymentTxn?.payment_gateway_order_id ?? '', paymentTxn?.partner_id ?? '');
+
+        res.status(paymentStatusResponse.status || 200).json(paymentStatusResponse.response);
+    }
+    catch (error) {
+        res.status(500).json({
+            success: false,
+            message: 'Callback processing failed',
+            timestamp: new Date().toISOString(),
+            error: error instanceof Error ? error.message : 'Unknown error',
+        });
+    }
+});
+
+
+/**
+ * BillDesk Redirect Callback Endpoint (POST)
+ * Shows a redirect page after payment completion
+ * 
+ * BillDesk sends these fields:
+ * - error_type: Type of error (e.g., 'duplicate_request_error')
+ * - error_code: Error code (e.g., 'TRDRE0001')
+ * - encrypted_response: JWT encrypted transaction response
+ * - message: Human readable message
+ * - status: HTTP status code (e.g., '409')
+ * - txnResponse: Transaction response object (may be '[object Object]')
+ */
+router.post('/redirect/billdesk', async (req: Request, res: Response) => {
+    try {
+        const { 
+            error_type, 
+            error_code, 
+            encrypted_response, 
+            message, 
+            status,
+            txnResponse 
+        } = req.body;
+        
+        logger.info('BillDesk redirect callback received', {
+            error_type,
+            error_code,
+            message,
+            status,
+            hasEncryptedResponse: !!encrypted_response,
+            txnResponse,
+        });
+        
+        // Determine if it's an error or success
+        const isError = !!error_type || !!error_code || (status && status !== '200' && status !== 200);
+        
+        // Log encrypted_response if present (for debugging)
+        if (encrypted_response) {
+            logger.info('BillDesk encrypted_response received', { 
+                length: encrypted_response.length,
+            });
+        }
+        
+        // Generate display message
+        let displayMessage: string;
+        if (isError) {
+            // Map common error types to user-friendly messages
+            if (error_type === 'duplicate_request_error') {
+                displayMessage = 'This transaction has already been processed';
+            }
+            else {
+                displayMessage = message || 'Payment could not be completed';
+            }
+        }
+        else {
+            displayMessage = 'Payment Complete';
+        }
+
+        const billDeskCallbackPayload = req.body as BillDeskCallbackPayload;
+        await BillDeskPaymentService.billDeskCallBack(billDeskCallbackPayload);
+        
+        const html = BillDeskPaymentService.generateRedirectPage({
+            message: displayMessage,
+            isError,
+            errorType: error_type,
+            errorCode: error_code,
+            statusCode: status,
+        });
+
+        res.setHeader('Content-Type', 'text/html');
+        res.status(200).send(html);
+    }
+    catch (error) {
+        logger.error('BillDesk redirect callback error', error instanceof Error ? error : new Error(String(error)));
+        
+        const html = BillDeskPaymentService.generateRedirectPage({
+            message: 'Something went wrong',
+            isError: true,
+        });
+        
+        res.setHeader('Content-Type', 'text/html');
+        res.status(200).send(html);
+    }
 });
 
 /**

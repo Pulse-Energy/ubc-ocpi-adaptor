@@ -104,6 +104,25 @@ export default class BillDeskPaymentService {
                 const orderId = decodedResponse.orderid;
                 paymentTxn = await PaymentTxnDbService.getByOrderId(orderId);
             }
+            else if (reqPayload.encrypted_response) {
+                // Redirect callback (JWT encoded transaction response)
+                const response = reqPayload.encrypted_response;
+                const orderId = reqPayload?.orderid ?? '';
+                paymentTxn = await PaymentTxnDbService.getByOrderId(orderId);
+                decodedResponse = await BillDeskPaymentGatewayService.decodeString(response, paymentTxn?.partner_id);
+
+                logger.info('BillDesk Redirect Callback - decoded response', { decodedResponse });
+
+                if (!decodedResponse) {
+                    logger.error('BillDesk: Failed to decode transaction response', undefined, { reqPayload });
+                    return ResponsesService.success({
+                        success: true,
+                        message: 'success',
+                        data: {}
+                    });
+                }
+
+            }
             else if (reqPayload.terminal_state === '111') {
                 // User cancelled/closed the payment page
                 logger.info('BillDesk: User closed payment page (terminal_state=111)', { reqPayload });
@@ -374,7 +393,7 @@ export default class BillDeskPaymentService {
                 };
             }
 
-            if (paymentStatus === GenericPaymentTxnStatus.Pending) {
+            // if (paymentStatus === GenericPaymentTxnStatus.Pending) {
                 // Cast to access payment_gateway_order_id (run `npx prisma generate` after schema update)
                 const orderId = paymentTxn?.payment_gateway_order_id;
                 const partnerId = paymentTxn.partner_id;
@@ -426,14 +445,14 @@ export default class BillDeskPaymentService {
                     status: paymentStatus,
                     error: 'Failed to get payment status of billdesk payment',
                 };
-            }
+            // }
 
-            logger.warn('Invalid payment status to update payment status of billdesk payment', { paymentTxn });
+            // logger.warn('Invalid payment status to update payment status of billdesk payment', { paymentTxn });
 
-            return {
-                success: true,
-                status: paymentStatus,
-            };
+            // return {
+            //     success: true,
+            //     status: paymentStatus,
+            // };
         }
         catch (error: unknown) {
             const err = error instanceof Error ? error : new Error(getErrorMessage(error));
@@ -678,18 +697,21 @@ export default class BillDeskPaymentService {
      * Shows a styled page with payment status and auto-redirect back to app
      */
     public static generateRedirectPage(params: {
-        success?: boolean;
-        cancelled?: boolean;
         message: string;
+        isError?: boolean;
+        errorType?: string;
+        errorCode?: string;
+        statusCode?: string;
         orderId?: string;
         transactionId?: string;
-        error?: string;
     }): string {
-        const { message, orderId, transactionId, error } = params;
+        const { message, isError, errorType, errorCode, statusCode, orderId, transactionId } = params;
         
-        // Neutral blue color and info icon
-        const iconColor = '#667eea';
-        const iconPath = 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z'; // Checkmark
+        // Icon based on status
+        const iconColor = isError ? '#ef4444' : '#667eea';
+        const iconPath = isError 
+            ? 'M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z' // X mark
+            : 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z'; // Checkmark
 
         return `
 <!DOCTYPE html>
@@ -771,28 +793,6 @@ export default class BillDeskPaymentService {
             font-size: 14px;
             font-weight: 500;
         }
-        .btn {
-            display: inline-block;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            text-decoration: none;
-            padding: 14px 32px;
-            font-size: 16px;
-            font-weight: 500;
-            border-radius: 10px;
-            transition: transform 0.2s, box-shadow 0.2s;
-            border: none;
-            cursor: pointer;
-        }
-        .btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
-        }
-        .timer {
-            color: #9ca3af;
-            font-size: 14px;
-            margin-top: 16px;
-        }
         .close-hint {
             color: #6b7280;
             font-size: 14px;
@@ -819,10 +819,26 @@ export default class BillDeskPaymentService {
             Please go back to the app to check your payment status.
         </p>
         
-        ${error ? `<p class="error-text">${error}</p>` : ''}
-        
-        ${(orderId || transactionId) ? `
+        ${(errorType || errorCode || statusCode || orderId || transactionId) ? `
         <div class="details">
+            ${errorType ? `
+            <div class="detail-row">
+                <span class="detail-label">Error Type</span>
+                <span class="detail-value">${errorType.replace(/_/g, ' ')}</span>
+            </div>
+            ` : ''}
+            ${errorCode ? `
+            <div class="detail-row">
+                <span class="detail-label">Error Code</span>
+                <span class="detail-value">${errorCode}</span>
+            </div>
+            ` : ''}
+            ${statusCode ? `
+            <div class="detail-row">
+                <span class="detail-label">Status</span>
+                <span class="detail-value">${statusCode}</span>
+            </div>
+            ` : ''}
             ${orderId ? `
             <div class="detail-row">
                 <span class="detail-label">Order ID</span>
@@ -838,38 +854,8 @@ export default class BillDeskPaymentService {
         </div>
         ` : ''}
         
-        <button class="btn" onclick="goBack()">Return to App</button>
-        
-        <p class="timer">Redirecting automatically in <span id="countdown">5</span> seconds...</p>
         <p class="close-hint">You may close this page</p>
     </div>
-    
-    <script>
-        let seconds = 5;
-        const countdownEl = document.getElementById('countdown');
-        
-        const timer = setInterval(() => {
-            seconds--;
-            countdownEl.textContent = seconds;
-            if (seconds <= 0) {
-                clearInterval(timer);
-                goBack();
-            }
-        }, 1000);
-        
-        function goBack() {
-            // Try to close the window (works if opened by JS)
-            if (window.opener) {
-                window.close();
-            }
-            // Try going back in history
-            if (window.history.length > 1) {
-                window.history.back();
-            }
-            // Fallback: try to trigger app deep link (customize as needed)
-            // window.location.href = 'yourapp://payment-complete';
-        }
-    </script>
 </body>
 </html>
         `.trim();
