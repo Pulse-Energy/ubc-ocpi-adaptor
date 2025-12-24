@@ -293,6 +293,7 @@ model CDR {
   updated_at                      DateTime    @updatedAt
   partner_id                      String
   partner                         OCPIPartner @relation(fields: [partner_id], references: [id], onDelete: Cascade)
+  invoice_details                 Json?       @default("{}") @db.Json
 
   @@unique([country_code, party_id, ocpi_cdr_id])
   @@index([country_code, party_id])
