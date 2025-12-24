@@ -7,6 +7,7 @@ import PaymentTxnDbService from '../../db-services/PaymentTxnDbService';
 import OCPIPartnerDbService from '../../db-services/OCPIPartnerDbService';
 import { OCPIPartnerAdditionalProps } from '../../types/OCPIPartner';
 import { logger } from '../../services/logger.service';
+import ChargingService from '../../ubc/actions/services/ChargingService';
 
 const router = Router();
 
@@ -71,6 +72,31 @@ router.get('/check-payment-status/billdesk/:paymentTxnId', async (req: Request, 
         const paymentStatusResponse = await BillDeskPaymentGatewayService.retrieveTransaction(paymentTxn?.payment_gateway_order_id ?? '', paymentTxn?.partner_id ?? '');
 
         res.status(paymentStatusResponse.status || 200).json(paymentStatusResponse.response);
+    }
+    catch (error) {
+        res.status(500).json({
+            success: false,
+            message: 'Callback processing failed',
+            timestamp: new Date().toISOString(),
+            error: error instanceof Error ? error.message : 'Unknown error',
+        });
+    }
+});
+
+router.get('/invoice/tata/:paymentTxnId', async (req: Request, res: Response) => {
+    try {
+        // Convert query params to body format
+
+        const paymentTxn = await PaymentTxnDbService.getById(req.params.paymentTxnId);
+
+        
+        await ChargingService.handleActionOnChargingCompleted(paymentTxn?.authorization_reference ?? '');
+
+        res.status(200).json({
+            success: true,
+            message: 'Payment status checked successfully',
+            timestamp: new Date().toISOString(),
+        });
     }
     catch (error) {
         res.status(500).json({
