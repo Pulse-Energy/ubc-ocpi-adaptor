@@ -1,8 +1,8 @@
 /**
  * Tata Power Invoice Generation Service
  * 
- * Generates invoice PDFs using Tata Power's OCPI integration API
- * API Endpoint: POST /generate-pdf/ocpiIntegration/ocpi/cpo/2.2.1/generateinvoice-pdf
+ * Generates invoice using Tata Power's BPP Invoice Service API
+ * API Endpoint: POST /BppInvoiceService/generateInvoice
  */
 import axios from 'axios';
 import { logger } from '../../../services/logger.service';
@@ -52,6 +52,8 @@ export default class TataPowerInvoiceGenerationService {
     private static async getCredentials(partnerId: string): Promise<{
         api_url: string;
         auth_token: string;
+        finder_fee_flat: string;
+        finder_fee_percentage: string;
     } | null> {
         try {
             const ocpiPartner = await OCPIPartnerDbService.getById(partnerId);
@@ -72,6 +74,8 @@ export default class TataPowerInvoiceGenerationService {
             return {
                 api_url: tataPowerConfig.API_URL,
                 auth_token: tataPowerConfig.AUTH_TOKEN,
+                finder_fee_flat: tataPowerConfig.FINDER_FEE_FLAT || '-',
+                finder_fee_percentage: tataPowerConfig.FINDER_FEE_PERCENTAGE || '-',
             };
         }
         catch (e: unknown) {
@@ -85,13 +89,13 @@ export default class TataPowerInvoiceGenerationService {
     }
 
     /**
-     * Generate invoice PDF using Tata Power's OCPI integration API
+     * Generate invoice using Tata Power's BPP Invoice Service API
      * 
      * @param request - Invoice generation request payload
      * @param partnerId - Partner ID for credentials
-     * @returns Invoice generation response with PDF URL or error
+     * @returns Invoice generation response with invoice URL and data
      */
-    public async generateInvoicePdf(
+    public static async generateInvoicePdf(
         request: InvoiceGenerationRequest,
         partnerId: string
     ): Promise<InvoiceGenerationResponse> {
@@ -109,7 +113,7 @@ export default class TataPowerInvoiceGenerationService {
         };
 
         try {
-            logger.info(`🟡 [${reqId}] TataPowerInvoice: Starting invoice PDF generation`, logData);
+            logger.info(`🟡 [${reqId}] TataPowerInvoice: Starting invoice generation`, logData);
 
             // Get credentials from partner configuration
             const credentials = await TataPowerInvoiceGenerationService.getCredentials(partnerId);
@@ -122,7 +126,7 @@ export default class TataPowerInvoiceGenerationService {
                 };
             }
 
-            const { api_url, auth_token } = credentials;
+            const { api_url, auth_token, finder_fee_flat, finder_fee_percentage } = credentials;
 
             // Build request headers
             const headers = {
@@ -130,21 +134,23 @@ export default class TataPowerInvoiceGenerationService {
                 'Content-Type': 'application/json',
             };
 
-            // Build request payload
+            // Build request payload matching Tata Power API format
             const payload = {
-                customer_name: request.customer_name,
-                gst: request.gst || '',
-                charge_session_id: request.charge_session_id,
-                state: request.state || '',
-                pincode: request.pincode || '',
-                phone_no: request.phone_no || '',
-                customer_id: request.customer_id,
-                address: request.address || '',
+                session_id: request.session_id,
+                finder_fee_flat: request.finder_fee_flat || finder_fee_flat,
+                finder_fee_percentage: request.finder_fee_percentage || finder_fee_percentage,
+                customer_name: request.customer_name || '-',
+                gst: request.gst || '-',
+                pincode: request.pincode || '-',
+                phone_no: request.phone_no || '-',
+                customer_id: request.customer_id || '-',
+                address: request.address || '-',
             };
 
             logger.debug(`🟡 [${reqId}] TataPowerInvoice: Sending request to API`, {
                 ...logData,
                 url: api_url,
+                payload,
             });
 
             // Make API request
@@ -155,12 +161,9 @@ export default class TataPowerInvoiceGenerationService {
 
             const apiResponse = response.data;
 
-            // Check if the invoice was actually generated (invoice_url is not empty)
-            const isInvoiceGenerated = apiResponse.invoice_url && apiResponse.invoice_url.trim() !== '';
-
-            if (!isInvoiceGenerated) {
-                // Session was invalid or invoice could not be generated
-                logger.warn(`🟡 [${reqId}] TataPowerInvoice: Invoice not generated - ${apiResponse.message}`, {
+            // Check if the invoice was generated successfully
+            if (!apiResponse.status) {
+                logger.warn(`🟡 [${reqId}] TataPowerInvoice: Invoice generation failed - ${apiResponse.message}`, {
                     ...logData,
                     statusCode: response.status,
                     responseData: apiResponse,
@@ -168,16 +171,33 @@ export default class TataPowerInvoiceGenerationService {
 
                 return {
                     success: false,
-                    message: apiResponse.message || 'Charging session details are incorrect',
+                    message: apiResponse.message || 'Invoice generation failed',
                     timestamp: apiResponse.timestamp,
-                    raw_response: apiResponse,
                 };
             }
 
-            logger.info(`🟢 [${reqId}] TataPowerInvoice: Invoice PDF generated successfully`, {
+            // Check if the invoice URL is valid
+            const isInvoiceGenerated = apiResponse.invoice_url && apiResponse.invoice_url.trim() !== '';
+
+            if (!isInvoiceGenerated) {
+                logger.warn(`🟡 [${reqId}] TataPowerInvoice: Invoice URL not generated - ${apiResponse.message}`, {
+                    ...logData,
+                    statusCode: response.status,
+                    responseData: apiResponse,
+                });
+
+                return {
+                    success: false,
+                    message: apiResponse.message || 'Invoice URL not generated',
+                    timestamp: apiResponse.timestamp,
+                };
+            }
+
+            logger.info(`🟢 [${reqId}] TataPowerInvoice: Invoice generated successfully`, {
                 ...logData,
                 statusCode: response.status,
-                responseData: apiResponse,
+                invoice_url: apiResponse.invoice_url,
+                invoice_data: apiResponse.invoice_data,
             });
 
             return {
@@ -185,7 +205,7 @@ export default class TataPowerInvoiceGenerationService {
                 invoice_url: apiResponse.invoice_url,
                 message: apiResponse.message,
                 timestamp: apiResponse.timestamp,
-                raw_response: apiResponse,
+                invoice_data: apiResponse.invoice_data,
             };
         }
         catch (e: unknown) {
@@ -194,7 +214,7 @@ export default class TataPowerInvoiceGenerationService {
             const errorStatus = getAxiosErrorStatus(e);
             const err = e instanceof Error ? e : new Error(errorMessage);
 
-            logger.error(`🔴 [${reqId}] TataPowerInvoice: Failed to generate invoice PDF - ${errorMessage}`, err, {
+            logger.error(`🔴 [${reqId}] TataPowerInvoice: Failed to generate invoice - ${errorMessage}`, err, {
                 ...logData,
                 errorStatus,
                 errorData,
@@ -203,20 +223,7 @@ export default class TataPowerInvoiceGenerationService {
             return {
                 success: false,
                 error: errorMessage,
-                raw_response: errorData,
             };
         }
     }
-
-    /**
-     * Static method for generating invoice PDF (convenience method)
-     */
-    public static async generate(
-        request: InvoiceGenerationRequest,
-        partnerId: string
-    ): Promise<InvoiceGenerationResponse> {
-        const service = new TataPowerInvoiceGenerationService();
-        return service.generateInvoicePdf(request, partnerId);
-    }
 }
-

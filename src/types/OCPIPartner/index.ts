@@ -12,6 +12,8 @@ export enum InvoiceServiceProvider {
 export interface TataPowerInvoiceConfig {
     API_URL: string;
     AUTH_TOKEN: string;
+    FINDER_FEE_FLAT?: string;
+    FINDER_FEE_PERCENTAGE?: string;
 }
 
 export type OCPIPartnerAdditionalProps = {

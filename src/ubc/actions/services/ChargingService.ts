@@ -5,6 +5,8 @@ import AdminCommandsModule from '../../../admin/modules/AdminCommandsModule';
 import { Request } from 'express';
 import OnUpdateActionHandler from '../handlers/OnUpdateActionHandler';
 import { logger } from '../../../services/logger.service';
+import InvoiceGenerationService from '../../services/invoice/InvoiceGeneration';
+import { CdrDbService } from '../../../db-services/CdrDbService';
 
 export default class ChargingService {
     public static async autoCutOffChargingSession(session: Session): Promise<void> {
@@ -93,6 +95,54 @@ export default class ChargingService {
                 },
             });
 
+            const invoiceResponse = await InvoiceGenerationService.generateInvoice(
+                authorization_reference,
+                paymentTxn?.partner_id ?? ''
+            );
+
+            // Store invoice response in CDR table if invoice was generated successfully
+            if (invoiceResponse.success && invoiceResponse.invoice_data) {
+                try {
+                    
+                    // Find CDR by authorization_reference
+                    const cdr = await CdrDbService.getByAuthorizationReference(authorization_reference);
+
+                    if (cdr) {
+                        // Update CDR with invoice details
+                        await CdrDbService.update(cdr.id, {
+                            invoice_details: invoiceResponse.invoice_data
+                        });
+                        
+                        logger.info(
+                            `🟢 ${authorization_reference} Stored invoice details in CDR`,
+                            {
+                                data: {
+                                    cdr_id: cdr.id,
+                                    invoice_url: invoiceResponse.invoice_url,
+                                },
+                            }
+                        );
+                    }
+                    else {
+                        logger.warn(
+                            `🟡 ${authorization_reference} CDR not found to store invoice details`,
+                            {
+                                data: { authorization_reference },
+                            }
+                        );
+                    }
+                }
+                catch (cdrError: any) {
+                    logger.error(
+                        `🔴 ${authorization_reference} Failed to store invoice in CDR`,
+                        cdrError,
+                        {
+                            data: { authorization_reference },
+                        }
+                    );
+                }
+            }
+
             const becknTransactionId = paymentTxn?.beckn_transaction_id ?? '';
             await OnUpdateActionHandler.handleEVChargingUBCBppOnUpdateAction({
                 beckn_transaction_id: becknTransactionId,
@@ -100,7 +150,7 @@ export default class ChargingService {
                 session_status: ChargingSessionStatus.COMPLETED,
             });
             logger.debug(
-                `🟢 ${authorization_reference} Sent on_update request in autoCutOffChargingSession`,
+                `🟢 ${authorization_reference} Sent on_update request in handleActionOnChargingCompleted`,
                 {
                     data: {
                         beckn_transaction_id: becknTransactionId,

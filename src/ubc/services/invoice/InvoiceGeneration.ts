@@ -12,9 +12,9 @@ import { BecknBuyer } from '../../schema/v2.0.0/types/Buyer';
 
 export default class InvoiceGenerationService {
     /**
-     * Generate invoice PDF using the configured invoice provider for the partner
+     * Generate invoice using the configured invoice provider for the partner
      * 
-     * @param request - Invoice generation request payload
+     * @param authorization_reference - Authorization reference for the session
      * @param partnerId - Partner ID to get configuration from
      * @returns Invoice generation response
      */
@@ -45,17 +45,6 @@ export default class InvoiceGenerationService {
             }
 
             const buyerInfo = session.buyer_info as BecknBuyer;
-
-            const request: InvoiceGenerationRequest = {
-                customer_name: buyerInfo['beckn:name'] ?? '',
-                gst: buyerInfo['beckn:taxId'] ?? '',
-                charge_session_id: authorization_reference,
-                phone_no: buyerInfo['beckn:phone'] ?? '',
-                customer_id: buyerInfo['beckn:id'] ?? '',
-                address: buyerInfo['beckn:address'] ?? '',
-
-            };
-
             const additionalProps = partner.additional_props as OCPIPartnerAdditionalProps;
             const invoiceProvider = additionalProps?.invoice_service_provider;
 
@@ -67,10 +56,28 @@ export default class InvoiceGenerationService {
                 };
             }
 
+            // Get finder fee configuration from partner
+            const tataPowerConfig = additionalProps?.invoice_services?.TataPower;
+            const finderFeeFlat = tataPowerConfig?.FINDER_FEE_FLAT || '-';
+            const finderFeePercentage = tataPowerConfig?.FINDER_FEE_PERCENTAGE || '-';
+
+            // Build request with session_id (CPO session ID from Tata Power)
+            const request: InvoiceGenerationRequest = {
+                session_id: session.cpo_session_id ?? authorization_reference,
+                finder_fee_flat: finderFeeFlat,
+                finder_fee_percentage: finderFeePercentage,
+                customer_name: buyerInfo?.['beckn:name'] ?? '-',
+                gst: buyerInfo?.['beckn:taxId'] ?? '-',
+                pincode: '-',
+                phone_no: buyerInfo?.['beckn:phone'] ?? '-',
+                customer_id: buyerInfo?.['beckn:id'] ?? '-',
+                address: buyerInfo?.['beckn:address'] ?? '-',
+            };
+
             // Route to the appropriate provider
             switch (invoiceProvider) {
                 case InvoiceServiceProvider.TataPower:
-                    return await TataPowerInvoiceGenerationService.generate(request, partnerId);
+                    return await TataPowerInvoiceGenerationService.generateInvoicePdf(request, partnerId);
 
                 default:
                     logger.error(`InvoiceGeneration: Unsupported invoice provider: ${invoiceProvider}`, undefined, { partnerId });
@@ -95,4 +102,3 @@ export default class InvoiceGenerationService {
         }
     }
 }
-
