@@ -10,6 +10,12 @@ export type BecknRequestMetadata = {
     bap_uri?: string,
 }
 
+export type BuyerDetails = {
+    name?: string,
+    phone?: string,
+    email?: string,
+};
+
 export type ExtractedSelectRequestPayload = {
     seller_id: string,
     charge_point_connector_id: string,
@@ -18,6 +24,15 @@ export type ExtractedSelectRequestPayload = {
     tariff?: number, // Will be used to calculate the order value. If tariff is 10/kWh, then tariff will be 10
     charge_point_connector_type?: string,
     power_rating?: number,
+    buyer_details?: BuyerDetails, // buyer information from pulse central
+    preferences?: {
+        startTime?: string, // used in case of reservation
+        endTime?: string,
+    },
+    buyerFinderFee?: {
+        feeType?: string, // e.g., 'PERCENTAGE'
+        feeValue?: number, // e.g., 2.5
+    },
 };
 
 export type ExtractedSelectRequestBody = {

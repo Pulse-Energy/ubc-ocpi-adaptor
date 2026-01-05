@@ -22,6 +22,7 @@ import {
     BecknOrderValueComponents,
     BecknOrderValueResponse,
 } from '../../schema/v2.0.0/types/OrderValue';
+import { BecknOrderItemResponse } from '../../schema/v2.0.0/types/OrderItem';
 import { EvseConnectorDbService } from '../../../db-services/EvseConnectorDbService';
 import { OCPIv211PriceComponent, OCPIv211TariffElement } from '../../../ocpi/schema/modules/tariffs/types';
 import { Tariff } from '@prisma/client';
@@ -116,6 +117,52 @@ export default class SelectActionHandler {
     public static translateUBCToBackendPayload(
         payload: UBCSelectRequestPayload
     ): ExtractedSelectRequestBody {
+        const order = payload.message.order;
+        const orderItem = order['beckn:orderItems'][0];
+        const orderRecord = order as Record<string, unknown>;
+        const buyer = orderRecord['beckn:buyer'];
+        const orderAttributes = order['beckn:orderAttributes'];
+
+        // Initialize buyer_details object
+        const buyer_details: Partial<{ name?: string; phone?: string; email?: string }> = {};
+        if (buyer) {
+            const buyerRecord = buyer as Record<string, unknown>;
+            if (buyerRecord['beckn:displayName']) {
+                buyer_details.name = buyerRecord['beckn:displayName'] as string;
+            }
+            if (buyerRecord['beckn:telephone']) {
+                buyer_details.phone = buyerRecord['beckn:telephone'] as string;
+            }
+            if (buyerRecord['beckn:email']) {
+                buyer_details.email = buyerRecord['beckn:email'] as string;
+            }
+        }
+
+        // Initialize preferences object
+        const preferences: { startTime?: string; endTime?: string } = {};
+        const orderAttributesRecord = orderAttributes as Record<string, unknown>;
+        const preferencesObj = orderAttributesRecord?.['preferences'] as { startTime?: string; endTime?: string } | undefined;
+        if (preferencesObj) {
+            if (preferencesObj.startTime) {
+                preferences.startTime = preferencesObj.startTime;
+            }
+            if (preferencesObj.endTime) {
+                preferences.endTime = preferencesObj.endTime;
+            }
+        }
+
+        // Initialize buyerFinderFee object
+        const buyerFinderFee: { feeType?: string; feeValue?: number } = {};
+        const buyerFinderFeeObj = orderAttributesRecord?.['buyerFinderFee'] as { feeType?: string; feeValue?: number } | undefined;
+        if (buyerFinderFeeObj) {
+            if (buyerFinderFeeObj.feeType) {
+                buyerFinderFee.feeType = buyerFinderFeeObj.feeType;
+            }
+            if (buyerFinderFeeObj.feeValue !== undefined) {
+                buyerFinderFee.feeValue = buyerFinderFeeObj.feeValue;
+            }
+        }
+
         const backendSelectPayload: ExtractedSelectRequestBody = {
             metadata: {
                 domain: BecknDomain.EVChargingUBC,
@@ -126,14 +173,13 @@ export default class SelectActionHandler {
                 bap_uri: payload.context.bap_uri,
             },
             payload: {
-                seller_id: payload.message.order['beckn:seller'],
-                charge_point_connector_id:
-                    payload.message.order['beckn:orderItems'][0]['beckn:orderedItem'],
+                seller_id: order['beckn:seller'],
+                charge_point_connector_id: orderItem['beckn:orderedItem'],
                 charging_option_type: UBCChargingMethod.Units,
-                charging_option_unit: (
-                    payload.message.order['beckn:orderItems'][0]['beckn:quantity']['unitQuantity'] *
-                    1000
-                ).toString(),
+                charging_option_unit: (orderItem['beckn:quantity']['unitQuantity'] * 1000).toString(),
+                buyer_details: Object.keys(buyer_details).length > 0 ? buyer_details : undefined,
+                preferences: Object.keys(preferences).length > 0 ? preferences : undefined,
+                buyerFinderFee: Object.keys(buyerFinderFee).length > 0 ? buyerFinderFee : undefined,
             },
         };
         return backendSelectPayload;
@@ -142,13 +188,6 @@ export default class SelectActionHandler {
     public static async sendSelectCallToBackend(
         payload: ExtractedSelectRequestBody
     ): Promise<ExtractedOnSelectResponseBody> {
-        // const backendHost = Utils.getCPOBackendHostBasePath();
-        // const response = await CPOBackendRequestService.sendPostRequest({
-        //     url: `${backendHost}/${BecknAction.select}`,
-        //     data: payload,
-        //     headers: {},
-        // });
-        // return response.data as ExtractedOnSelectResponseBody;
         const reqPayload = payload.payload;
         const {
             seller_id,
@@ -158,6 +197,7 @@ export default class SelectActionHandler {
             tariff,
             charge_point_connector_type,
             power_rating,
+            buyerFinderFee,
         } = reqPayload;
         const chargingOptionUnit = Number(charging_option_unit)/1000; // Convert kWh to Wh
         const evseConnector = await EvseConnectorDbService.getById(
@@ -172,7 +212,7 @@ export default class SelectActionHandler {
             throw new Error('Tariff not found for EVSE Connector');
         }
 
-        const orderValue = SelectActionHandler.buildOrderValue(ocpiTariff, chargingOptionUnit);
+        const orderValue = SelectActionHandler.buildOrderValue(ocpiTariff, chargingOptionUnit, buyerFinderFee);
 
         const response: ExtractedOnSelectResponseBody = {
             payload: {
@@ -192,63 +232,65 @@ export default class SelectActionHandler {
         ExtractedOnSelectResponseBody: ExtractedOnSelectResponseBody
     ): UBCOnSelectRequestPayload {
         const orderValue = ExtractedOnSelectResponseBody.payload['beckn:orderValue'];
-        // const price = ExtractedOnSelectResponseBody.payload['beckn:price'];
+        const selectOrder = backendSelectPayload.message.order;
+        const selectOrderItem = selectOrder['beckn:orderItems'][0];
+        const selectAcceptedOffer = selectOrderItem['beckn:acceptedOffer'];
+        const backendPayloadData = ExtractedOnSelectResponseBody.payload as Record<string, unknown>;
 
         const context = Utils.getBPPContext({
             ...backendSelectPayload.context,
             action: BecknAction.on_select,
         });
 
+        // Build order item response with price
+        const priceFromBackend = backendPayloadData['beckn:price'];
+        const priceFromOffer = selectAcceptedOffer['beckn:price'];
+        const lineId = selectOrderItem['beckn:lineId'] || `line-${selectOrderItem['beckn:orderedItem']}`; // use lineId from select or generate one
+        const orderItemResponse: BecknOrderItemResponse = {
+            'beckn:lineId': lineId, // reuse from select or generate
+            'beckn:orderedItem': selectOrderItem['beckn:orderedItem'], // reuse from select
+            'beckn:quantity': selectOrderItem['beckn:quantity'], // reuse from select
+            'beckn:acceptedOffer': {
+                ...selectAcceptedOffer, // reuse from select (includes provider field)
+            },
+            ...(priceFromBackend || priceFromOffer ? { 'beckn:price': (priceFromBackend || priceFromOffer) as any } : {}), // add price if available
+        };
+
+        const selectOrderRecord = selectOrder as Record<string, unknown>;
+        // Build fulfillment - reuse from select if present, otherwise create default
+        let fulfillment = selectOrderRecord['beckn:fulfillment'] as any;
+        if (!fulfillment) {
+            // Create default fulfillment for on_select response per schema
+            const orderAttributes = selectOrderRecord['beckn:orderAttributes'] as Record<string, unknown> | undefined;
+            const deliveryAttributes: Record<string, unknown> = {
+                '@context': 'https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/EvChargingSession/v1/context.jsonld',
+                '@type': 'ChargingSession',
+                'sessionStatus': ChargingSessionStatus.PENDING,
+            };
+            if (orderAttributes?.connectorType) {
+                deliveryAttributes.connectorType = orderAttributes.connectorType;
+            }
+            if (orderAttributes?.maxPowerKW) {
+                deliveryAttributes.maxPowerKW = orderAttributes.maxPowerKW;
+            }
+            fulfillment = {
+                '@context': 'https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld',
+                '@type': 'beckn:Fulfillment',
+                'beckn:id': `fulfillment-${backendSelectPayload.context.transaction_id}`,
+                'beckn:mode': 'RESERVATION',
+                'beckn:deliveryAttributes': deliveryAttributes,
+            };
+        }
+        
         const ubcOnSelectPayload: UBCOnSelectRequestPayload = {
             context: context,
             message: {
                 order: {
-                    ...backendSelectPayload.message.order,
-                    'beckn:orderStatus': OrderStatus.PENDING,
-                    'beckn:orderValue': orderValue,
-                    'beckn:orderItems': [
-                        {
-                            'beckn:lineId':
-                                backendSelectPayload.message.order['beckn:orderItems'][0][
-                                    'beckn:lineId'
-                                ],
-                            'beckn:orderedItem':
-                                backendSelectPayload.message.order['beckn:orderItems'][0][
-                                    'beckn:orderedItem'
-                                ],
-                            'beckn:quantity':
-                                backendSelectPayload.message.order['beckn:orderItems'][0][
-                                    'beckn:quantity'
-                                ],
-                            'beckn:acceptedOffer':
-                                backendSelectPayload.message.order['beckn:orderItems'][0][
-                                    'beckn:acceptedOffer'
-                                ],
-                            // 'beckn:price': price,
-                        },
-                    ],
-                    'beckn:fulfillment': {
-                        '@context':
-                            'https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/draft/schema/core/v2/context.jsonld',
-                        '@type': ObjectType.fulfillment,
-                        'beckn:id': 'fulfillment-charging-001',
-                        'beckn:mode': 'RESERVATION',
-                        'beckn:deliveryAttributes': {
-                            '@context':
-                                'https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/draft/schema/EvChargingSession/v1/context.jsonld',
-                            '@type': ObjectType.chargingSession,
-                            sessionStatus: ChargingSessionStatus.PENDING,
-                            authorizationMode: 'APP_QR',
-                            authorizationOtpHint: 'Scan QR code at charging station',
-                            connectorType: ExtractedOnSelectResponseBody.payload.connector_type,
-                            maxPowerKW: ExtractedOnSelectResponseBody.payload.power_rating,
-                            reservationId: '',
-                            gracePeriodMinutes: 10,
-                            trackingId: '',
-                            trackingUrl: '',
-                            trackingStatus: '',
-                        },
-                    },
+                    ...selectOrder, // reuse everything from select request
+                    'beckn:orderStatus': OrderStatus.CREATED, // only update orderStatus
+                    'beckn:orderValue': orderValue, // from backend response
+                    'beckn:orderItems': [orderItemResponse as BecknOrderItemResponse],
+                    'beckn:fulfillment': fulfillment, // reuse from select or create default
                 },
             },
         };
@@ -275,6 +317,7 @@ export default class SelectActionHandler {
             charging_session_cost: number,
             gst: number,
             service_charge: number,
+            buyer_finder_fee?: number,
         },
     ): BecknOrderValueComponents[] {
         const components: BecknOrderValueComponents[] = [
@@ -288,7 +331,7 @@ export default class SelectActionHandler {
 
         if (estimatedChargingCost.gst) {
             components.push({
-                type: OrderValueComponentsType.FEE,
+                type: OrderValueComponentsType.TAX,
                 value: estimatedChargingCost.gst,
                 currency: 'INR',
                 description: 'GST',
@@ -304,10 +347,23 @@ export default class SelectActionHandler {
             });
         }
 
+        if (estimatedChargingCost.buyer_finder_fee) {
+            components.push({
+                type: OrderValueComponentsType.FEE,
+                value: estimatedChargingCost.buyer_finder_fee,
+                currency: 'INR',
+                description: 'Buyer Finder Fee',
+            });
+        }
+
         return components;
     }
 
-    private static buildOrderValue(tariff: Tariff, chargingOptionUnit: number): BecknOrderValueResponse {
+    private static buildOrderValue(
+        tariff: Tariff, 
+        chargingOptionUnit: number,
+        buyerFinderFee?: { feeType?: string; feeValue?: number }
+    ): BecknOrderValueResponse {
         const tariffElement = {
             ocpi_tariff_element: tariff.ocpi_tariff_element as any as OCPIv211TariffElement[],
             max_price: tariff.max_price,
@@ -318,13 +374,16 @@ export default class SelectActionHandler {
 
         const chargingSessionCost = priceComponents.reduce((acc: number, curr: OCPIv211PriceComponent) => acc + (curr.price * chargingOptionUnit) + (curr.vat ? (curr.price * chargingOptionUnit) * (curr.vat / 100) : 0), 0);
 
-        const gst = chargingSessionCost * 0.18;
         const serviceCharge = chargingSessionCost * 0.05;
-        const total = chargingSessionCost + gst + serviceCharge;
+        const buyerFinderFeeValue = buyerFinderFee?.feeValue || 0;
+        const subtotal = chargingSessionCost + serviceCharge + buyerFinderFeeValue;
+        const gst = subtotal * 0.18;
+        const total = subtotal + gst;
         const orderValueComponents = SelectActionHandler.buildOrderValueComponents({
             charging_session_cost: chargingSessionCost,
             gst: gst, 
             service_charge: serviceCharge,
+            buyer_finder_fee: buyerFinderFeeValue > 0 ? buyerFinderFeeValue : undefined,
         });
         return {
             currency: tariffElement.currency,

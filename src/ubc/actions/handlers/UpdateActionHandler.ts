@@ -291,30 +291,38 @@ export default class UpdateActionHandler {
             action: BecknAction.on_update,
         });
 
+        const order = backendUpdatePayload.message.order;
+        const fulfillment = order['beckn:fulfillment'];
+        const deliveryAttributes = fulfillment?.['beckn:deliveryAttributes'] as Record<string, unknown>;
+        const sessionStatus = ExtractedOnUpdateResponseBody.session_status;
+
+        // Determine orderStatus based on session status
+        let orderStatus: OrderStatus;
+        if (sessionStatus === ChargingSessionStatus.ACTIVE) {
+            orderStatus = OrderStatus.INPROGRESS;
+        } else if (sessionStatus === ChargingSessionStatus.COMPLETED) {
+            orderStatus = OrderStatus.COMPLETED;
+        } else {
+            orderStatus = order['beckn:orderStatus'] as OrderStatus;
+        }
+
         const ubcOnUpdatePayload: UBCOnUpdateRequestPayload = {
             context: context,
             message: {
                 order: {
-                    ...backendUpdatePayload.message.order,
-                    'beckn:orderStatus':
-                        ExtractedOnUpdateResponseBody.session_status ===
-                            ChargingSessionStatus.ACTIVE ||
-                        ExtractedOnUpdateResponseBody.session_status ===
-                            ChargingSessionStatus.COMPLETED
-                            ? OrderStatus.COMPLETED
-                            : backendUpdatePayload.message.order['beckn:orderStatus'],
+                    ...order, // reuse everything from update request
+                    'beckn:orderStatus': orderStatus, // only update orderStatus
                     'beckn:fulfillment': {
-                        ...backendUpdatePayload.message.order['beckn:fulfillment'],
+                        ...fulfillment, // reuse everything from update request
                         'beckn:deliveryAttributes': {
-                            ...backendUpdatePayload.message.order['beckn:fulfillment'][
-                                'beckn:deliveryAttributes'
-                            ],
-                            sessionStatus: ExtractedOnUpdateResponseBody.session_status,
-                        },
+                            ...deliveryAttributes, // reuse everything from update request (includes @context and @type)
+                            'sessionStatus': sessionStatus, // only update sessionStatus
+                        } as never,
                     },
                 },
             },
         };
+
         return ubcOnUpdatePayload;
     }
 

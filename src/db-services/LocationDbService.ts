@@ -353,33 +353,55 @@ export class LocationDbService {
     ): Promise<EVSE> {
         const prisma = databaseService.prisma;
 
-        return prisma.eVSE.create({
-            data: {
+        const evseData = {
+            location_id: locationId,
+            partner_id: partnerId,
+            uid: evse.uid,
+            evse_id: evse.evse_id ?? null,
+            status: evse.status as OCPIStatus,
+            status_schedule: evse.status_schedule
+                ? evse.status_schedule as Prisma.InputJsonValue
+                : [] as Prisma.InputJsonValue,
+            capabilities: evse.capabilities ?? [],
+            floor_level: evse.floor_level ?? null,
+            latitude: evse.coordinates?.latitude ?? fallbackCoordinates?.latitude ?? '0',
+            longitude: evse.coordinates?.longitude ?? fallbackCoordinates?.longitude ?? '0',
+            physical_reference: evse.physical_reference ?? null,
+            directions: evse.directions
+                ? evse.directions as Prisma.InputJsonValue
+                : [] as Prisma.InputJsonValue,
+            parking_restrictions: evse.parking_restrictions ?? [],
+            images: evse.images
+                ? evse.images as Prisma.InputJsonValue
+                : [] as Prisma.InputJsonValue,
+            status_errorcode: evse.status_errorcode ? String(evse.status_errorcode) : null,
+            status_errordescription: evse.status_errordescription ?? null,
+            last_updated: new Date(evse.last_updated ?? new Date().toISOString()),
+        };
+
+        // Check if EVSE already exists (unique constraint on location_id + uid)
+        const existingEvse = await prisma.eVSE.findFirst({
+            where: {
                 location_id: locationId,
-                partner_id: partnerId,
                 uid: evse.uid,
-                evse_id: evse.evse_id ?? null,
-                status: evse.status as OCPIStatus,
-                status_schedule: evse.status_schedule
-                    ? evse.status_schedule as Prisma.InputJsonValue
-                    : [] as Prisma.InputJsonValue,
-                capabilities: evse.capabilities ?? [],
-                floor_level: evse.floor_level ?? null,
-                latitude: evse.coordinates?.latitude ?? fallbackCoordinates?.latitude ?? '0',
-                longitude: evse.coordinates?.longitude ?? fallbackCoordinates?.longitude ?? '0',
-                physical_reference: evse.physical_reference ?? null,
-                directions: evse.directions
-                    ? evse.directions as Prisma.InputJsonValue
-                    : [] as Prisma.InputJsonValue,
-                parking_restrictions: evse.parking_restrictions ?? [],
-                images: evse.images
-                    ? evse.images as Prisma.InputJsonValue
-                    : [] as Prisma.InputJsonValue,
-                status_errorcode: evse.status_errorcode ? String(evse.status_errorcode) : null,
-                status_errordescription: evse.status_errordescription ?? null,
-                last_updated: new Date(evse.last_updated ?? new Date().toISOString()),
             },
         });
+
+        if (existingEvse) {
+            // Update existing EVSE
+            return prisma.eVSE.update({
+                where: {
+                    id: existingEvse.id,
+                },
+                data: evseData,
+            });
+        }
+        else {
+            // Create new EVSE
+            return prisma.eVSE.create({
+                data: evseData,
+            });
+        }
     }
 
     private static async createConnectorForEvse(
@@ -408,5 +430,6 @@ export class LocationDbService {
         });
     }
 }
+
 
 
