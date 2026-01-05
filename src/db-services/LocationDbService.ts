@@ -248,13 +248,11 @@ export class LocationDbService {
         ocpiLocationId: string,
         evseUid: string,
         connectorId: string,
-        partnerId: string,
     ): Promise<EVSEConnector | null> {
         // First find the location to get the internal location_id
         const location = await databaseService.prisma.location.findFirst({
             where: {
                 ocpi_location_id: ocpiLocationId,
-                partner_id: partnerId,
                 deleted: false,
             },
             select: {
@@ -271,7 +269,6 @@ export class LocationDbService {
             where: {
                 location_id: location.id,
                 uid: evseUid,
-                partner_id: partnerId,
                 deleted: false,
             },
             select: {
@@ -288,7 +285,6 @@ export class LocationDbService {
             where: {
                 evse_id: evse.id,
                 connector_id: connectorId,
-                partner_id: partnerId,
                 deleted: false,
             },
         });

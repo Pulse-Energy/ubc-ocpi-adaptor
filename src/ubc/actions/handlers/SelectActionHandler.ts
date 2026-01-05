@@ -27,6 +27,8 @@ import { EvseConnectorDbService } from '../../../db-services/EvseConnectorDbServ
 import { OCPIv211PriceComponent, OCPIv211TariffElement } from '../../../ocpi/schema/modules/tariffs/types';
 import { Tariff } from '@prisma/client';
 import { TariffDbService } from '../../../db-services/TariffDbService';
+import { LocationDbService } from '../../../db-services/LocationDbService';
+import OCPIPartnerDbService from '../../../db-services/OCPIPartnerDbService';
 
 /**
  * Handler for select action
@@ -185,6 +187,31 @@ export default class SelectActionHandler {
         return backendSelectPayload;
     }
 
+    /**
+     * Parses the formatted Beckn connector ID
+     * Format: IND*${sellerId}*${csId}*${cpId}*${connectorId}
+     * Returns: { countryCode, sellerId, csId, cpId, connectorId }
+     */
+    private static parseBecknConnectorId(formattedId: string): {
+        countryCode: string;
+        sellerId: string;
+        csId: string;
+        cpId: string;
+        connectorId: string;
+    } {
+        const parts = formattedId.split('*');
+        if (parts.length !== 5) {
+            throw new Error(`Invalid connector ID format: ${formattedId}. Expected format: IND*sellerId*csId*cpId*connectorId`);
+        }
+        return {
+            countryCode: parts[0], // IND
+            sellerId: parts[1],     // seller/party ID
+            csId: parts[2],         // charging station ID (location OCPI ID)
+            cpId: parts[3],         // charge point ID (EVSE UID)
+            connectorId: parts[4],  // connector ID
+        };
+    }
+
     public static async sendSelectCallToBackend(
         payload: ExtractedSelectRequestBody
     ): Promise<ExtractedOnSelectResponseBody> {
@@ -200,11 +227,19 @@ export default class SelectActionHandler {
             buyerFinderFee,
         } = reqPayload;
         const chargingOptionUnit = Number(charging_option_unit)/1000; // Convert kWh to Wh
-        const evseConnector = await EvseConnectorDbService.getById(
-            charge_point_connector_id
+        
+        // Parse the formatted connector ID
+        const parsedConnectorId = SelectActionHandler.parseBecknConnectorId(charge_point_connector_id);
+        
+        // Find connector using parsed values
+        const evseConnector = await LocationDbService.findConnectorByLocationEvseAndConnectorId(
+            parsedConnectorId.csId,      // location OCPI ID
+            parsedConnectorId.cpId,      // EVSE UID
+            parsedConnectorId.connectorId, // connector ID
         );
+        
         if (!evseConnector) {
-            throw new Error('EVSE Connector not found');
+            throw new Error(`EVSE Connector not found for: ${charge_point_connector_id}`);
         }
 
         const ocpiTariff = await TariffDbService.getByOcpiTariffId(evseConnector.tariff_ids[0]);
@@ -243,54 +278,40 @@ export default class SelectActionHandler {
         });
 
         // Build order item response with price
+        // Per schema: on_select orderItems should NOT include beckn:lineId
         const priceFromBackend = backendPayloadData['beckn:price'];
         const priceFromOffer = selectAcceptedOffer['beckn:price'];
-        const lineId = selectOrderItem['beckn:lineId'] || `line-${selectOrderItem['beckn:orderedItem']}`; // use lineId from select or generate one
-        const orderItemResponse: BecknOrderItemResponse = {
-            'beckn:lineId': lineId, // reuse from select or generate
+        const orderItemResponse: Record<string, unknown> = {
             'beckn:orderedItem': selectOrderItem['beckn:orderedItem'], // reuse from select
             'beckn:quantity': selectOrderItem['beckn:quantity'], // reuse from select
             'beckn:acceptedOffer': {
                 ...selectAcceptedOffer, // reuse from select (includes provider field)
             },
-            ...(priceFromBackend || priceFromOffer ? { 'beckn:price': (priceFromBackend || priceFromOffer) as any } : {}), // add price if available
+            'beckn:price': priceFromBackend || priceFromOffer || {}, // add price
         };
-
-        const selectOrderRecord = selectOrder as Record<string, unknown>;
-        // Build fulfillment - reuse from select if present, otherwise create default
-        let fulfillment = selectOrderRecord['beckn:fulfillment'] as any;
-        if (!fulfillment) {
-            // Create default fulfillment for on_select response per schema
-            const orderAttributes = selectOrderRecord['beckn:orderAttributes'] as Record<string, unknown> | undefined;
-            const deliveryAttributes: Record<string, unknown> = {
-                '@context': 'https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/EvChargingSession/v1/context.jsonld',
-                '@type': 'ChargingSession',
-                'sessionStatus': ChargingSessionStatus.PENDING,
-            };
-            if (orderAttributes?.connectorType) {
-                deliveryAttributes.connectorType = orderAttributes.connectorType;
-            }
-            if (orderAttributes?.maxPowerKW) {
-                deliveryAttributes.maxPowerKW = orderAttributes.maxPowerKW;
-            }
-            fulfillment = {
-                '@context': 'https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld',
-                '@type': 'beckn:Fulfillment',
-                'beckn:id': `fulfillment-${backendSelectPayload.context.transaction_id}`,
-                'beckn:mode': 'RESERVATION',
-                'beckn:deliveryAttributes': deliveryAttributes,
-            };
-        }
         
+        // Ensure beckn:id is present (use from select request or generate from message_id)
+        const orderId = selectOrder['beckn:id'] || `order-${context.message_id}`;
+        
+        // Get buyer from select order (it's in the request but not in the type definition)
+        const selectOrderRecord = selectOrder as Record<string, unknown>;
+        const buyer = selectOrderRecord['beckn:buyer'];
+        
+        // Per schema: on_select should NOT include beckn:fulfillment
         const ubcOnSelectPayload: UBCOnSelectRequestPayload = {
             context: context,
             message: {
                 order: {
-                    ...selectOrder, // reuse everything from select request
-                    'beckn:orderStatus': OrderStatus.CREATED, // only update orderStatus
-                    'beckn:orderValue': orderValue, // from backend response
-                    'beckn:orderItems': [orderItemResponse as BecknOrderItemResponse],
-                    'beckn:fulfillment': fulfillment, // reuse from select or create default
+                    "@context": selectOrder["@context"],
+                    "@type": selectOrder["@type"],
+                    "beckn:id": orderId,
+                    "beckn:orderStatus": OrderStatus.CREATED,
+                    "beckn:seller": selectOrder["beckn:seller"],
+                    ...(buyer ? { "beckn:buyer": buyer as any } : {}), // include buyer if present
+                    "beckn:orderValue": orderValue,
+                    "beckn:orderItems": [orderItemResponse as any], // Cast to any since schema doesn't require lineId
+                    "beckn:orderAttributes": selectOrder["beckn:orderAttributes"],
+                    // Per schema: on_select should NOT include beckn:fulfillment
                 },
             },
         };
