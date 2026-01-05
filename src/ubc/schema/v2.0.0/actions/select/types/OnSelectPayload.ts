@@ -15,12 +15,11 @@ export type UBCOnSelectRequestPayload = {
 export type UBCOnSelectOrder = {
     "@context": string;
     "@type": ObjectType.order;
-    "beckn:id": string;
     "beckn:orderStatus": OrderStatus;
     "beckn:seller": string;
     "beckn:buyer"?: any; // Optional - present in schema example
-    "beckn:orderValue": BecknOrderValueResponse;
     "beckn:orderItems": BecknOrderItemResponse[];
+    "beckn:orderValue": BecknOrderValueResponse;
     "beckn:orderAttributes": BecknOrderAttributes;
-    // Per schema: on_select should NOT include beckn:fulfillment
+    // Per schema example (lines 1122-1232): on_select should NOT include beckn:id or beckn:fulfillment
 };

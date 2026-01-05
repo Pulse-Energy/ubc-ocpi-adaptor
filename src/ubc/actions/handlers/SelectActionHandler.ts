@@ -290,28 +290,25 @@ export default class SelectActionHandler {
             'beckn:price': priceFromBackend || priceFromOffer || {}, // add price
         };
         
-        // Ensure beckn:id is present (use from select request or generate from message_id)
-        const orderId = selectOrder['beckn:id'] || `order-${context.message_id}`;
-        
         // Get buyer from select order (it's in the request but not in the type definition)
         const selectOrderRecord = selectOrder as Record<string, unknown>;
         const buyer = selectOrderRecord['beckn:buyer'];
         
-        // Per schema: on_select should NOT include beckn:fulfillment
+        // Per schema example (lines 1122-1232): on_select should NOT include beckn:id or beckn:fulfillment
+        // Field order per schema: @context, @type, orderStatus, seller, buyer, orderItems, orderValue, orderAttributes
         const ubcOnSelectPayload: UBCOnSelectRequestPayload = {
             context: context,
             message: {
                 order: {
                     "@context": selectOrder["@context"],
                     "@type": selectOrder["@type"],
-                    "beckn:id": orderId,
                     "beckn:orderStatus": OrderStatus.CREATED,
                     "beckn:seller": selectOrder["beckn:seller"],
                     ...(buyer ? { "beckn:buyer": buyer as any } : {}), // include buyer if present
-                    "beckn:orderValue": orderValue,
                     "beckn:orderItems": [orderItemResponse as any], // Cast to any since schema doesn't require lineId
+                    "beckn:orderValue": orderValue,
                     "beckn:orderAttributes": selectOrder["beckn:orderAttributes"],
-                    // Per schema: on_select should NOT include beckn:fulfillment
+                    // Per schema: on_select should NOT include beckn:id or beckn:fulfillment
                 },
             },
         };
