@@ -89,7 +89,9 @@ export default class BillDeskPaymentService {
             else if (reqPayload.transaction_response) {
                 // Redirect callback (JWT encoded transaction response)
                 const response = reqPayload.transaction_response;
-                decodedResponse = await BillDeskPaymentGatewayService.decodeString(response);
+                const orderId = reqPayload?.orderid ?? '';
+                paymentTxn = await PaymentTxnDbService.getByOrderId(orderId);
+                decodedResponse = await BillDeskPaymentGatewayService.decodeString(response, paymentTxn?.partner_id);
 
                 logger.info('BillDesk Redirect Callback - decoded response', { decodedResponse });
 
@@ -102,8 +104,6 @@ export default class BillDeskPaymentService {
                     });
                 }
 
-                const orderId = decodedResponse.orderid;
-                paymentTxn = await PaymentTxnDbService.getByOrderId(orderId);
             }
             else if (reqPayload.encrypted_response) {
                 // Redirect callback (JWT encoded transaction response)
@@ -184,6 +184,7 @@ export default class BillDeskPaymentService {
                         await OnStatusActionHandler.handleEVChargingUBCBppOnStatusAction({
                             authorization_reference: paymentTxn.authorization_reference,
                             payment_status: becknPaymentStatus,
+                            oldPaymentStatus: oldPaymentStatus as GenericPaymentTxnStatus,
                         });
 
                         logger.info('BillDesk Callback: Status forwarded to BPP ONIX successfully', {
