@@ -148,6 +148,7 @@ export default class ChargingService {
                 beckn_transaction_id: becknTransactionId,
                 beckn_order_id: paymentTxn?.authorization_reference ?? '',
                 session_status: ChargingSessionStatus.COMPLETED,
+                invoice_url: invoiceResponse.invoice_url,
             });
             logger.debug(
                 `🟢 ${authorization_reference} Sent on_update request in handleActionOnChargingCompleted`,
