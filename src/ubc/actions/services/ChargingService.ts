@@ -9,12 +9,7 @@ import InvoiceGenerationService from '../../services/invoice/InvoiceGeneration';
 import { CdrDbService } from '../../../db-services/CdrDbService';
 import { SessionDbService } from '../../../db-services/SessionDbService';
 import PaymentGatewayService from '../../services/PaymentServices/PaymentGatewayService';
-
-// OCPIPrice type for total_cost field
-interface OCPIPrice {
-    excl_vat: number;
-    incl_vat?: number;
-}
+import { OCPIPrice } from '../../../ocpi/schema/general/types';
 
 export default class ChargingService {
     public static async autoCutOffChargingSession(session: Session): Promise<void> {
@@ -214,7 +209,7 @@ export default class ChargingService {
             }
 
             // Get the total cost from session (OCPIPrice format)
-            const totalCost = session.total_cost as unknown as OCPIPrice | null;
+            const totalCost = session.total_cost as OCPIPrice | null;
             
             if (!totalCost || totalCost.excl_vat === undefined) {
                 logger.warn(
