@@ -25,7 +25,7 @@ import { UBCChargingMethod } from '../../schema/v2.0.0/enums/UBCChargingMethod';
 import CPOBackendRequestService from '../../services/CPOBackendRequestService';
 import PaymentTxnDbService from '../../../db-services/PaymentTxnDbService';
 import { BecknPaymentStatus } from '../../schema/v2.0.0/enums/PaymentStatus';
-import { EvseConnectorDbService } from '../../../db-services/EvseConnectorDbService';
+import { LocationDbService } from '../../../db-services/LocationDbService';
 import OCPIPartnerDbService from '../../../db-services/OCPIPartnerDbService';
 import { OCPIPartnerAdditionalProps, PaymentServiceProvider } from '../../../types/OCPIPartner';
 import PaymentGatewayService from '../../services/PaymentServices/PaymentGatewayService';
@@ -180,13 +180,60 @@ export default class InitActionHandler {
         return backendInitPayload;
     }
 
+    /**
+     * Parses the formatted Beckn connector ID
+     * Format: IND*${sellerId}*${csId}*${cpId}*${connectorId}
+     * Returns: { countryCode, sellerId, csId, cpId, connectorId }
+     */
+    private static parseBecknConnectorId(formattedId: string): {
+        countryCode: string;
+        sellerId: string;
+        csId: string;
+        cpId: string;
+        connectorId: string;
+    } {
+        const parts = formattedId.split('*');
+        if (parts.length !== 5) {
+            throw new Error(`Invalid connector ID format: ${formattedId}. Expected format: IND*sellerId*csId*cpId*connectorId`);
+        }
+        return {
+            countryCode: parts[0], // IND
+            sellerId: parts[1],     // seller/party ID
+            csId: parts[2],         // charging station ID (location OCPI ID)
+            cpId: parts[3],         // charge point ID (EVSE UID)
+            connectorId: parts[4],  // connector ID
+        };
+    }
+
     public static async createPaymentTxnDetails(
         payload: ExtractedInitRequestBody
     ): Promise<ExtractedOnInitResponseBody> {
         const finalAmount = payload.payload.amount;
-        const evseConnector = await EvseConnectorDbService.getById(
-            payload.payload.charge_point_connector_id
+        
+        // Parse the formatted connector ID to extract components
+        const parsedConnectorId = this.parseBecknConnectorId(payload.payload.charge_point_connector_id);
+        
+        // Find the connector using the parsed components
+        const evseConnector = await LocationDbService.findConnectorByLocationEvseAndConnectorId(
+            parsedConnectorId.csId,      // location OCPI ID
+            parsedConnectorId.cpId,      // EVSE UID
+            parsedConnectorId.connectorId // connector ID
         );
+        
+        if (!evseConnector) {
+            throw new Error(`Connector not found for ID: ${payload.payload.charge_point_connector_id}`);
+        }
+        
+        if (!evseConnector.partner_id) {
+            throw new Error(`Connector ${payload.payload.charge_point_connector_id} does not have a partner_id`);
+        }
+        
+        // Verify the partner exists
+        const partner = await OCPIPartnerDbService.getById(evseConnector.partner_id);
+        if (!partner) {
+            throw new Error(`Partner not found for partner_id: ${evseConnector.partner_id}`);
+        }
+        
         const authorizationReference = Utils.generateUUID();
         const paymentStatus = BecknPaymentStatus.PENDING;
         const orderValueComponents = payload.payload.orderValueComponents;
@@ -200,7 +247,7 @@ export default class InitActionHandler {
             },
             status: paymentStatus,
             requested_energy_units: payload.payload.charging_option_unit,
-            partner_id: evseConnector?.partner_id ?? '',
+            partner_id: evseConnector.partner_id,
             beckn_transaction_id: payload.metadata.beckn_transaction_id,
         };
         const paymentTxn = await PaymentTxnDbService.create({
