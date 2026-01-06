@@ -19,6 +19,7 @@ import BecknLogDbService from '../../../db-services/BecknLogDbService';
 import { Prisma } from '@prisma/client';
 import { LocationDbService } from '../../../db-services/LocationDbService';
 import { OCPIStatusMapper } from '../../utils/OCPIStatusMapper';
+import PaymentTxnDbService from '../../../db-services/PaymentTxnDbService';
 
 /**
  * Handler for status action (BAP → BPP request-response)
@@ -206,14 +207,41 @@ export default class StatusActionHandler {
             "beckn:beneficiary": statusPayment['beckn:beneficiary'] as string,
         };
 
-        // Add paidAt only if present in status request
-        if (statusPayment['beckn:paidAt']) {
-            paymentObject['beckn:paidAt'] = statusPayment['beckn:paidAt'] as string;
-        }
+        if (statusPayment['beckn:beneficiary'] === 'BAP') {
+            // Add paidAt only if present in status request
+            if (statusPayment['beckn:paidAt']) {
+                paymentObject['beckn:paidAt'] = statusPayment['beckn:paidAt'] as string;
+            }
 
-        // Add paymentStatus - from status request
-        if (statusPayment['beckn:paymentStatus']) {
-            paymentObject['beckn:paymentStatus'] = statusPayment['beckn:paymentStatus'] as BecknPaymentStatus;
+            // Add paymentStatus - from status request
+            if (statusPayment['beckn:paymentStatus']) {
+                paymentObject['beckn:paymentStatus'] = statusPayment['beckn:paymentStatus'] as BecknPaymentStatus;
+            }
+        }
+        else {
+            // If beneficiary is BPP, check payment status from payment txn table
+            const transactionRef = statusPayment['beckn:txnRef'] as string;
+            const paymentTxn = await PaymentTxnDbService.getFirstByFilter({
+                where: {
+                    authorization_reference: transactionRef,
+                },
+            });
+
+            if (paymentTxn) {
+                // Add paymentStatus from payment txn if it's COMPLETED
+                if (paymentTxn.status === BecknPaymentStatus.COMPLETED) {
+                    paymentObject['beckn:paymentStatus'] = paymentTxn.status as BecknPaymentStatus;
+                    
+                    // Add paidAt if payment was completed (use updated_at as paidAt timestamp)
+                    if (paymentTxn.updated_at) {
+                        paymentObject['beckn:paidAt'] = paymentTxn.updated_at.toISOString();
+                    }
+                }
+                // Also add paymentStatus if it's not PENDING (to show current status)
+                else {
+                    paymentObject['beckn:paymentStatus'] = BecknPaymentStatus.PENDING;
+                }
+            }
         }
 
         // Get fulfillment from status request (which has the charging session details)

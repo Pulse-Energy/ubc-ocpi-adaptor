@@ -18,11 +18,12 @@ import { ExtractedOnUpdateResponsePayload } from '../../schema/v2.0.0/actions/up
 import { ChargingAction } from '../../schema/v2.0.0/enums/ChargingAction';
 import AdminCommandsModule from '../../../admin/modules/AdminCommandsModule';
 import { SessionDbService } from '../../../db-services/SessionDbService';
-import { EvseConnectorDbService } from '../../../db-services/EvseConnectorDbService';
+import { LocationDbService } from '../../../db-services/LocationDbService';
 import { OCPICommandResponseResponse } from '../../../ocpi/schema/modules/commands/types/responses';
 import { OCPICommandResponseType } from '../../../ocpi/schema/modules/commands/enums';
 import PaymentTxnDbService from '../../../db-services/PaymentTxnDbService';
 import { BecknPaymentStatus } from '../../schema/v2.0.0/enums/PaymentStatus';
+import { databaseService } from '../../../services/database.service';
 
 /**
  * Handler for update action
@@ -225,7 +226,6 @@ export default class UpdateActionHandler {
     public static async sendUpdateCallToBackend(
         payload: ExtractedUpdateRequestBody
     ): Promise<ExtractedOnUpdateResponsePayload> {
-
         const { beckn_order_id, charging_action, charge_point_connector_id } = payload.payload;
 
         const paymentTxn = await PaymentTxnDbService.getFirstByFilter({
@@ -244,30 +244,38 @@ export default class UpdateActionHandler {
         
         if (charging_action === ChargingAction.StartCharging) {
             
-            const evseConnector = await EvseConnectorDbService.getById(charge_point_connector_id, {
-                include: {
-                    evse: {
-                        select: {
-                            partner_id: true,
-                            evse_id: true,
-                            location: {
-                                select: {
-                                    ocpi_location_id: true,
-                                },
-                            },
-                        },
-                    },
-                },
-            });
+            // Find EVSE directly from Beckn connector ID
+            const evse = await LocationDbService.findEVSEByBecknConnectorId(charge_point_connector_id);
+            
+            if (!evse) {
+                throw new Error(`EVSE not found for: ${charge_point_connector_id}`);
+            }
+
+            // Get connector from EVSE
+            const parsedConnectorId = LocationDbService.parseBecknConnectorId(charge_point_connector_id);
+            const evseConnector = evse.evse_connectors.find(
+                connector => connector.connector_id === parsedConnectorId.connectorId && !connector.deleted
+            );
+            
             if (!evseConnector) {
-                throw new Error('EVSE Connector not found');
+                throw new Error(`EVSE Connector not found for: ${charge_point_connector_id}`);
+            }
+
+            // Get location to get ocpi_location_id
+            const location = await databaseService.prisma.location.findUnique({
+                where: { id: evse.location_id },
+                select: { ocpi_location_id: true },
+            });
+
+            if (!location) {
+                throw new Error(`Location not found for EVSE: ${evse.id}`);
             }
     
             const req = {
                 body: {
-                    partner_id: evseConnector.partner_id,
-                    location_id: evseConnector.evse?.location?.ocpi_location_id ?? '',
-                    evse_uid: evseConnector.evse?.evse_id ?? '',
+                    partner_id: evse.partner_id ?? '',
+                    location_id: location.ocpi_location_id,
+                    evse_uid: evse.uid,
                     connector_id: evseConnector.connector_id,
                     transaction_id: beckn_order_id,
                 },
@@ -280,10 +288,10 @@ export default class UpdateActionHandler {
                 session = await SessionDbService.create({
                     data: {
                         country_code: 'IN',
-                        partner_id: evseConnector.partner_id,
-                        location_id: evseConnector.evse?.location?.ocpi_location_id ?? '',
-                        evse_uid: evseConnector.evse?.evse_id ?? '',
-                        connector_id: charge_point_connector_id,
+                        partner_id: evse.partner_id ?? '',
+                        location_id: location.ocpi_location_id,
+                        evse_uid: evse.uid,
+                        connector_id: parsedConnectorId.connectorId,
                         authorization_reference: beckn_order_id,
                         requested_energy_units: paymentTxn.requested_energy_units,
                     },
