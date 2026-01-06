@@ -78,6 +78,12 @@ export default class OnUpdateActionHandler {
         existingBppOnUpdateResponse: UBCOnUpdateRequestPayload,
         backendOnUpdateRequestPayload: ExtractedOnUpdateRequestBody
     ): UBCOnUpdateRequestPayload {
+        const order = existingBppOnUpdateResponse.message.order;
+        const fulfillment = order['beckn:fulfillment'];
+        const deliveryAttributes = fulfillment?.['beckn:deliveryAttributes'] as Record<string, unknown>;
+        const sessionStatus = backendOnUpdateRequestPayload.session_status;
+
+        // For async on_update (completed), reuse everything from existing on_update response, only update orderStatus and sessionStatus
         const ubcOnUpdatePayload: UBCOnUpdateRequestPayload = {
             context: {
                 ...existingBppOnUpdateResponse.context,
@@ -85,20 +91,23 @@ export default class OnUpdateActionHandler {
             },
             message: {
                 order: {
-                    ...existingBppOnUpdateResponse.message.order,
-                    'beckn:orderStatus': OrderStatus.COMPLETED,
+                    ...order, // reuse everything from existing on_update response
+                    'beckn:orderStatus': OrderStatus.COMPLETED, // only update orderStatus
                     'beckn:fulfillment': {
-                        ...existingBppOnUpdateResponse.message.order['beckn:fulfillment'],
+                        ...fulfillment, // reuse everything from existing on_update response
                         'beckn:deliveryAttributes': {
-                            ...existingBppOnUpdateResponse.message.order['beckn:fulfillment'][
-                                'beckn:deliveryAttributes'
-                            ],
-                            sessionStatus: backendOnUpdateRequestPayload.session_status,
-                        },
+                            ...deliveryAttributes, // reuse everything from existing on_update response
+                            'sessionStatus': sessionStatus, // only update sessionStatus
+                        } as never,
                     },
                 },
             },
         };
+
+        // Conditionally include order_value if present in backend request
+        if (backendOnUpdateRequestPayload?.order_value) {
+            ubcOnUpdatePayload.message.order['beckn:orderValue'] = backendOnUpdateRequestPayload.order_value;
+        }
 
         return ubcOnUpdatePayload;
     }
@@ -120,10 +129,10 @@ export default class OnUpdateActionHandler {
         }
 
         if (
-            existingBppOnUpdateResponse?.message?.order?.['beckn:orderNumber'] !==
+            existingBppOnUpdateResponse?.message?.order?.['beckn:id'] !==
             payload?.beckn_order_id
         ) {
-            throw new Error('Order number mismatch');
+            throw new Error('Order id mismatch');
         }
 
         if (payload?.session_status !== ChargingSessionStatus.COMPLETED) {
