@@ -158,6 +158,18 @@ export default class BillDeskPaymentService {
                 paymentTxnStatus: paymentTxn.status,
             });
 
+            if (paymentTxn.status !== GenericPaymentTxnStatus.Pending) {
+                logger.info('BillDesk Callback: PaymentTxn not in pending status', {
+                    paymentTxnId: paymentTxn.id,
+                    paymentTxnStatus: paymentTxn.status,
+                });
+                return ResponsesService.success({
+                    success: true,
+                    message: 'PaymentTxn not in pending status',
+                    data: {}
+                });
+            }
+
             // Process the callback - update payment status
             const oldPaymentStatus = paymentTxn.status;
             const statusResult = await this.getPaymentStatusOfBillDeskPayment(paymentTxn);
