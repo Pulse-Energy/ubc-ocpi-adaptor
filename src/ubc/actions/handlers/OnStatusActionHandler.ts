@@ -125,6 +125,8 @@ export default class OnStatusActionHandler {
             paymentObject['beckn:paidAt'] = initPaymentData['beckn:paidAt'] as string;
         }
 
+        // Per spec: async on_status does NOT include fulfillment or orderAttributes
+        // Reference: UBC spec lines 1521-1632 and pulse-evcharging-beckn-provider UBCBppOnStatusActionService.ts
         const ubcOnStatusPayload: UBCOnStatusRequestPayload = {
             context: context,
             message: {
@@ -138,6 +140,7 @@ export default class OnStatusActionHandler {
                     "beckn:orderItems": orderItems as any, // from on_select, simplified per schema
                     "beckn:orderValue": selectOrder['beckn:orderValue'], // from on_select
                     "beckn:payment": paymentObject as BecknPayment, // from on_init with updated paymentStatus
+                    // fulfillment and orderAttributes are NOT included in async on_status per spec
                 },
             },
         };

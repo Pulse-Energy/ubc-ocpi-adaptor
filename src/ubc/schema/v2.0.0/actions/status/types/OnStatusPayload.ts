@@ -23,8 +23,8 @@ export type UBCOnStatusOrder = {
     "beckn:buyer": BecknBuyer;
     "beckn:orderValue": BecknOrderValueResponse;
     "beckn:orderItems": BecknOrderItemResponse[];
-    "beckn:fulfillment": BecknFulfillment;
-    "beckn:orderAttributes": BecknOrderAttributes;
+    "beckn:fulfillment"?: BecknFulfillment; // Optional - not present in async on_status
+    "beckn:orderAttributes"?: BecknOrderAttributes; // Optional - not present in async on_status
     "beckn:payment": BecknPayment;
-    "beckn:orderNumber": string;
+    "beckn:orderNumber"?: string; // Optional - not present in async on_status
 };
