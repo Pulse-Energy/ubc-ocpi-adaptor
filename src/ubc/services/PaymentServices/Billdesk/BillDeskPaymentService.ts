@@ -27,6 +27,7 @@ import OnStatusActionHandler from "../../../actions/handlers/OnStatusActionHandl
 import { BecknPaymentStatus } from "../../../schema/v2.0.0/enums/PaymentStatus";
 import { PaymentTxnAdditionalProps } from "../../../../types/PaymentTxn";
 import Utils from "../../../../utils/Utils";
+import GLOBAL_VARS from "../../../../constants/global-vars";
 
 // Helper function to extract error message
 const getErrorMessage = (error: unknown): string => {
@@ -590,9 +591,10 @@ export default class BillDeskPaymentService {
             // Extract redirect link
             const redirectLink = billDeskOrder.links?.find(link => link.rel === 'redirect');
 
+            const paymentUrl = `${GLOBAL_VARS.INTERNAL_PAYMENT_LINK_HOST}/api/app/billdesk/pay/${paymentTxn.id}?autoSubmit=true`;
             const billDeskObject: BillDeskObject | undefined = redirectLink ? {
                 ...redirectLink,
-                payment_url: redirectLink.href,
+                payment_url: paymentUrl,
                 authorization_reference: paymentTxn.authorization_reference || paymentTxn.id,
             } : undefined;
 
