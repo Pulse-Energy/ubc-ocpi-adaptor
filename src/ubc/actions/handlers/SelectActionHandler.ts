@@ -280,7 +280,7 @@ export default class SelectActionHandler {
         // Build order item response with price
         // Per schema: on_select orderItems should NOT include beckn:lineId
         const priceFromBackend = backendPayloadData['beckn:price'];
-        const priceFromOffer = selectAcceptedOffer['beckn:price'];
+        const priceFromOffer = selectAcceptedOffer?.['beckn:price'];
         const orderItemResponse: Record<string, unknown> = {
             'beckn:orderedItem': selectOrderItem['beckn:orderedItem'], // reuse from select
             'beckn:quantity': selectOrderItem['beckn:quantity'], // reuse from select

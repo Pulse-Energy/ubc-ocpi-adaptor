@@ -73,6 +73,9 @@ export default class UpdateActionHandler {
                 { data: { ExtractedOnUpdateResponseBody } }
             );
 
+            // Fetch existing status response to reuse payment (same as status)
+            const existingOnStatusResponse = await UpdateActionHandler.fetchExistingBppOnStatusResponse(reqPayload.context.transaction_id);
+
             // translate CPO's BE Server response to UBC Schema
             logger.debug(
                 `🟡 [${reqId}] Translating Backend to UBC payload in handleEVChargingUBCBppUpdateAction`,
@@ -81,7 +84,8 @@ export default class UpdateActionHandler {
             const ubcOnUpdatePayload: UBCOnUpdateRequestPayload =
                 UpdateActionHandler.translateBackendToUBC(
                     reqPayload,
-                    ExtractedOnUpdateResponseBody
+                    ExtractedOnUpdateResponseBody,
+                    existingOnStatusResponse
                 );
 
             // Call BAP on_select
@@ -153,35 +157,66 @@ export default class UpdateActionHandler {
         return null;
     }
 
+    public static async fetchExistingBppOnStatusResponse(transactionId: string): Promise<any | null> {
+        const becknLogs = await BecknLogDbService.getByFilters({
+            where: {
+                transaction_id: transactionId,
+                action: `bpp.out.request.${BecknAction.on_status}`,
+                domain: BecknDomain.EVChargingUBC,
+            },
+            select: {
+                payload: true,
+            },
+            orderBy: {
+                created_on: Prisma.SortOrder.desc,
+            },
+            take: 1,
+        });
+
+        if (becknLogs?.records && becknLogs.records.length > 0) {
+            return becknLogs.records[0].payload;
+        }
+
+        return null;
+    }
+
+    /**
+     * Determines the charging action based on session status
+     * Start charging: sessionStatus is "PENDING" (user wants to start the charging session)
+     * Stop charging: sessionStatus is "STOP" (user wants to stop during an active session)
+     */
+    public static determineChargingAction(sessionStatus: string | ChargingSessionStatus): ChargingAction {
+        if (sessionStatus === ChargingSessionStatus.PENDING) {
+            return ChargingAction.StartCharging;
+        }
+        else if (sessionStatus === 'STOP') {
+            return ChargingAction.StopCharging;
+        }
+        else {
+            throw new Error(`Invalid sessionStatus for update action: ${sessionStatus}. Expected "PENDING" for start charging or "STOP" for stop charging.`);
+        }
+    }
+
     public static translateUBCToBackendPayload(
         payload: UBCUpdateRequestPayload
     ): ExtractedUpdateRequestBody {
+        const deliveryAttributes = payload.message.order['beckn:fulfillment']['beckn:deliveryAttributes'] as Record<string, unknown>;
+        const sessionStatus = deliveryAttributes?.sessionStatus as ChargingSessionStatus;
+
         const backendUpdatePayload: ExtractedUpdateRequestBody = {
             metadata: {
                 domain: BecknDomain.EVChargingUBC,
                 bpp_id: payload.context.bpp_id,
                 bpp_uri: payload.context.bpp_uri,
                 beckn_transaction_id: payload.context.transaction_id,
-                bap_id: payload.context.bap_id,
-                bap_uri: payload.context.bap_uri,
+                bap_id: payload.context.bap_id || '',
+                bap_uri: payload.context.bap_uri || '',
             },
             payload: {
                 charge_point_connector_id:
                     payload.message.order['beckn:orderItems'][0]['beckn:orderedItem'],
-                beckn_order_id: payload.message.order['beckn:orderNumber'],
-                /**
-                 * If the session status is pending or active, then start charging.
-                 * If the session status is completed, then stop charging.
-                 */
-                charging_action:
-                    payload.message.order['beckn:fulfillment']['beckn:deliveryAttributes'][
-                        'sessionStatus'
-                    ] === ChargingSessionStatus.PENDING ||
-                    payload.message.order['beckn:fulfillment']['beckn:deliveryAttributes'][
-                        'sessionStatus'
-                    ] === ChargingSessionStatus.ACTIVE
-                        ? ChargingAction.StartCharging
-                        : ChargingAction.StopCharging,
+                beckn_order_id: payload.message.order['beckn:id'], // Use beckn:id instead of beckn:orderNumber
+                charging_action: this.determineChargingAction(sessionStatus),
             },
         };
         return backendUpdatePayload;
@@ -284,7 +319,9 @@ export default class UpdateActionHandler {
 
     public static translateBackendToUBC(
         backendUpdatePayload: UBCUpdateRequestPayload,
-        ExtractedOnUpdateResponseBody: ExtractedOnUpdateResponsePayload
+        ExtractedOnUpdateResponseBody: ExtractedOnUpdateResponsePayload,
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        existingOnStatusResponse: any | null // Not used currently, but kept for consistency with reference implementation
     ): UBCOnUpdateRequestPayload {
         const context = Utils.getBPPContext({
             ...backendUpdatePayload.context,
@@ -300,9 +337,11 @@ export default class UpdateActionHandler {
         let orderStatus: OrderStatus;
         if (sessionStatus === ChargingSessionStatus.ACTIVE) {
             orderStatus = OrderStatus.INPROGRESS;
-        } else if (sessionStatus === ChargingSessionStatus.COMPLETED) {
+        }
+        else if (sessionStatus === ChargingSessionStatus.COMPLETED) {
             orderStatus = OrderStatus.COMPLETED;
-        } else {
+        }
+        else {
             orderStatus = order['beckn:orderStatus'] as OrderStatus;
         }
 
@@ -315,13 +354,18 @@ export default class UpdateActionHandler {
                     'beckn:fulfillment': {
                         ...fulfillment, // reuse everything from update request
                         'beckn:deliveryAttributes': {
-                            ...deliveryAttributes, // reuse everything from update request (includes @context and @type)
+                            ...deliveryAttributes, // reuse everything from update request
                             'sessionStatus': sessionStatus, // only update sessionStatus
                         } as never,
                     },
                 },
             },
         };
+
+        // Conditionally include order_value if present in backend response
+        if (ExtractedOnUpdateResponseBody?.order_value) {
+            ubcOnUpdatePayload.message.order['beckn:orderValue'] = ExtractedOnUpdateResponseBody.order_value;
+        }
 
         return ubcOnUpdatePayload;
     }

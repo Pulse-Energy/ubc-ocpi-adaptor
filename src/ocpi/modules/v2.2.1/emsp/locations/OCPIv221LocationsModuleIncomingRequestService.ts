@@ -267,7 +267,6 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
             location_id,
             evse_uid,
             connector_id,
-            partnerCredentials.partner_id,
         );
 
         if (!connectorRecord) {
@@ -778,7 +777,6 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
             location_id,
             evse_uid,
             connector_id,
-            partnerCredentials.partner_id,
         );
         if (!refreshedConnector) {
             const response = OCPIResponseService.clientError<OCPIConnector | null>(null);
@@ -1213,7 +1211,6 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
             location_id,
             evse_uid,
             connector_id,
-            partnerCredentials.partner_id,
         );
         if (!refreshedConnector) {
             const response = OCPIResponseService.clientError<OCPIConnector | null>(null);

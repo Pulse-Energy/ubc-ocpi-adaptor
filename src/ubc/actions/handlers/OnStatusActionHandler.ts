@@ -10,8 +10,15 @@ import { ExtractedOnStatusRequestBody } from "../../schema/v2.0.0/actions/status
 import { UBCOnStatusRequestPayload } from "../../schema/v2.0.0/actions/status/types/OnStatusPayload";
 import { BecknAction } from "../../schema/v2.0.0/enums/BecknAction";
 import InitActionHandler from "./InitActionHandler";
+import { UBCOnSelectRequestPayload } from "../../schema/v2.0.0/actions/select/types/OnSelectPayload";
+import { UBCOnInitRequestPayload } from "../../schema/v2.0.0/actions/init/types/OnInitPayload";
+import { OrderStatus } from "../../schema/v2.0.0/enums/OrderStatus";
+import { ObjectType } from "../../schema/v2.0.0/enums/ObjectType";
+import { BecknPayment } from "../../schema/v2.0.0/types/Payment";
 import PaymentTxnDbService from "../../../db-services/PaymentTxnDbService";
 import { BecknPaymentStatus } from "../../schema/v2.0.0/enums/PaymentStatus";
+import BecknLogDbService from "../../../db-services/BecknLogDbService";
+import { Prisma } from "@prisma/client";
 
 /**
  * Handler for status action
@@ -45,10 +52,10 @@ export default class OnStatusActionHandler {
         const logData = { action: 'on_status', authorization_reference: authorization_reference };
 
         try {
-            // Forward on_update to BPP ONIX
-            logger.debug(`🟡 [${authorization_reference}] Forwarding on_update to BPP ONIX in handleEVChargingUBCBppOnUpdateAction`, { data: { logData, reqPayload } });
+            // Forward on_status to BPP ONIX
+            logger.debug(`🟡 [${authorization_reference}] Forwarding on_status to BPP ONIX in handleEVChargingUBCBppOnStatusAction`, { data: { logData, reqPayload } });
             const response = await OnStatusActionHandler.forwardOnStatusToBppOnix(reqPayload);
-            logger.debug(`🟢 [${authorization_reference}] Forwarded on_update to BPP ONIX in handleEVChargingUBCBppOnUpdateAction`, { data: { response } });
+            logger.debug(`🟢 [${authorization_reference}] Forwarded on_status to BPP ONIX in handleEVChargingUBCBppOnStatusAction`, { data: { response } });
         }
         catch (e: any) {
             logger.error(`🔴 [${authorization_reference}] Error in OnStatusActionHandler.handleEVChargingUBCBppOnStatusAction: ${e?.toString()}`, e, {
@@ -58,39 +65,104 @@ export default class OnStatusActionHandler {
         }
     }
 
-    
-   public static translateBackendToUBC(existingBppOnStatusResponse: UBCOnStatusRequestPayload, backendOnStatusRequestPayload: ExtractedOnStatusRequestBody): UBCOnStatusRequestPayload {
-       const ubcOnStatusPayload: UBCOnStatusRequestPayload = {
-           context: {
-               ...existingBppOnStatusResponse.context,
-               action: BecknAction.on_status,
-           },
-           message: {
-               order: {
-                   ...existingBppOnStatusResponse.message.order,
-                   "beckn:payment": {
-                       ...existingBppOnStatusResponse.message.order['beckn:payment'],
-                       "beckn:paymentStatus": backendOnStatusRequestPayload.payment_status,
-                   },
-               },
-           },
-       };
+    /**
+     * Translates backend async on_status payload to UBC format
+     * This is for UNSOLICITED on_status sent by BPP (without preceding status request)
+     * According to schema: formulate using data from on_select and on_init
+     * - orderStatus: PENDING
+     * - orderItems: simplified (with quantity and price from on_select)
+     * - orderValue: from on_select
+     * - payment: from on_init with updated paymentStatus
+     * - order id: from on_init
+     * - buyer, seller: from on_select
+     */
+    public static translateBackendToUBC(
+        existingOnSelectResponse: UBCOnSelectRequestPayload,
+        existingOnInitResponse: UBCOnInitRequestPayload,
+        backendOnStatusRequestPayload: ExtractedOnStatusRequestBody,
+        transactionId: string
+    ): UBCOnStatusRequestPayload {
+        const selectOrder = existingOnSelectResponse.message.order;
+        const initOrder = existingOnInitResponse.message.order;
+        const initPayment = initOrder['beckn:payment'];
 
-       return ubcOnStatusPayload;
-   }
+        // Generate new context for async on_status
+        const context = Utils.getBPPContext({
+            domain: BecknDomain.EVChargingUBC,
+            action: BecknAction.on_status,
+            version: '2.0.0',
+            transaction_id: transactionId,
+            message_id: Utils.generateUUID(), // Generate new message_id for async callback
+            bap_id: existingOnInitResponse.context.bap_id,
+            bap_uri: existingOnInitResponse.context.bap_uri,
+            bpp_id: existingOnInitResponse.context.bpp_id,
+            bpp_uri: existingOnInitResponse.context.bpp_uri,
+        });
 
-   /**
-    * Receives on_status from backend and forwards to BPP ONIX
-    * Backend → BPP Provider → BPP ONIX
-    */
-   public static async forwardOnStatusToBppOnix(payload: ExtractedOnStatusRequestBody): Promise<void> {
-       const { authorization_reference, payment_status } = payload;
+        // Build simplified orderItems (with quantity and price from on_select)
+        const selectOrderItems = selectOrder['beckn:orderItems'] as Record<string, unknown>[];
+        const orderItems = selectOrderItems.map(item => ({
+            "beckn:orderedItem": item['beckn:orderedItem'] as string,
+            "beckn:quantity": item['beckn:quantity'],
+            "beckn:price": (item['beckn:price'] || (item['beckn:acceptedOffer'] as Record<string, unknown>)?.['beckn:price']),
+        }));
 
-       const paymentTxn = await PaymentTxnDbService.getFirstByFilter({
-        where: {
-            authorization_reference: authorization_reference,
-        },
-    });
+        // Build payment object with only necessary fields per schema
+        const initPaymentData = initPayment as Record<string, unknown>;
+        const paymentObject: Partial<BecknPayment> = {
+            "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
+            "@type": ObjectType.payment,
+            "beckn:id": initPaymentData['beckn:id'] as string,
+            "beckn:amount": initPaymentData['beckn:amount'] as BecknPayment['beckn:amount'],
+            "beckn:paymentURL": initPaymentData['beckn:paymentURL'] as string,
+            "beckn:txnRef": initPaymentData['beckn:txnRef'] as string,
+            "beckn:beneficiary": initPaymentData['beckn:beneficiary'] as string,
+            "beckn:paymentStatus": backendOnStatusRequestPayload.payment_status,
+        };
+
+        // Add paidAt only if present (conditional for BAP beneficiary)
+        if (initPaymentData['beckn:paidAt']) {
+            paymentObject['beckn:paidAt'] = initPaymentData['beckn:paidAt'] as string;
+        }
+
+        // Per spec: async on_status does NOT include fulfillment or orderAttributes
+        // Reference: UBC spec lines 1521-1632 and pulse-evcharging-beckn-provider UBCBppOnStatusActionService.ts
+        const ubcOnStatusPayload: UBCOnStatusRequestPayload = {
+            context: context,
+            message: {
+                order: {
+                    "@context": initOrder['@context'],
+                    "@type": ObjectType.order,
+                    "beckn:id": initOrder['beckn:id'], // from on_init
+                    "beckn:orderStatus": OrderStatus.PENDING, // explicitly set to PENDING per schema
+                    "beckn:seller": selectOrder['beckn:seller'], // from on_select
+                    "beckn:buyer": selectOrder['beckn:buyer'], // from on_select
+                    "beckn:orderItems": orderItems as any, // from on_select, simplified per schema
+                    "beckn:orderValue": selectOrder['beckn:orderValue'], // from on_select
+                    "beckn:payment": paymentObject as BecknPayment, // from on_init with updated paymentStatus
+                    // fulfillment and orderAttributes are NOT included in async on_status per spec
+                },
+            },
+        };
+
+        return ubcOnStatusPayload;
+    }
+
+    /**
+     * Receives ASYNC/UNSOLICITED on_status from backend and forwards to BPP ONIX
+     * This is for cases like charging interruptions, payment completion, etc.
+     * Backend → BPP Provider → BPP ONIX → BAP
+     * 
+     * No preceding status request is required - this is an independent callback
+     */
+    public static async forwardOnStatusToBppOnix(payload: ExtractedOnStatusRequestBody): Promise<void> {
+        const { authorization_reference, payment_status } = payload;
+
+        const paymentTxn = await PaymentTxnDbService.getFirstByFilter({
+            where: {
+                authorization_reference: authorization_reference,
+            },
+        });
         if (!paymentTxn) {
             throw new Error('No payment txn found');
         }
@@ -103,28 +175,66 @@ export default class OnStatusActionHandler {
             throw new Error('Payment txn is not pending');
         }
 
+        const becknTransactionId = paymentTxn.beckn_transaction_id;
 
-       const existingBppOnInitResponse = await InitActionHandler.fetchExistingBppOnInitResponse(paymentTxn.beckn_transaction_id);
+        // Fetch existing responses to formulate on_status payload
+        const existingBppOnSelectResponse = await OnStatusActionHandler.fetchExistingBppOnSelectResponse(becknTransactionId);
+        const existingBppOnInitResponse = await InitActionHandler.fetchExistingBppOnInitResponse(becknTransactionId);
 
-       if (!existingBppOnInitResponse) {
-           throw new Error('No existing on_init response found');
-       }
+        if (!existingBppOnSelectResponse) {
+            throw new Error('No existing on_select response found');
+        }
 
-       // Convert backend payload to UBC format
-       PaymentTxnDbService.update(paymentTxn.id, {
-        status: payment_status,
-       });
+        if (!existingBppOnInitResponse) {
+            throw new Error('No existing on_init response found');
+        }
 
+        // Update payment status in database
+        PaymentTxnDbService.update(paymentTxn.id, {
+            status: payment_status,
+        });
+        
        // v0.9: Use type assertion since on_init structure changed but we still need to build on_status from it
-       // TODO: Update status action to match v0.9 structure separately
-       const ubcOnStatusPayload = this.translateBackendToUBC(existingBppOnInitResponse as unknown as UBCOnStatusRequestPayload, payload);
+        // Convert backend payload to UBC format (no status request needed for async on_status)
+        const ubcOnStatusPayload = this.translateBackendToUBC(
+            existingBppOnSelectResponse,
+            existingBppOnInitResponse,
+            payload,
+            becknTransactionId
+        );
 
-       const bppHost = Utils.getBPPClientHost();
+        const bppHost = Utils.getBPPClientHost();
 
-       return await BppOnixRequestService.sendPostRequest({
-           url: `${bppHost}/${BecknAction.on_status}`,
-           data: ubcOnStatusPayload,
-       }, BecknDomain.EVChargingUBC);
-   }
+        return await BppOnixRequestService.sendPostRequest({
+            url: `${bppHost}/${BecknAction.on_status}`,
+            data: ubcOnStatusPayload,
+        }, BecknDomain.EVChargingUBC);
+    }
+
+    public static async fetchExistingBppOnSelectResponse(transactionId: string): Promise<UBCOnSelectRequestPayload | null> {
+        /**
+         * Fetch existing on_select response for this transaction id
+         */
+        const becknLogs = await BecknLogDbService.getByFilters({
+            where: {
+                transaction_id: transactionId,
+                action: `bpp.out.request.${BecknAction.on_select}`,
+                domain: BecknDomain.EVChargingUBC,
+            },
+            select: {
+                payload: true,
+            },
+            orderBy: {
+                created_on: Prisma.SortOrder.desc,
+            },
+            take: 1,
+        });
+
+        if (becknLogs?.records && becknLogs.records.length > 0) {
+            return becknLogs.records[0].payload as UBCOnSelectRequestPayload;
+        }
+
+        return null;
+    }
 }
 
