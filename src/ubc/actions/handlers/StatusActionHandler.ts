@@ -18,9 +18,7 @@ import { UBCOnInitRequestPayload } from '../../schema/v2.0.0/actions/init/types/
 import BecknLogDbService from '../../../db-services/BecknLogDbService';
 import { Prisma } from '@prisma/client';
 import { LocationDbService } from '../../../db-services/LocationDbService';
-import SelectActionHandler from './SelectActionHandler';
 import { OCPIStatusMapper } from '../../utils/OCPIStatusMapper';
-import OCPIPartnerDbService from '../../../db-services/OCPIPartnerDbService';
 
 /**
  * Handler for status action (BAP → BPP request-response)
@@ -142,41 +140,14 @@ export default class StatusActionHandler {
      * Fetches connector status from EVSE table based on the formatted connector ID
      * @param orderedItem - Formatted connector ID (format: IND*sellerId*csId*cpId*connectorId)
      * @returns UBC connectorStatus string
-     * @throws Error if partner or EVSE is not found
+     * @throws Error if EVSE is not found
      */
     public static async getConnectorStatusFromEVSE(orderedItem: string): Promise<string> {
-        // Parse the formatted connector ID
-        const parsedConnectorId = SelectActionHandler.parseBecknConnectorId(orderedItem);
-        
-        // Find the OCPI Partner using country_code and party_id from the parsed connector ID
-        const partner = await OCPIPartnerDbService.getFirstByFilter({
-            where: {
-                country_code: parsedConnectorId.countryCode,
-                party_id: parsedConnectorId.sellerId,
-                deleted: false,
-            },
-        });
-
-        if (!partner) {
-            const errorMessage = `OCPI Partner not found for connector ID: countryCode=${parsedConnectorId.countryCode}, partyId=${parsedConnectorId.sellerId}`;
-            logger.error(`🔴 ${errorMessage}`, new Error(errorMessage), { 
-                data: { 
-                    countryCode: parsedConnectorId.countryCode,
-                    partyId: parsedConnectorId.sellerId,
-                    orderedItem,
-                } 
-            });
-            throw new Error(errorMessage);
-        }
-
-        // Find the EVSE that contains this connector
-        const evse = await LocationDbService.findEVSEByLocationAndUid(
-            parsedConnectorId.csId,      // location OCPI ID
-            parsedConnectorId.cpId,      // EVSE UID
-            partner.id                   // partner ID (internal UUID)
-        );
+        // Find the EVSE directly from the Beckn connector ID
+        const evse = await LocationDbService.findEVSEByBecknConnectorId(orderedItem);
 
         if (!evse) {
+            const parsedConnectorId = LocationDbService.parseBecknConnectorId(orderedItem);
             const errorMessage = `EVSE not found for connector ID: locationId=${parsedConnectorId.csId}, evseUid=${parsedConnectorId.cpId}`;
             logger.error(`🔴 ${errorMessage}`, new Error(errorMessage), { 
                 data: { 
@@ -190,6 +161,7 @@ export default class StatusActionHandler {
 
         // Map OCPI EVSE status to UBC connectorStatus
         const connectorStatus = OCPIStatusMapper.mapOCPIStatusToUBCConnectorStatus(evse.status);
+        const parsedConnectorId = LocationDbService.parseBecknConnectorId(orderedItem);
         logger.debug(`🟢 Fetched connector status from EVSE`, { 
             data: { 
                 ocpiStatus: evse.status,

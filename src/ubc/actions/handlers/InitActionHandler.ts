@@ -180,44 +180,22 @@ export default class InitActionHandler {
         return backendInitPayload;
     }
 
-    /**
-     * Parses the formatted Beckn connector ID
-     * Format: IND*${sellerId}*${csId}*${cpId}*${connectorId}
-     * Returns: { countryCode, sellerId, csId, cpId, connectorId }
-     */
-    private static parseBecknConnectorId(formattedId: string): {
-        countryCode: string;
-        sellerId: string;
-        csId: string;
-        cpId: string;
-        connectorId: string;
-    } {
-        const parts = formattedId.split('*');
-        if (parts.length !== 5) {
-            throw new Error(`Invalid connector ID format: ${formattedId}. Expected format: IND*sellerId*csId*cpId*connectorId`);
-        }
-        return {
-            countryCode: parts[0], // IND
-            sellerId: parts[1],     // seller/party ID
-            csId: parts[2],         // charging station ID (location OCPI ID)
-            cpId: parts[3],         // charge point ID (EVSE UID)
-            connectorId: parts[4],  // connector ID
-        };
-    }
-
     public static async createPaymentTxnDetails(
         payload: ExtractedInitRequestBody
     ): Promise<ExtractedOnInitResponseBody> {
         const finalAmount = payload.payload.amount;
         
-        // Parse the formatted connector ID to extract components
-        const parsedConnectorId = this.parseBecknConnectorId(payload.payload.charge_point_connector_id);
+        // Find EVSE directly from Beckn connector ID
+        const evse = await LocationDbService.findEVSEByBecknConnectorId(payload.payload.charge_point_connector_id);
         
-        // Find the connector using the parsed components
-        const evseConnector = await LocationDbService.findConnectorByLocationEvseAndConnectorId(
-            parsedConnectorId.csId,      // location OCPI ID
-            parsedConnectorId.cpId,      // EVSE UID
-            parsedConnectorId.connectorId // connector ID
+        if (!evse) {
+            throw new Error(`EVSE not found for ID: ${payload.payload.charge_point_connector_id}`);
+        }
+
+        // Get connector from EVSE
+        const parsedConnectorId = LocationDbService.parseBecknConnectorId(payload.payload.charge_point_connector_id);
+        const evseConnector = evse.evse_connectors.find(
+            connector => connector.connector_id === parsedConnectorId.connectorId && !connector.deleted
         );
         
         if (!evseConnector) {

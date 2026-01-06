@@ -1,5 +1,4 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { Request } from 'express';
 import { HttpResponse } from '../../../types/responses';
 import { logger } from '../../../services/logger.service';
@@ -28,7 +27,6 @@ import { OCPIv211PriceComponent, OCPIv211TariffElement } from '../../../ocpi/sch
 import { Tariff } from '@prisma/client';
 import { TariffDbService } from '../../../db-services/TariffDbService';
 import { LocationDbService } from '../../../db-services/LocationDbService';
-import OCPIPartnerDbService from '../../../db-services/OCPIPartnerDbService';
 
 /**
  * Handler for select action
@@ -187,31 +185,6 @@ export default class SelectActionHandler {
         return backendSelectPayload;
     }
 
-    /**
-     * Parses the formatted Beckn connector ID
-     * Format: IND*${sellerId}*${csId}*${cpId}*${connectorId}
-     * Returns: { countryCode, sellerId, csId, cpId, connectorId }
-     */
-    public static parseBecknConnectorId(formattedId: string): {
-        countryCode: string;
-        sellerId: string;
-        csId: string;
-        cpId: string;
-        connectorId: string;
-    } {
-        const parts = formattedId.split('*');
-        if (parts.length !== 5) {
-            throw new Error(`Invalid connector ID format: ${formattedId}. Expected format: IND*sellerId*csId*cpId*connectorId`);
-        }
-        return {
-            countryCode: parts[0], // IND
-            sellerId: parts[1],     // seller/party ID
-            csId: parts[2],         // charging station ID (location OCPI ID)
-            cpId: parts[3],         // charge point ID (EVSE UID)
-            connectorId: parts[4],  // connector ID
-        };
-    }
-
     public static async sendSelectCallToBackend(
         payload: ExtractedSelectRequestBody
     ): Promise<ExtractedOnSelectResponseBody> {
@@ -228,14 +201,17 @@ export default class SelectActionHandler {
         } = reqPayload;
         const chargingOptionUnit = Number(charging_option_unit)/1000; // Convert kWh to Wh
         
-        // Parse the formatted connector ID
-        const parsedConnectorId = SelectActionHandler.parseBecknConnectorId(charge_point_connector_id);
+        // Find EVSE directly from Beckn connector ID
+        const evse = await LocationDbService.findEVSEByBecknConnectorId(charge_point_connector_id);
         
-        // Find connector using parsed values
-        const evseConnector = await LocationDbService.findConnectorByLocationEvseAndConnectorId(
-            parsedConnectorId.csId,      // location OCPI ID
-            parsedConnectorId.cpId,      // EVSE UID
-            parsedConnectorId.connectorId, // connector ID
+        if (!evse) {
+            throw new Error(`EVSE not found for: ${charge_point_connector_id}`);
+        }
+
+        // Get connector from EVSE
+        const parsedConnectorId = LocationDbService.parseBecknConnectorId(charge_point_connector_id);
+        const evseConnector = evse.evse_connectors.find(
+            connector => connector.connector_id === parsedConnectorId.connectorId && !connector.deleted
         );
         
         if (!evseConnector) {
