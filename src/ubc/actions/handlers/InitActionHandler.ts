@@ -9,7 +9,6 @@ import { BecknAction } from '../../schema/v2.0.0/enums/BecknAction';
 import { logger } from '../../../services/logger.service';
 import { UBCOnInitRequestPayload } from '../../schema/v2.0.0/actions/init/types/OnInitPayload';
 import BecknLogDbService from '../../../db-services/BecknLogDbService';
-import { ChargingSessionStatus } from '../../schema/v2.0.0/enums/ChargingSessionStatus';
 import {
     ExtractedInitRequestBody,
     GeneratePaymentLinkRequestPayload,
@@ -144,6 +143,9 @@ export default class InitActionHandler {
     public static translateUBCToBackendPayload(
         payload: UBCInitRequestPayload
     ): ExtractedInitRequestBody {
+        const buyer = payload.message.order['beckn:buyer'];
+        const orderItem = payload.message.order['beckn:orderItems'][0];
+        
         const backendInitPayload: ExtractedInitRequestBody = {
             metadata: {
                 domain: BecknDomain.EVChargingUBC,
@@ -156,24 +158,22 @@ export default class InitActionHandler {
             payload: {
                 amount: payload.message.order['beckn:orderValue']['value'],
                 orderValueComponents: payload.message.order['beckn:orderValue']['components'],
-                charge_point_connector_id:
-                    payload.message.order['beckn:orderItems'][0]['beckn:orderedItem'],
+                charge_point_connector_id: orderItem['beckn:orderedItem'],
                 charging_option_type: UBCChargingMethod.Units,
                 charging_option_unit: (
-                    payload.message.order['beckn:orderItems'][0]['beckn:quantity']['unitQuantity'] *
+                    (orderItem['beckn:quantity']?.['unitQuantity'] ?? 0) *
                     1000
                 ).toString(),
+                // v0.9: Updated field names (displayName, telephone, taxID)
                 buyer_details: {
-                    id: payload.message.order['beckn:buyer']['beckn:id'],
-                    name: payload.message.order['beckn:buyer']['beckn:name'],
-                    address: payload.message.order['beckn:buyer']['beckn:address'],
-                    email: payload.message.order['beckn:buyer']['beckn:email'],
-                    phone: payload.message.order['beckn:buyer']['beckn:phone'],
-                    tax_id: payload.message.order['beckn:buyer']['beckn:taxId'],
+                    id: buyer['beckn:id'],
+                    name: buyer['beckn:displayName'], // v0.9: renamed from beckn:name
+                    address: buyer['beckn:address'],
+                    email: buyer['beckn:email'],
+                    phone: buyer['beckn:telephone'], // v0.9: renamed from beckn:phone
+                    tax_id: buyer['beckn:taxID'], // v0.9: renamed from beckn:taxId
                     organization_name:
-                        payload.message.order['beckn:buyer']['beckn:organization']?.['descriptor'][
-                            'name'
-                        ],
+                        buyer['beckn:organization']?.['descriptor']?.['name'],
                 },
             },
         };
@@ -297,19 +297,25 @@ export default class InitActionHandler {
             action: BecknAction.on_init,
         });
 
+        const initOrder = backendInitPayload.message.order;
+
+        // v0.9: OnInit response - removed orderNumber, orderAttributes, fulfillment
+        // v0.9: Added beckn:id (order id), full payment with paymentURL, txnRef, acceptedPaymentMethod
         const ubcOnInitPayload: UBCOnInitRequestPayload = {
             context: context,
             message: {
                 order: {
-                    ...backendInitPayload.message.order,
-                    'beckn:orderAttributes': {
-                        ...backendInitPayload.message.order['beckn:orderAttributes'],
-                        sessionStatus: ChargingSessionStatus.PENDING,
-                    },
-                    'beckn:orderNumber': backendOnInitResponsePayload.payload.becknOrderId,
+                    '@context': initOrder['@context'],
+                    '@type': initOrder['@type'],
+                    'beckn:id': backendOnInitResponsePayload.payload.becknOrderId, // v0.9: order id assigned by BPP
+                    'beckn:orderStatus': initOrder['beckn:orderStatus'],
+                    'beckn:seller': initOrder['beckn:seller'],
+                    'beckn:buyer': initOrder['beckn:buyer'],
+                    'beckn:orderItems': initOrder['beckn:orderItems'],
+                    'beckn:orderValue': initOrder['beckn:orderValue'],
                     'beckn:payment': {
                         '@context':
-                            'https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/draft/schema/core/v2/context.jsonld',
+                            'https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld',
                         '@type': ObjectType.payment,
                         'beckn:id': backendOnInitResponsePayload.payload.becknPaymentId,
                         'beckn:amount': {
@@ -318,13 +324,15 @@ export default class InitActionHandler {
                         },
                         'beckn:paymentURL': backendOnInitResponsePayload.payload.paymentLink,
                         'beckn:txnRef': backendOnInitResponsePayload.payload.chargeTxnRef,
-                        'beckn:beneficiary': backendOnInitResponsePayload.payload.beneficiary ?? '',
+                        'beckn:beneficiary': backendOnInitResponsePayload.payload.beneficiary ?? 'BPP',
                         'beckn:acceptedPaymentMethod': [
+                            AcceptedPaymentMethod.BANK_TRANSFER,
                             AcceptedPaymentMethod.UPI,
-                            AcceptedPaymentMethod.CREDIT_CARD,
-                            AcceptedPaymentMethod.DEBIT_CARD,
+                            AcceptedPaymentMethod.WALLET,
                         ],
                         'beckn:paymentStatus': backendOnInitResponsePayload.payload.paymentStatus,
+                        // v0.9: paymentAttributes with settlementAccounts - inherited from init request if present
+                        'beckn:paymentAttributes': initOrder['beckn:payment']?.['beckn:paymentAttributes'],
                     },
                 },
             },

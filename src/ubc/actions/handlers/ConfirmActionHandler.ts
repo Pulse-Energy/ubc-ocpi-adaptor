@@ -131,7 +131,8 @@ export default class ConfirmActionHandler {
                 bap_uri: payload.context.bap_uri,
             },
             payload: {
-                beckn_order_id: payload.message.order['beckn:orderNumber'],
+                // v0.9: Use beckn:id instead of beckn:orderNumber
+                beckn_order_id: payload.message.order['beckn:id'],
             },
         };
         return backendConfirmPayload;
@@ -176,6 +177,10 @@ export default class ConfirmActionHandler {
         backendConfirmPayload: UBCConfirmRequestPayload,
         ExtractedOnConfirmResponseBody: ExtractedOnConfirmResponsePayload
     ): UBCOnConfirmRequestPayload {
+        const confirmOrder = backendConfirmPayload.message.order;
+        
+        // v0.9: OnConfirm response - added fulfillment with deliveryAttributes (sessionStatus)
+        // v0.9: Removed orderNumber, orderAttributes
         const ubcOnConfirmPayload: UBCOnConfirmRequestPayload = {
             context: {
                 ...backendConfirmPayload.context,
@@ -183,10 +188,28 @@ export default class ConfirmActionHandler {
             },
             message: {
                 order: {
-                    ...backendConfirmPayload.message.order,
+                    '@context': confirmOrder['@context'],
+                    '@type': confirmOrder['@type'],
+                    'beckn:id': confirmOrder['beckn:id'],
                     'beckn:orderStatus': ExtractedOnConfirmResponseBody.order_status,
+                    'beckn:seller': confirmOrder['beckn:seller'],
+                    'beckn:buyer': confirmOrder['beckn:buyer'],
+                    'beckn:orderItems': confirmOrder['beckn:orderItems'],
+                    'beckn:orderValue': confirmOrder['beckn:orderValue'],
+                    // v0.9: Added fulfillment with deliveryAttributes (sessionStatus)
+                    'beckn:fulfillment': {
+                        '@context': 'https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld',
+                        '@type': 'beckn:Fulfillment' as any,
+                        'beckn:id': 'fulfillment-001',
+                        'beckn:mode': 'RESERVATION',
+                        'beckn:deliveryAttributes': {
+                            '@context': 'https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/EvChargingSession/v1/context.jsonld',
+                            '@type': 'ChargingSession',
+                            sessionStatus: 'PENDING' as any, // Initial status, will change to ACTIVE when charging starts
+                        },
+                    },
                     'beckn:payment': {
-                        ...backendConfirmPayload.message.order['beckn:payment'],
+                        ...confirmOrder['beckn:payment'],
                         'beckn:paidAt': ExtractedOnConfirmResponseBody.payment_received_at,
                     },
                 },

@@ -163,47 +163,61 @@ export default class TrackActionService {
             action: BecknAction.on_track,
         });
 
+        const trackOrder = backendTrackPayload.message.order;
+
+        // v0.9: OnTrack response includes seller, buyer (minimal), orderItems, and fulfillment
+        // v0.9: Fulfillment has trackingAction, sessionStatus at top level, and deliveryAttributes with chargingTelemetry
         return {
             context,
             message: {
                 order: {
                     "@context":
-                        "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/draft/schema/core/v2/context.jsonld",
-                    "@type": backendTrackPayload.message.order["@type"],
+                        "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
+                    "@type": trackOrder["@type"],
                     "beckn:id": backendOnTrackResponsePayload.order_id,
                     "beckn:orderStatus": backendOnTrackResponsePayload.order_status,
+                    // v0.9: Include seller and buyer from request
+                    "beckn:seller": trackOrder["beckn:seller"],
+                    "beckn:buyer": trackOrder["beckn:buyer"],
                     "beckn:orderItems": [
                         {
-                            "beckn:lineId": "line-001",
                             "beckn:orderedItem":
                                 backendOnTrackResponsePayload.charge_point_connector_id,
                         },
                     ],
                     "beckn:fulfillment": {
                         "@context":
-                            "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/draft/schema/core/v2/context.jsonld",
-                        "@type": "beckn:fulfillment",
-                        "beckn:id": "fulfillment-charging-001",
+                            "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
+                        "@type": "beckn:Fulfillment",
+                        "beckn:id": "fulfillment-001",
                         "beckn:mode": "RESERVATION",
+                        // v0.9: trackingAction at top level
                         trackingAction: {
-                            "@type": "schema:TrackAction",
+                            "@type": "beckn:TrackAction",
                             target: {
                                 "@type": "schema:EntryPoint",
                                 url: backendOnTrackResponsePayload.track_url || "",
                             },
-                            deliveryMethod: "",
-                            reservationId: "",
                         },
-                        deliveryAttributes: {
+                        // v0.9: sessionStatus at top level (ACTIVE, COMPLETED, etc.)
+                        sessionStatus: backendOnTrackResponsePayload.order_status === OrderStatus.INPROGRESS 
+                            ? "ACTIVE" 
+                            : backendOnTrackResponsePayload.order_status,
+                        // v0.9: deliveryAttributes with chargingTelemetry
+                        "beckn:deliveryAttributes": {
                             "@context":
-                                "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/draft/schema/EvChargingService/v1/context.jsonld",
-                            "@type": "beckn:chargingSession",
+                                "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/EvChargingService/v1/context.jsonld",
+                            "@type": "ChargingSession",
                             chargingTelemetry: [
                                 {
                                     eventTime:
                                         backendOnTrackResponsePayload.telemetry_data.event_time,
                                     metrics:
-                                        backendOnTrackResponsePayload.telemetry_data.metrics,
+                                        backendOnTrackResponsePayload.telemetry_data.metrics.map(m => ({
+                                            name: m.name,
+                                            value: m.value,
+                                            unitCode: m.unit || "",
+                                        })),
                                 },
                             ],
                         },

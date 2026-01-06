@@ -115,7 +115,9 @@ export default class OnStatusActionHandler {
         status: payment_status,
        });
 
-       const ubcOnStatusPayload = this.translateBackendToUBC(existingBppOnInitResponse, payload);
+       // v0.9: Use type assertion since on_init structure changed but we still need to build on_status from it
+       // TODO: Update status action to match v0.9 structure separately
+       const ubcOnStatusPayload = this.translateBackendToUBC(existingBppOnInitResponse as unknown as UBCOnStatusRequestPayload, payload);
 
        const bppHost = Utils.getBPPClientHost();
 
