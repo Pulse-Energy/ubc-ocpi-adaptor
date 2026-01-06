@@ -190,7 +190,8 @@ export default class OnStatusActionHandler {
         PaymentTxnDbService.update(paymentTxn.id, {
             status: payment_status,
         });
-
+        
+       // v0.9: Use type assertion since on_init structure changed but we still need to build on_status from it
         // Convert backend payload to UBC format (no status request needed for async on_status)
         const ubcOnStatusPayload = this.translateBackendToUBC(
             existingBppOnSelectResponse,

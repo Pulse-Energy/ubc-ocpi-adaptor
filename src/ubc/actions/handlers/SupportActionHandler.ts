@@ -81,6 +81,7 @@ export default class SupportActionHandler {
          * Translates UBC (Beckn) request payload to backend format
          */
     public static translateUBCToBackendPayload(payload: UBCSupportRequestPayload): ExtractedSupportRequestPayload {
+        // v0.9: Support request uses refId/refType (camelCase) and includes support object with user's contact info
         const backendSupportPayload: ExtractedSupportRequestPayload = {
             metadata: {
                 domain: BecknDomain.EVChargingUBC,
@@ -89,8 +90,16 @@ export default class SupportActionHandler {
                 beckn_transaction_id: payload.context.transaction_id,
             },
             payload: {
-                reference_id: payload.message.ref_id,
-                reference_type: payload.message.ref_type,
+                reference_id: payload.message.refId, // v0.9: renamed from ref_id
+                reference_type: payload.message.refType, // v0.9: renamed from ref_type
+                // v0.9: User's contact info for support
+                user_support_info: payload.message.support ? {
+                    name: payload.message.support.name,
+                    phone: payload.message.support.phone,
+                    email: payload.message.support.email,
+                    hours: payload.message.support.hours,
+                    channels: payload.message.support.channels,
+                } : undefined,
             },
         };
         return backendSupportPayload;
@@ -174,13 +183,11 @@ export default class SupportActionHandler {
             action: BecknAction.on_support,
         });
 
-        // Send back the same request payload, just change the action in context
-        // The response type requires a 'support' field, so we add it with empty/default values
-        // This allows BAP to resolve the stitched response even on error
-        const errorOnSupportPayload = {
+        // v0.9: OnSupport response only has support field in message
+        // Send back empty support data to allow BAP to resolve the stitched response even on error
+        const errorOnSupportPayload: UBCOnSupportRequestPayload = {
             context: context,
             message: {
-                ...originalRequest.message,
                 support: {
                     name: '',
                     phone: '',
@@ -190,7 +197,7 @@ export default class SupportActionHandler {
                     channels: [],
                 },
             },
-        } as unknown as UBCOnSupportRequestPayload;
+        };
 
         logger.debug(`🟡 Sending error on_support response due to processing failure`, { 
             data: { 
