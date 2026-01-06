@@ -31,34 +31,11 @@ export class OCPIStatusMapper {
      */
     public static mapOCPIStatusToUBCConnectorStatus(ocpiStatus: string): string {
         switch (ocpiStatus) {
-            case OCPIStatus.PREPARING:
-                return 'PREPARING';
-            
-            case OCPIStatus.CHARGING:
-                return 'CHARGING';
-            
-            case OCPIStatus.AVAILABLE:
-                // When available, connector is not connected yet
-                return 'PREPARING';
-            
-            case OCPIStatus.RESERVED:
-                // Reserved means connector is prepared/reserved for use
-                return 'PREPARING';
-            
-            case OCPIStatus.FINISHING:
-                // Finishing means charging is ending but still connected
-                return 'CHARGING';
-            
             case OCPIStatus.BLOCKED:
-            case OCPIStatus.INOPERATIVE:
-            case OCPIStatus.OUTOFORDER:
-            case OCPIStatus.REMOVED:
-            case OCPIStatus.PLANNED:
-            case OCPIStatus.UNKNOWN:
-            default:
-                // For blocked, inoperative, out of order, etc., connector is not available
-                // Default to PREPARING as a safe fallback
                 return 'PREPARING';
+            
+            default:
+                return ocpiStatus;
         }
     }
 }
