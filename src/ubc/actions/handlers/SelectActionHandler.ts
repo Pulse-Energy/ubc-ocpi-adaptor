@@ -192,7 +192,7 @@ export default class SelectActionHandler {
      * Format: IND*${sellerId}*${csId}*${cpId}*${connectorId}
      * Returns: { countryCode, sellerId, csId, cpId, connectorId }
      */
-    private static parseBecknConnectorId(formattedId: string): {
+    public static parseBecknConnectorId(formattedId: string): {
         countryCode: string;
         sellerId: string;
         csId: string;

@@ -9,6 +9,7 @@ import SelectActionHandler from './actions/handlers/SelectActionHandler';
 import ConfirmActionHandler from './actions/handlers/ConfirmActionHandler';
 import UpdateActionHandler from './actions/handlers/UpdateActionHandler';
 import OnStatusActionHandler from './actions/handlers/OnStatusActionHandler';
+import StatusActionHandler from './actions/handlers/StatusActionHandler';
 import TrackActionHandler from './actions/handlers/TrackActionHandler';
 import CancelActionHandler from './actions/handlers/CancelActionHandler';
 import RatingActionHandler from './actions/handlers/RatingActionHandler';
@@ -88,6 +89,10 @@ router.post(`/${BecknAction.confirm}`, ubcAuth, async (req: Request, res: Respon
 
 router.post(`/${BecknAction.update}`, ubcAuth, async (req: Request, res: Response, next: NextFunction) =>
     handleRequest(req, res, next, UpdateActionHandler.handleBppUpdateAction)
+);
+
+router.post(`/${BecknAction.status}`, ubcAuth, async (req: Request, res: Response, next: NextFunction) =>
+    handleRequest(req, res, next, StatusActionHandler.handleBppStatusAction)
 );
 
 router.post(`/${BecknAction.on_status}`, ubcAuth, async (req: Request, res: Response, next: NextFunction) =>
