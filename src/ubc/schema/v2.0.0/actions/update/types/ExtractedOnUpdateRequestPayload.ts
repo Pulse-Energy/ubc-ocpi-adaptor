@@ -6,4 +6,5 @@ export type ExtractedOnUpdateRequestBody = {
     session_status: ChargingSessionStatus,
     beckn_transaction_id: string,
     order_value?: BecknOrderValueResponse,
+    invoice_url?: string,
 };

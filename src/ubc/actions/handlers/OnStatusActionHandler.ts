@@ -16,11 +16,11 @@ import { OrderStatus } from "../../schema/v2.0.0/enums/OrderStatus";
 import { ObjectType } from "../../schema/v2.0.0/enums/ObjectType";
 import { BecknPayment } from "../../schema/v2.0.0/types/Payment";
 import PaymentTxnDbService from "../../../db-services/PaymentTxnDbService";
-import { BecknPaymentStatus } from "../../schema/v2.0.0/enums/PaymentStatus";
 import BecknLogDbService from "../../../db-services/BecknLogDbService";
 import { Prisma } from "@prisma/client";
 import { LocationDbService } from "../../../db-services/LocationDbService";
 import { OCPIStatusMapper } from "../../utils/OCPIStatusMapper";
+import { GenericPaymentTxnStatus } from "../../../types/BillDesk";
 
 /**
  * Handler for status action
@@ -222,7 +222,7 @@ export default class OnStatusActionHandler {
      * No preceding status request is required - this is an independent callback
      */
     public static async forwardOnStatusToBppOnix(payload: ExtractedOnStatusRequestBody): Promise<void> {
-        const { authorization_reference, payment_status } = payload;
+        const { authorization_reference, payment_status, oldPaymentStatus } = payload;
 
         const paymentTxn = await PaymentTxnDbService.getFirstByFilter({
             where: {
@@ -233,11 +233,11 @@ export default class OnStatusActionHandler {
             throw new Error('No payment txn found');
         }
         const paymentStatus = paymentTxn.status;
-        if (paymentStatus === BecknPaymentStatus.COMPLETED) {
+        if (oldPaymentStatus === GenericPaymentTxnStatus.Success || paymentStatus === oldPaymentStatus) {
             return;
         }
 
-        if (paymentStatus !== BecknPaymentStatus.PENDING) {
+        if (oldPaymentStatus !== GenericPaymentTxnStatus.Pending) {
             throw new Error('Payment txn is not pending');
         }
 
