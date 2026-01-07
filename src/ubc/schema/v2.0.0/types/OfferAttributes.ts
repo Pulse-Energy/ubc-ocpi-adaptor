@@ -8,7 +8,16 @@ export type BecknOfferAttributes = {
         feeType: string; // "PERCENTAGE" etc
         feeValue: number;
     };
-    idleFeePolicy?: string;
+    idleFeePolicy?: {
+        applicableQuantity: {
+            unitCode: string;
+            unitQuantity: number;
+            unitText: string;
+        };
+        currency: string;
+        value: number;
+    };
+    tariffModel?: string;
     offerType?: string;
     discountPercentage?: number;
 };

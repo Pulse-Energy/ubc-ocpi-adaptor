@@ -97,7 +97,9 @@ export default class PublishActionService {
 
         const ubcPublishPayload: UBCPublishRequestPayload = {
             context: context,
-            catalogs: catalogs,
+            message: {
+                catalogs: catalogs,
+            },
         };
 
         return ubcPublishPayload;
@@ -109,7 +111,9 @@ export default class PublishActionService {
      */
     private static getItemAttributesFromConnector(
         connector: Connector,
-        cs: ChargingStation
+        cs: ChargingStation,
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        _acceptedPaymentMethods: AcceptedPaymentMethod[]
     ): BecknChargingServiceAttributes {
         const attributes: BecknChargingServiceAttributes = {
             "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/draft/schema/EvChargingService/v1/context.jsonld",
@@ -119,22 +123,25 @@ export default class PublishActionService {
             "minPowerKW": connector.power_rating,
             "socketCount": 1,
             "reservationSupported": false,
-            "serviceLocation": {
-                "@type": "beckn:Location",
-                "geo": {
-                    "type": "Point",
-                    "coordinates": [
-                        cs.longitude,
-                        cs.latitude
-                    ]
+            "chargingStation": {
+                "id": cs.id,
+                "serviceLocation": {
+                    "@type": "beckn:Location",
+                    "geo": {
+                        "type": "Point",
+                        "coordinates": [
+                            cs.longitude,
+                            cs.latitude
+                        ]
+                    },
+                    "address": {
+                        "streetAddress": cs.address,
+                        "addressLocality": cs.city,
+                        "addressRegion": cs.state,
+                        "postalCode": cs.pincode,
+                        "addressCountry": cs.country
+                    }
                 },
-                "address": {
-                    "streetAddress": cs.address,
-                    "addressLocality": cs.city,
-                    "addressRegion": cs.state,
-                    "postalCode": cs.pincode,
-                    "addressCountry": cs.country
-                }
             },
             "amenityFeature": cs.amenities || [],
         };
@@ -171,9 +178,11 @@ export default class PublishActionService {
                     },
                     "beckn:category": {
                         "@type": "schema:CategoryCode",
-                        "schema:codeValue": "EVSE",
-                        "schema:name": "EV Charging Service",
+                        "schema:codeValue": "ev-charging",
+                        "schema:name": "EV Charging",
                     },
+                    // "beckn:availableAt" is commented out in reference implementation
+                    // but kept here as it's required by the type definition
                     "beckn:availableAt": [
                         {
                             "@type": "beckn:Location",
@@ -198,16 +207,14 @@ export default class PublishActionService {
                         },
                     ],
                     "beckn:rateable": cs.rating_value && cs.rating_count ? true : false,
-                    ...(cs.rating_value && cs.rating_count ? {
-                        "beckn:rating": {
-                            "@type": ObjectType.rating,
-                            "beckn:ratingValue": Math.min(cs.rating_value, 5), // Must be <= 5
-                            "beckn:ratingCount": Math.floor(cs.rating_count), // Must be integer
-                        }
-                    } : {}),
+                    "beckn:rating": cs.rating_value && cs.rating_count ? {
+                        "@type": "beckn:Rating",
+                        "beckn:ratingValue": Math.min(cs.rating_value, 5), // Must be <= 5
+                        "beckn:ratingCount": Math.floor(cs.rating_count), // Must be integer
+                    } : undefined,
                     "beckn:isActive": true,
                     "beckn:networkId": [
-                        "beckn.open",
+                        "bap.net/ev-charging",
                     ],
                     "beckn:provider": {
                         "beckn:id": org.id, // org external object uid
@@ -216,7 +223,7 @@ export default class PublishActionService {
                             "schema:name": org.name, // org name
                         },
                     },
-                    "beckn:itemAttributes": this.getItemAttributesFromConnector(connector, cs),
+                    "beckn:itemAttributes": this.getItemAttributesFromConnector(connector, cs, accepted_payment_methods),
                 };
             });
         });
@@ -224,32 +231,13 @@ export default class PublishActionService {
         const itemIds = items.map((item) => item['beckn:id']);
 
         // Build offers from tariffs
-        // Deduplicate offers with same price, currency, and validity to avoid duplicate offers
-        const uniqueOffers = new Map<string, {
-            tariff: typeof tariffs[0],
-            itemIds: string[]
-        }>();
-
-        tariffs.forEach((tariff) => {
-            // Create a unique key based on price, currency, name, and validity
-            const offerKey = `${tariff.currency}_${tariff.price}_${tariff.name}_${validity.start_date}_${validity.end_date}`;
-            
-            if (!uniqueOffers.has(offerKey)) {
-                // For new unique offer, include all items
-                uniqueOffers.set(offerKey, {
-                    tariff,
-                    itemIds: [...itemIds]
-                });
-            }
-        });
-
-        // Build offers from unique tariffs
-        const offers: BecknCatalogOffer[] = Array.from(uniqueOffers.values()).map((offerData, index): BecknCatalogOffer => {
-            const { tariff } = offerData;
+        // Offers reference items (connector IDs), since items are now at connector level
+        // Per reference: each tariff becomes an offer, and each offer includes ALL itemIds
+        const offers: BecknCatalogOffer[] = tariffs.map((tariff, index): BecknCatalogOffer => {
             return {
                 "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/draft/schema/core/v2/context.jsonld",
                 "beckn:provider": {
-                    "beckn:id": org.id, // org external object uid - must be object, not string
+                    "beckn:id": org.id, // org external object uid - must be object per type
                     "beckn:descriptor": {
                         "@type": ObjectType.descriptor,
                         "schema:name": org.name,
@@ -264,10 +252,12 @@ export default class PublishActionService {
                 /**
                  * this has to map the item id i.e. beckn:id of the item
                  */
-                "beckn:items": offerData.itemIds, // Connector external object uid (cpc_id from tariff)
+                "beckn:items": [
+                    ...itemIds,
+                ], // All connector external object uids (per reference implementation)
                 "beckn:price": {
                     "currency": tariff.currency,
-                    "value": parseFloat(tariff.price), // tariff rate
+                    "value": parseFloat(tariff.price), // tariff rate - parse to number
                     "applicableQuantity": {
                         "unitText": "Kilowatt Hour",
                         "unitCode": "KWH",
@@ -287,6 +277,16 @@ export default class PublishActionService {
                         "feeType": "PERCENTAGE",
                         "feeValue": tariff.finder_fee || 0,
                     },
+                    "idleFeePolicy": {
+                        "applicableQuantity": {
+                            unitCode: "MIN",
+                            unitQuantity: 10,
+                            unitText: "minutes",
+                        },
+                        "currency": "INR",
+                        value: 2
+                    },
+                    tariffModel: "PER_KWH"
                 },
             };
         });
@@ -294,7 +294,7 @@ export default class PublishActionService {
         const catalogs: BecknCatalog[] = [
             {
                 "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/draft/schema/core/v2/context.jsonld",
-                "@type": ObjectType.catalog,
+                "@type": "beckn:Catalog",
                 /**
                  * catalog id has to be consistent always
                  * We may have to use same catalog id for all CPOs
@@ -310,6 +310,8 @@ export default class PublishActionService {
                     "schema:startDate": validity.start_date,
                     "schema:endDate": validity.end_date,
                 },
+                "beckn:bppId": metadata.bpp_id,
+                "beckn:bppUri": metadata.bpp_uri,
                 "beckn:items": items,
                 "beckn:offers": offers,
             },

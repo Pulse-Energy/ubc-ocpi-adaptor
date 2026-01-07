@@ -58,7 +58,7 @@ export type PostAppPublishRequestPayload = {
             /** Required: Array of connectors (can be empty, but array is required) */
             connectors: Array<{
                 /** Required: Connector identifier */
-                id: string;
+                id: string; 
                 /** Required: Connector type (e.g., "CCS2", "CHAdeMO") */
                 type: string;
                 /** Required: Power rating in kW */

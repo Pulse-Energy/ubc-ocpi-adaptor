@@ -11,6 +11,8 @@ export type BecknCatalog = {
     "beckn:descriptor": BecknDescriptor;
     "beckn:providerId"?: string;
     "beckn:validity": BecknTimePeriod;
+    "beckn:bppId"?: string;
+    "beckn:bppUri"?: string;
     "beckn:items": BecknItem[];
     "beckn:offers": BecknCatalogOffer[];
 };
