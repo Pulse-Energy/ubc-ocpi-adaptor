@@ -16,6 +16,7 @@ import { SessionService } from './SessionService';
 import { isEmpty } from 'lodash';
 import { logger } from '../../../../../services/logger.service';
 import OCPIResponseService from '../../../../services/OCPIResponseService';
+import TrackActionHandler from '../../../../../ubc/actions/handlers/TrackActionHandler';
 
 /**
  * OCPI 2.2.1 – Sessions module (incoming, EMSP side).
@@ -353,6 +354,7 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
                     logger.debug(`🟢 [${reqId}] Updated existing session in handlePutSession`, { 
                         data: { logData, sessionId: stored.id } 
                     });
+                    TrackActionHandler.sendOnTrackToBAPONIX(stored?.authorization_reference ?? '');
                 }
                 else {
                     logger.debug(`🟡 [${reqId}] No changes detected, using existing session in handlePutSession`, { data: logData });
@@ -546,6 +548,8 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
                 logger.debug(`🟢 [${reqId}] Updated session in handlePatchSession`, { 
                     data: { logData, sessionId: stored.id } 
                 });
+
+                TrackActionHandler.sendOnTrackToBAPONIX(stored?.authorization_reference ?? '');
             }
 
             logger.debug(`🟡 [${reqId}] Mapping Prisma session to OCPI format in handlePatchSession`, { data: logData });
