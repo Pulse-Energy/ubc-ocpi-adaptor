@@ -1,8 +1,7 @@
 import { ObjectType } from "../../../enums/ObjectType";
-import { BecknBuyer } from "../../../types/Buyer";
+import { BecknBuyer, BecknBuyerMinimal } from "../../../types/Buyer";
 import { Context } from "../../../types/Context";
 import { BecknFulfillment } from "../../../types/Fulfillment";
-import { BecknOrderAttributes } from "../../../types/OrderAttributes";
 import { BecknOrderItemResponse } from "../../../types/OrderItem";
 import { BecknOrderValueResponse } from "../../../types/OrderValue";
 import { BecknPayment } from "../../../types/Payment";
@@ -20,11 +19,10 @@ export type UBCOnStatusOrder = {
     "beckn:id": string;
     "beckn:orderStatus": string;
     "beckn:seller": string;
-    "beckn:buyer": BecknBuyer;
+    "beckn:buyer": BecknBuyer | BecknBuyerMinimal; // Full buyer for sync, minimal (only id) for async
     "beckn:orderValue": BecknOrderValueResponse;
     "beckn:orderItems": BecknOrderItemResponse[];
-    "beckn:fulfillment"?: BecknFulfillment; // Optional - not present in async on_status
-    "beckn:orderAttributes"?: BecknOrderAttributes; // Optional - not present in async on_status
+    "beckn:fulfillment": BecknFulfillment; // Required per schema (lines 2091-2104 for sync, 5690-5700 for async)
     "beckn:payment": BecknPayment;
-    "beckn:orderNumber"?: string; // Optional - not present in async on_status
+    // Per schema: orderAttributes and orderNumber are NOT present in on_status
 };

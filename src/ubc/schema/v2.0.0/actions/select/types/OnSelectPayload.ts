@@ -17,7 +17,7 @@ export type UBCOnSelectOrder = {
     "@type": ObjectType.order;
     "beckn:orderStatus": OrderStatus;
     "beckn:seller": string;
-    "beckn:buyer"?: any; // Optional - present in schema example
+    "beckn:buyer": any; // Required per schema (lines 1127-1136)
     "beckn:orderItems": BecknOrderItemResponse[];
     "beckn:orderValue": BecknOrderValueResponse;
     "beckn:orderAttributes": BecknOrderAttributes;

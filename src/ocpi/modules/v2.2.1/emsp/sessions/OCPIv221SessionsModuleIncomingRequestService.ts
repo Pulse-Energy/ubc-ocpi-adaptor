@@ -464,7 +464,6 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
 
             if (!existing && !patch.authorization_reference) {
                 // raise error
-                logger.error(`🔴 [${reqId}] Session not found and authorization_reference is not provided in handlePatchSession`, e, { data: logData });
                 OCPIRequestLogService.logIncomingResponse({
                     req,
                     res,
@@ -479,7 +478,6 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
                     cpo_session_id: session_id,
                     authorization_reference: patch.authorization_reference,
                 });
-
                 const response = {
                     httpStatus: 404,
                     payload: {

@@ -267,11 +267,8 @@ export default class SelectActionHandler {
         };
         
         // Get buyer from select order (it's in the request but not in the type definition)
-        const selectOrderRecord = selectOrder as Record<string, unknown>;
-        const buyer = selectOrderRecord['beckn:buyer'];
-        
         // Per schema example (lines 1122-1232): on_select should NOT include beckn:id or beckn:fulfillment
-        // Field order per schema: @context, @type, orderStatus, seller, buyer, orderItems, orderValue, orderAttributes
+        // Field order per schema: @context, @type, orderStatus, seller, buyer (REQUIRED), orderItems, orderValue, orderAttributes
         const ubcOnSelectPayload: UBCOnSelectRequestPayload = {
             context: context,
             message: {
@@ -280,7 +277,7 @@ export default class SelectActionHandler {
                     "@type": selectOrder["@type"],
                     "beckn:orderStatus": OrderStatus.CREATED,
                     "beckn:seller": selectOrder["beckn:seller"],
-                    ...(buyer ? { "beckn:buyer": buyer as any } : {}), // include buyer if present
+                    "beckn:buyer": selectOrder["beckn:buyer"] as any, // Required per schema (lines 1127-1136)
                     "beckn:orderItems": [orderItemResponse as any], // Cast to any since schema doesn't require lineId
                     "beckn:orderValue": orderValue,
                     "beckn:orderAttributes": selectOrder["beckn:orderAttributes"],

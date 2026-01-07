@@ -362,12 +362,22 @@ export default class UpdateActionHandler {
             'sessionStatus': sessionStatus, // only update sessionStatus
         };
 
+
+        // Per schema (lines 2251-2360, 2556-2630): on_update should NOT include orderAttributes
+        // Build order object explicitly, excluding orderAttributes
         const ubcOnUpdatePayload: UBCOnUpdateRequestPayload = {
             context: context,
             message: {
                 order: {
-                    ...order, // reuse everything from update request
+                    "@context": order['@context'],
+                    "@type": order['@type'],
+                    "beckn:id": order['beckn:id'],
                     'beckn:orderStatus': orderStatus, // only update orderStatus
+                    "beckn:seller": order['beckn:seller'],
+                    "beckn:buyer": order['beckn:buyer'],
+                    "beckn:orderItems": order['beckn:orderItems'],
+                    "beckn:orderValue": order['beckn:orderValue'],
+                    "beckn:payment": order['beckn:payment'],
                     'beckn:fulfillment': {
                         ...fulfillment, // reuse everything from update request first
                         "@context": fulfillment?.['@context'] || "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",

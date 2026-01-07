@@ -93,6 +93,8 @@ export default class OnUpdateActionHandler {
         const sessionStatus = backendOnUpdateRequestPayload.session_status;
 
         // For async on_update (completed), reuse everything from existing on_update response, only update orderStatus and sessionStatus
+        // Per schema (lines 2556-2630): on_update should NOT include orderAttributes
+        // Build order object explicitly, excluding orderAttributes
         const ubcOnUpdatePayload: UBCOnUpdateRequestPayload = {
             context: {
                 ...existingBppOnUpdateResponse.context,
@@ -100,8 +102,15 @@ export default class OnUpdateActionHandler {
             },
             message: {
                 order: {
-                    ...order, // reuse everything from existing on_update response
+                    "@context": order['@context'],
+                    "@type": order['@type'],
+                    "beckn:id": order['beckn:id'],
                     'beckn:orderStatus': OrderStatus.COMPLETED, // only update orderStatus
+                    "beckn:seller": order['beckn:seller'],
+                    "beckn:buyer": order['beckn:buyer'],
+                    "beckn:orderItems": order['beckn:orderItems'],
+                    "beckn:orderValue": order['beckn:orderValue'],
+                    "beckn:payment": order['beckn:payment'],
                     'beckn:fulfillment': {
                         ...fulfillment, // reuse everything from existing on_update response
                         'beckn:deliveryAttributes': {
