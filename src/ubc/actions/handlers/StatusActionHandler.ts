@@ -264,14 +264,24 @@ export default class StatusActionHandler {
         }
 
         // Update deliveryAttributes with actual connectorStatus from EVSE
+        // Per schema line 2096-2103: deliveryAttributes must have @context, @type, and connectorStatus
         const updatedDeliveryAttributes = {
+            "@context": deliveryAttributes['@context'] || "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/EvChargingSession/v1/context.jsonld",
+            "@type": deliveryAttributes['@type'] || "ChargingSession",
             ...deliveryAttributes,
             connectorStatus: connectorStatus || deliveryAttributes['connectorStatus'] || 'PREPARING',
+            // Ensure sessionStatus is present
+            sessionStatus: deliveryAttributes['sessionStatus'] || 'PENDING',
         };
 
         // Update fulfillment with updated deliveryAttributes
+        // Per schema line 2091-2104: fulfillment must always be included with proper structure
         const updatedFulfillment = {
-            ...statusFulfillment,
+            "@context": statusFulfillment?.['@context'] || "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
+            "@type": statusFulfillment?.['@type'] || "beckn:Fulfillment",
+            "beckn:id": statusFulfillment?.['beckn:id'] || `fulfillment-${statusOrder['beckn:id']}`,
+            "beckn:mode": statusFulfillment?.['beckn:mode'] || "RESERVATION",
+            ...(statusFulfillment || {}),
             'beckn:deliveryAttributes': updatedDeliveryAttributes,
         };
 
