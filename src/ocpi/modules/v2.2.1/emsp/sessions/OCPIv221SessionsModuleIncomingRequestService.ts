@@ -15,6 +15,7 @@ import ChargingService from '../../../../../ubc/actions/services/ChargingService
 import { SessionService } from './SessionService';
 import { isEmpty } from 'lodash';
 import { logger } from '../../../../../services/logger.service';
+import OCPIResponseService from '../../../../services/OCPIResponseService';
 
 /**
  * OCPI 2.2.1 – Sessions module (incoming, EMSP side).
@@ -460,6 +461,35 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
                     partner_id: partnerCredentials.partner_id
                 },
             });
+
+            if (!existing && !patch.authorization_reference) {
+                // raise error
+                logger.error(`🔴 [${reqId}] Session not found and authorization_reference is not provided in handlePatchSession`, { data: logData });
+                OCPIRequestLogService.logIncomingResponse({
+                    req,
+                    res,
+                    responseBody: {
+                        status_code: OCPIResponseStatusCode.status_2001,
+                        status_message: 'Session not found and authorization_reference is not provided',
+                        timestamp: new Date().toISOString(),
+                    },
+                    statusCode: 404,
+                    partnerId: partnerCredentials.partner_id,
+                    command: OCPILogCommand.PatchSessionRes,
+                    cpo_session_id: session_id,
+                    authorization_reference: patch.authorization_reference,
+                });
+
+                const response = {
+                    httpStatus: 404,
+                    payload: {
+                        status_code: OCPIResponseStatusCode.status_2001,
+                        status_message: 'Session not found and authorization_reference is not provided',
+                        timestamp: new Date().toISOString(),
+                    },
+                };
+                return response;
+            }
 
             if (!existing) {
                 // Try finding using authorization_reference
