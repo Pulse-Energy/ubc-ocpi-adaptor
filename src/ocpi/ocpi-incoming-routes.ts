@@ -564,6 +564,24 @@ router.post(
         ),
 );
 
+router.post(
+    '/2.2.1/cdrs',
+    ocpiAuth,
+    async (req: Request, res: Response, next: NextFunction) =>
+        handleRequest(
+            req,
+            res,
+            next,
+            (innerReq: Request, innerRes: Response) =>
+                OCPIv221CDRsModuleIncomingRequestService.handlePostCDR(
+                    innerReq,
+                    innerRes,
+                    (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
+                ),
+            (req as OCPIAuthedRequest).ocpiPartnerCredentials,
+        ),
+);
+
 // Commands callback endpoint (response_url target)
 router.post(
     '/2.2.1/commands/:command_type/:command_id',

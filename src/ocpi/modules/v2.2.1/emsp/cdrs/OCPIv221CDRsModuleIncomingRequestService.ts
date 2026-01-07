@@ -11,7 +11,6 @@ import ChargingService from '../../../../../ubc/actions/services/ChargingService
 import { CDRService } from './CDRService';
 import { isEmpty } from 'lodash';
 import { logger } from '../../../../../services/logger.service';
-import OnUpdateActionHandler from '../../../../../ubc/actions/handlers/OnUpdateActionHandler';
 // NOTE: Utils import removed – not used in this module.
 
 /**
@@ -402,27 +401,22 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
             });
 
             logger.debug(`🟡 [${reqId}] Calling ChargingService.handleActionOnChargingCompleted in handlePostCDR`, { 
-                data: { ...logData, authorization_reference: stored?.authorization_reference } 
+                data: { ...logData, session_id: stored?.session_id, cdrId: stored?.id } 
             });
-            ChargingService.handleActionOnChargingCompleted(stored?.authorization_reference ?? '');
-
-            // Send async on_update when CDR is received (session completed)
-            if (stored?.authorization_reference) {
-                logger.debug(`🟡 [${reqId}] Triggering async on_update from CDR in handlePostCDR`, { 
-                    data: { ...logData, authorization_reference: stored.authorization_reference } 
-                });
-                // Don't await - this is async and shouldn't block CDR response
-                OnUpdateActionHandler.handleOnUpdateFromCDR(stored.authorization_reference, stored)
-                    .then(() => {
-                        logger.debug(`🟢 [${reqId}] Successfully sent async on_update from CDR in handlePostCDR`, { 
-                            data: { ...logData, authorization_reference: stored.authorization_reference } 
-                        });
-                    })
+            // Pass session_id (cpo_session_id) to handleActionOnChargingCompleted - it will fetch session and payment txn
+            // Don't await - this is async and shouldn't block CDR response
+            if (stored?.session_id) {
+                ChargingService.handleActionOnChargingCompleted(stored.session_id)
                     .catch((e: any) => {
-                        logger.error(`🔴 [${reqId}] Error sending async on_update from CDR in handlePostCDR: ${e?.toString()}`, e, {
-                            data: { ...logData, authorization_reference: stored.authorization_reference },
+                        logger.error(`🔴 [${reqId}] Error in handleActionOnChargingCompleted: ${e?.toString()}`, e, {
+                            data: { ...logData, session_id: stored.session_id },
                         });
                     });
+            }
+            else {
+                logger.warn(`🟡 [${reqId}] session_id not found in CDR, skipping handleActionOnChargingCompleted`, {
+                    data: { ...logData, cdrId: stored?.id }
+                });
             }
 
             logger.debug(`🟢 [${reqId}] Returning POST /cdrs response in handlePostCDR`, { 
