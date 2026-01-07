@@ -464,7 +464,7 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
 
             if (!existing && !patch.authorization_reference) {
                 // raise error
-                logger.error(`🔴 [${reqId}] Session not found and authorization_reference is not provided in handlePatchSession`, { data: logData });
+                logger.error(`🔴 [${reqId}] Session not found and authorization_reference is not provided in handlePatchSession`, e, { data: logData });
                 OCPIRequestLogService.logIncomingResponse({
                     req,
                     res,
