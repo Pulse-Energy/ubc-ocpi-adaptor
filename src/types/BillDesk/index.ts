@@ -577,3 +577,257 @@ export interface CreateOrderWithBillDeskResponse {
     billDeskObject?: BillDeskObject;
     error?: string;
 }
+
+// ============ Create Transaction ============
+// Reference: https://docs.billdesk.io/reference/createtransaction
+
+export interface BillDeskCreateTransactionRequest {
+    /** Merchant ID */
+    mercid: string;
+    /** Merchant's order ID */
+    orderid: string;
+    /** Transaction amount in decimal format (e.g., "200.00") */
+    amount: string;
+    /** Currency code (356 for INR) */
+    currency: string;
+    /** Item code (usually "DIRECT") */
+    itemcode: string;
+    /** Return URL where customer is redirected after payment */
+    ru: string;
+    /** Payment method type: card, netbanking, upi, wallet */
+    payment_method_type: 'card' | 'netbanking' | 'upi' | 'wallet' | string;
+    /** Authentication type: 3ds2, otp */
+    authentication_type?: '3ds2' | 'otp' | string;
+    /** 3DS parameter: merchant, issuer */
+    '3ds_parameter'?: 'merchant' | 'issuer' | string;
+    /** Transaction process type: intent, collect (for UPI) */
+    txn_process_type?: 'intent' | 'collect' | string;
+    /** BillDesk Order ID (optional, if order was created first) */
+    bdorderid?: string;
+    /** Payment method details */
+    payment_method?: {
+        /** Card details (for card payments) */
+        card?: {
+            /** Card number (PAN) */
+            card_no?: string;
+            /** Card expiry month (MM) */
+            card_exp_month?: string;
+            /** Card expiry year (YYYY) */
+            card_exp_year?: string;
+            /** Card CVV */
+            card_cvv?: string;
+            /** Cardholder name */
+            card_holder_name?: string;
+            /** Network name: VISA, MASTERCARD, RUPAY, AMEX */
+            network_name?: string;
+            /** Card type: DEBIT, CREDIT */
+            card_type?: string;
+            /** Card alias for saved cards */
+            card_alias?: string;
+        };
+        /** UPI details (for UPI payments) */
+        upi?: {
+            /** UPI ID (VPA) */
+            upiid?: string;
+            /** App type: GPAY, PHONEPE, PAYTM, etc. */
+            app_type?: string;
+            /** Flow type: collect, intent */
+            flow_type?: 'collect' | 'intent';
+        };
+        /** Netbanking details */
+        netbanking?: {
+            /** Bank ID */
+            bankid?: string;
+        };
+        /** Wallet details */
+        wallet?: {
+            /** Wallet ID */
+            walletid?: string;
+        };
+    };
+    /** Device information */
+    device?: {
+        /** Init channel: internet, APP */
+        init_channel?: string;
+        /** Browser JavaScript enabled flag */
+        browser_javascript_enabled?: string;
+        /** Customer's IP address */
+        ip?: string;
+        /** Customer's browser user agent */
+        user_agent?: string;
+        /** Browser accept header */
+        accept_header?: string;
+        /** Browser timezone offset (e.g., "-330" for IST) */
+        browser_tz?: string;
+        /** Browser color depth (e.g., "32") */
+        browser_color_depth?: string;
+        /** Browser Java enabled flag */
+        browser_java_enabled?: string;
+        /** Browser screen height */
+        browser_screen_height?: string;
+        /** Browser screen width */
+        browser_screen_width?: string;
+        /** Browser language (e.g., "en-US") */
+        browser_language?: string;
+    };
+    /** Additional information fields */
+    additional_info?: BillDeskAdditionalInfo;
+}
+
+export interface BillDeskCreateTransactionResponse {
+    /** Object type - "transaction" */
+    objectid: string;
+    /** Merchant ID */
+    mercid: string;
+    /** Merchant's order ID */
+    orderid: string;
+    /** BillDesk order ID */
+    bdorderid: string;
+    /** BillDesk transaction ID */
+    transactionid: string;
+    /** Transaction date and time */
+    transaction_date: string;
+    /** Payment method type */
+    payment_method_type: string;
+    /** Transaction amount */
+    amount: string;
+    /** Surcharge amount */
+    surcharge?: string;
+    /** Discount amount */
+    discount?: string;
+    /** Total charged amount */
+    charge_amount: string;
+    /** Currency code */
+    currency: string;
+    /** Return URL */
+    ru: string;
+    /** Additional information */
+    additional_info?: BillDeskAdditionalInfo;
+    /** Item code */
+    itemcode: string;
+    /** Authorization status code */
+    auth_status: BillDeskTransactionAuthStatus | string;
+    /** Transaction error type */
+    transaction_error_type?: string;
+    /** Transaction error code */
+    transaction_error_code?: string;
+    /** Transaction error description */
+    transaction_error_desc?: string;
+    /** Next step: redirect, otp, none */
+    next_step?: string;
+    /** Links for further actions (redirect, 3DS, etc.) */
+    links?: BillDeskOrderLink[];
+    /** Created timestamp */
+    createdon?: string;
+    /** Transaction processing type */
+    txn_process_type?: string;
+    /** Bank ID */
+    bankid?: string;
+}
+
+// ============ Update Transaction ============
+// Reference: https://docs.billdesk.io/reference/updatetransaction
+
+export interface BillDeskUpdateTransactionRequest {
+    /** Merchant ID */
+    mercid: string;
+    /** BillDesk Order ID */
+    bdorderid: string;
+    /** BillDesk Transaction ID from Create Transaction response */
+    transactionid: string;
+    /** Authentication data (e.g., OTP for 2FA) */
+    auth_data?: {
+        /** OTP value */
+        otp?: string;
+        /** ACS transaction ID (for 3DS) */
+        acs_trans_id?: string;
+        /** Authentication status */
+        authentication_status?: string;
+        /** CAVV (for 3DS) */
+        cavv?: string;
+        /** ECI (for 3DS) */
+        eci?: string;
+        /** 3DS Server Transaction ID */
+        threeds_server_trans_id?: string;
+    };
+    /** Device information */
+    device?: {
+        /** Browser accept header */
+        accept_header?: string;
+        /** Customer's browser user agent */
+        user_agent?: string;
+        /** Customer's IP address */
+        ip?: string;
+        /** Init channel */
+        init_channel?: string;
+    };
+}
+
+export interface BillDeskUpdateTransactionResponse {
+    /** Object type - "transaction" */
+    objectid: string;
+    /** Merchant ID */
+    mercid: string;
+    /** Merchant's order ID */
+    orderid: string;
+    /** BillDesk order ID */
+    bdorderid: string;
+    /** BillDesk transaction ID */
+    transactionid: string;
+    /** Transaction date and time */
+    transaction_date: string;
+    /** Payment method type */
+    payment_method_type: string;
+    /** Transaction amount */
+    amount: string;
+    /** Surcharge amount */
+    surcharge?: string;
+    /** Discount amount */
+    discount?: string;
+    /** Total charged amount */
+    charge_amount: string;
+    /** Currency code */
+    currency: string;
+    /** Return URL */
+    ru: string;
+    /** Additional information */
+    additional_info?: BillDeskAdditionalInfo;
+    /** Item code */
+    itemcode: string;
+    /** Authorization status code */
+    auth_status: BillDeskTransactionAuthStatus | string;
+    /** Transaction error type */
+    transaction_error_type?: string;
+    /** Transaction error code */
+    transaction_error_code?: string;
+    /** Transaction error description */
+    transaction_error_desc?: string;
+    /** Next step after update */
+    next_step?: string;
+    /** Links for further actions */
+    links?: BillDeskOrderLink[];
+    /** Transaction processing type */
+    txn_process_type?: string;
+    /** Bank ID */
+    bankid?: string;
+    /** Payment category */
+    payment_category?: string;
+}
+
+// ============ Create Transaction Response Type ============
+
+export interface CreateTransactionWithBillDeskResponse {
+    success: boolean;
+    transaction?: BillDeskCreateTransactionResponse;
+    error?: string;
+    error_details?: any;
+}
+
+// ============ Update Transaction Response Type ============
+
+export interface UpdateTransactionWithBillDeskResponse {
+    success: boolean;
+    transaction?: BillDeskUpdateTransactionResponse;
+    error?: string;
+    error_details?: any;
+}
