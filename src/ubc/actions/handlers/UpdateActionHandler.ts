@@ -353,6 +353,15 @@ export default class UpdateActionHandler {
             orderStatus = order['beckn:orderStatus'] as OrderStatus;
         }
 
+        // Per schema line 2338-2340: when sessionStatus is ACTIVE, deliveryAttributes must include connectorType and maxPowerKW
+        // Ensure these fields are preserved from update request or kept if already present
+        const updatedDeliveryAttributes = {
+            ...deliveryAttributes, // reuse everything from update request first (including connectorType and maxPowerKW if present)
+            "@context": (deliveryAttributes?.['@context'] as string) || "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/EvChargingSession/v1/context.jsonld",
+            "@type": "ChargingSession" as const,
+            'sessionStatus': sessionStatus, // only update sessionStatus
+        };
+
         const ubcOnUpdatePayload: UBCOnUpdateRequestPayload = {
             context: context,
             message: {
@@ -360,11 +369,12 @@ export default class UpdateActionHandler {
                     ...order, // reuse everything from update request
                     'beckn:orderStatus': orderStatus, // only update orderStatus
                     'beckn:fulfillment': {
-                        ...fulfillment, // reuse everything from update request
-                        'beckn:deliveryAttributes': {
-                            ...deliveryAttributes, // reuse everything from update request
-                            'sessionStatus': sessionStatus, // only update sessionStatus
-                        } as never,
+                        ...fulfillment, // reuse everything from update request first
+                        "@context": fulfillment?.['@context'] || "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
+                        "@type": fulfillment?.['@type'] || "beckn:Fulfillment",
+                        "beckn:id": fulfillment?.['beckn:id'] || `fulfillment-${order['beckn:id']}`,
+                        "beckn:mode": fulfillment?.['beckn:mode'] || "RESERVATION",
+                        'beckn:deliveryAttributes': updatedDeliveryAttributes,
                     },
                 },
             },
