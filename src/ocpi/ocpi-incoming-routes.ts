@@ -121,7 +121,7 @@ const ocpiAuth = async (req: OCPIAuthedRequest, res: Response, next: NextFunctio
     });
 
     const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Token ')) {
+    if (!authHeader) {
         res.status(401).json({
             status_code: 2001,
             status_message: 'Unauthorized',
@@ -130,7 +130,7 @@ const ocpiAuth = async (req: OCPIAuthedRequest, res: Response, next: NextFunctio
         return;
     }
 
-    const rawToken = authHeader.substring('Token '.length);
+    const rawToken = authHeader?.replace('Token ', '').replace('Bearer ', '');
 
     // Some CPOs base64‑encode the EMSP auth token before sending it.
     // Try to decode as base64; if that fails, fall back to the raw token.
