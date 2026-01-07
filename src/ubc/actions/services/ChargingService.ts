@@ -10,6 +10,7 @@ import { CdrDbService } from '../../../db-services/CdrDbService';
 import { SessionDbService } from '../../../db-services/SessionDbService';
 import PaymentGatewayService from '../../services/PaymentServices/PaymentGatewayService';
 import { OCPIPrice } from '../../../ocpi/schema/general/types';
+import { databaseService } from '../../../services/database.service';
 
 export default class ChargingService {
     public static async autoCutOffChargingSession(session: Session): Promise<void> {
@@ -89,9 +90,37 @@ export default class ChargingService {
     }
 
     public static async handleActionOnChargingCompleted(
-        authorization_reference: string
+        sessionId: string
     ): Promise<void> {
         try {
+            // Get session by cpo_session_id (OCPI session_id)
+            const session = await SessionDbService.findFirstByFilters({
+                cpo_session_id: sessionId,
+                deleted: false,
+            });
+
+            if (!session) {
+                logger.warn(
+                    `🟡 Session not found for sessionId: ${sessionId} in handleActionOnChargingCompleted`,
+                    {
+                        data: { sessionId },
+                    }
+                );
+                return;
+            }
+
+            const authorization_reference = session.authorization_reference;
+            if (!authorization_reference) {
+                logger.warn(
+                    `🟡 Authorization reference not found for sessionId: ${sessionId} in handleActionOnChargingCompleted`,
+                    {
+                        data: { sessionId, session_id: session.id },
+                    }
+                );
+                return;
+            }
+
+            // Get payment txn from session's authorization_reference
             const paymentTxn = await PaymentTxnDbService.getFirstByFilter({
                 where: {
                     authorization_reference: authorization_reference,
@@ -103,16 +132,20 @@ export default class ChargingService {
                 paymentTxn?.partner_id ?? ''
             );
 
+            // Get CDR by session_id (CDR.session_id maps to Session.cpo_session_id)
+            const storedCdr = await databaseService.prisma.cDR.findFirst({
+                where: {
+                    session_id: sessionId,
+                    deleted: false,
+                },
+            });
+
             // Store invoice response in CDR table if invoice was generated successfully
             if (invoiceResponse.success && invoiceResponse.invoice_data) {
                 try {
-                    
-                    // Find CDR by authorization_reference
-                    const cdr = await CdrDbService.getByAuthorizationReference(authorization_reference);
-
-                    if (cdr) {
+                    if (storedCdr) {
                         // Update CDR with invoice details
-                        await CdrDbService.update(cdr.id, {
+                        await CdrDbService.update(storedCdr.id, {
                             invoice_details: invoiceResponse.invoice_data
                         });
                         
@@ -120,7 +153,7 @@ export default class ChargingService {
                             `🟢 ${authorization_reference} Stored invoice details in CDR`,
                             {
                                 data: {
-                                    cdr_id: cdr.id,
+                                    cdr_id: storedCdr.id,
                                     invoice_url: invoiceResponse.invoice_url,
                                 },
                             }
@@ -146,8 +179,6 @@ export default class ChargingService {
                 }
             }
 
-            const session = await SessionDbService.getByAuthorizationReference(authorization_reference);
-
             // Process refund if there's excess payment
             // Refund amount = payment_txn.amount - session.total_cost
             if (paymentTxn && session) {
@@ -155,29 +186,74 @@ export default class ChargingService {
             }
 
             const becknTransactionId = paymentTxn?.beckn_transaction_id ?? '';
-            await OnUpdateActionHandler.handleEVChargingUBCBppOnUpdateAction({
-                beckn_transaction_id: becknTransactionId,
-                beckn_order_id: paymentTxn?.authorization_reference ?? '',
-                session_status: ChargingSessionStatus.COMPLETED,
-                invoice_url: invoiceResponse.invoice_url,
-            });
-            logger.debug(
-                `🟢 ${authorization_reference} Sent on_update request in handleActionOnChargingCompleted`,
-                {
-                    data: {
-                        beckn_transaction_id: becknTransactionId,
-                        beckn_order_id: paymentTxn?.authorization_reference ?? '',
-                        session_status: ChargingSessionStatus.COMPLETED,
-                    },
-                }
-            );
+            
+            // Use CDR-based on_update if CDR is available (includes order_value from CDR)
+            // Otherwise fall back to the old method
+            if (storedCdr) {
+                logger.debug(
+                    `🟡 ${authorization_reference} Sending on_update from CDR in handleActionOnChargingCompleted`,
+                    {
+                        data: {
+                            authorization_reference,
+                            cdr_id: storedCdr.id,
+                        },
+                    }
+                );
+                // Don't await - this is async and shouldn't block CDR response
+                OnUpdateActionHandler.handleOnUpdateFromCDR(authorization_reference, storedCdr)
+                    .then(() => {
+                        logger.debug(
+                            `🟢 ${authorization_reference} Successfully sent on_update from CDR in handleActionOnChargingCompleted`,
+                            {
+                                data: {
+                                    authorization_reference,
+                                    cdr_id: storedCdr?.id,
+                                },
+                            }
+                        );
+                    })
+                    .catch((e: any) => {
+                        logger.error(
+                            `🔴 ${authorization_reference} Error sending on_update from CDR in handleActionOnChargingCompleted: ${e?.toString()}`,
+                            e,
+                            {
+                                data: { authorization_reference, cdr_id: storedCdr?.id },
+                            }
+                        );
+                    });
+            }
+            else {
+                // Fallback to old method if CDR is not available
+                logger.debug(
+                    `🟡 ${authorization_reference} CDR not available, using fallback on_update method in handleActionOnChargingCompleted`,
+                    {
+                        data: { authorization_reference },
+                    }
+                );
+                await OnUpdateActionHandler.handleEVChargingUBCBppOnUpdateAction({
+                    beckn_transaction_id: becknTransactionId,
+                    beckn_order_id: paymentTxn?.authorization_reference ?? '',
+                    session_status: ChargingSessionStatus.COMPLETED,
+                    invoice_url: invoiceResponse.invoice_url,
+                });
+                logger.debug(
+                    `🟢 ${authorization_reference} Sent on_update request (fallback) in handleActionOnChargingCompleted`,
+                    {
+                        data: {
+                            beckn_transaction_id: becknTransactionId,
+                            beckn_order_id: paymentTxn?.authorization_reference ?? '',
+                            session_status: ChargingSessionStatus.COMPLETED,
+                        },
+                    }
+                );
+            }
         } 
         catch (error: any) {
             logger.error(
-                `🔴 ${authorization_reference} Error in handleActionOnChargingCompleted`,
+                `🔴 ${sessionId} Error in handleActionOnChargingCompleted`,
                 error,
                 {
-                    data: { message: 'Something went wrong' },
+                    data: { sessionId, message: 'Something went wrong' },
                 }
             );
         }
