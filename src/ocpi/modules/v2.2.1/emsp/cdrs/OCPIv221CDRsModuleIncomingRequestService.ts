@@ -11,7 +11,7 @@ import ChargingService from '../../../../../ubc/actions/services/ChargingService
 import { CDRService } from './CDRService';
 import { isEmpty } from 'lodash';
 import { logger } from '../../../../../services/logger.service';
-import InvoiceGenerationService from '../../../../../ubc/services/invoice/InvoiceGeneration';
+import OnUpdateActionHandler from '../../../../../ubc/actions/handlers/OnUpdateActionHandler';
 // NOTE: Utils import removed – not used in this module.
 
 /**
@@ -405,6 +405,25 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
                 data: { ...logData, authorization_reference: stored?.authorization_reference } 
             });
             ChargingService.handleActionOnChargingCompleted(stored?.authorization_reference ?? '');
+
+            // Send async on_update when CDR is received (session completed)
+            if (stored?.authorization_reference) {
+                logger.debug(`🟡 [${reqId}] Triggering async on_update from CDR in handlePostCDR`, { 
+                    data: { ...logData, authorization_reference: stored.authorization_reference } 
+                });
+                // Don't await - this is async and shouldn't block CDR response
+                OnUpdateActionHandler.handleOnUpdateFromCDR(stored.authorization_reference, stored)
+                    .then(() => {
+                        logger.debug(`🟢 [${reqId}] Successfully sent async on_update from CDR in handlePostCDR`, { 
+                            data: { ...logData, authorization_reference: stored.authorization_reference } 
+                        });
+                    })
+                    .catch((e: any) => {
+                        logger.error(`🔴 [${reqId}] Error sending async on_update from CDR in handlePostCDR: ${e?.toString()}`, e, {
+                            data: { ...logData, authorization_reference: stored.authorization_reference },
+                        });
+                    });
+            }
 
             logger.debug(`🟢 [${reqId}] Returning POST /cdrs response in handlePostCDR`, { 
                 data: { ...logData, response: response.payload } 
