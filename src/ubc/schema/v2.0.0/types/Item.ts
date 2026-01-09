@@ -20,7 +20,7 @@ export type BecknItem = {
     "beckn:id": string;
     "beckn:descriptor": BecknDescriptor;
     "beckn:category": BecknCategory;
-    "beckn:availableAt": BecknLocation[];
+    "beckn:availableAt"?: BecknLocation[]; // Optional - not in publish schema per TSD v0.9
     "beckn:availabilityWindow"?: BecknAvailabilityWindow[];
     "beckn:rateable"?: boolean;
     "beckn:rating"?: BecknRating;

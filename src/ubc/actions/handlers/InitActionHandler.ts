@@ -29,6 +29,8 @@ import { LocationDbService } from '../../../db-services/LocationDbService';
 import OCPIPartnerDbService from '../../../db-services/OCPIPartnerDbService';
 import { OCPIPartnerAdditionalProps, PaymentServiceProvider } from '../../../types/OCPIPartner';
 import PaymentGatewayService from '../../services/PaymentServices/PaymentGatewayService';
+import PublishActionService from '../services/PublishActionService';
+import { databaseService } from '../../../services/database.service';
 
 export default class InitActionHandler {
     public static async handleBppInitAction(
@@ -95,6 +97,33 @@ export default class InitActionHandler {
                 { data: { response } }
             );
 
+            // Publish catalog with 5 minute reservation after on_init (async, non-blocking)
+            Utils.executeAsync(async () => {
+                try {
+                    const chargePointConnectorId = reqPayload.message?.order?.['beckn:orderItems']?.[0]?.['beckn:orderedItem'];
+                    if (chargePointConnectorId) {
+                        const evse = await LocationDbService.findEVSEByBecknConnectorId(chargePointConnectorId);
+                        if (evse) {
+                            const location = await databaseService.prisma.location.findUnique({
+                                where: { id: evse.location_id },
+                                select: { ocpi_location_id: true },
+                            });
+                            if (location?.ocpi_location_id) {
+                                // Reserve for 5 minutes (300 seconds) - publish only this connector
+                                await PublishActionService.publishWithReservation(
+                                    location.ocpi_location_id,
+                                    300, // 5 minutes
+                                    chargePointConnectorId // Publish only this connector
+                                );
+                            }
+                        }
+                    }
+                }
+                catch (e: any) {
+                    logger.error(`🔴 [${reqId}] Error publishing with reservation after on_init: ${e?.toString()}`, e);
+                    // Don't throw - publish failures shouldn't block init
+                }
+            });
 
             return ubcOnInitPayload;
         } 

@@ -4,7 +4,7 @@ import { ObjectType } from "../enums/ObjectType";
 export type BecknOfferAttributes = {
     "@context": string; // context URL
     "@type": ObjectType.chargingOffer;
-    buyerFinderFee: {
+    buyerFinderFee?: {
         feeType: string; // "PERCENTAGE" etc
         feeValue: number;
     };

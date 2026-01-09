@@ -10,7 +10,7 @@ export type BecknCatalog = {
     "beckn:id": string;
     "beckn:descriptor": BecknDescriptor;
     "beckn:providerId"?: string;
-    "beckn:validity": BecknTimePeriod;
+    "beckn:validity"?: BecknTimePeriod; // Optional - not in publish catalog schema per TSD v0.9
     "beckn:bppId"?: string;
     "beckn:bppUri"?: string;
     "beckn:items": BecknItem[];

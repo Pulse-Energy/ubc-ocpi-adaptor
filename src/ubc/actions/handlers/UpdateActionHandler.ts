@@ -299,6 +299,7 @@ export default class UpdateActionHandler {
             }
             const response = await AdminCommandsModule.startCharging(req);
             const ocpiCommandResponse = response.payload.data as OCPICommandResponseResponse;
+            
             return {
                 session_status: ocpiCommandResponse.data?.result === OCPICommandResponseType.ACCEPTED ? ChargingSessionStatus.ACTIVE : ChargingSessionStatus.COMPLETED,
             };
@@ -316,6 +317,7 @@ export default class UpdateActionHandler {
             } as Request;
             const response = await AdminCommandsModule.stopCharging(req);
             const ocpiCommandResponse = response.payload.data as OCPICommandResponseResponse;
+            
             return {
                 session_status: ocpiCommandResponse.data?.result === OCPICommandResponseType.ACCEPTED ? ChargingSessionStatus.COMPLETED : ChargingSessionStatus.INTERRUPTED,
             };

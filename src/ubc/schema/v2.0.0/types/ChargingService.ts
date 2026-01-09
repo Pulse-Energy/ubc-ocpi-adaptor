@@ -22,6 +22,7 @@ export type BecknChargingServiceAttributes = {
     powerType?: string;
     connectorFormat?: string;
     chargingSpeed?: string;
+    vehicleType?: string;
     stationStatus?: string;
     ocppId?: string;
     socketCount?: number;

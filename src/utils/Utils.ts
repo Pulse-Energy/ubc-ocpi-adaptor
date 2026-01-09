@@ -137,6 +137,7 @@ export default class Utils {
             transaction_id: transaction_id,
             message_id: message_id,
             timestamp: timestamp ?? new Date().toISOString(),
+            ttl: "PT30S",
         };
 
         // Only include bap_id and bap_uri if they are provided

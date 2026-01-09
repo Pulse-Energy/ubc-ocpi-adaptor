@@ -10,6 +10,18 @@ import { OCPISessionStatus } from '../../../../schema/modules/sessions/enums';
 import { OCPICommandResultType, OCPICommandType } from '../../../../schema/modules/commands/enums';
 import { OCPIRequestLogService } from '../../../../services/OCPIRequestLogService';
 import { OCPILogCommand } from '../../../../types';
+import Utils from '../../../../../utils/Utils';
+import PublishActionService from '../../../../../ubc/actions/services/PublishActionService';
+import { LocationDbService } from '../../../../../db-services/LocationDbService';
+import { TariffDbService } from '../../../../../db-services/TariffDbService';
+import PaymentTxnDbService from '../../../../../db-services/PaymentTxnDbService';
+import UpdateActionHandler from '../../../../../ubc/actions/handlers/UpdateActionHandler';
+import { ChargingSessionStatus } from '../../../../../ubc/schema/v2.0.0/enums/ChargingSessionStatus';
+import { OrderStatus } from '../../../../../ubc/schema/v2.0.0/enums/OrderStatus';
+import { UBCOnUpdateRequestPayload } from '../../../../../ubc/schema/v2.0.0/actions/update/types/OnUpdatePayload';
+import BppOnixRequestService from '../../../../../ubc/services/BppOnixRequestService';
+import { BecknAction } from '../../../../../ubc/schema/v2.0.0/enums/BecknAction';
+import { BecknDomain } from '../../../../../ubc/schema/v2.0.0/enums/BecknDomain';
 
 /**
  * OCPI 2.2.1 – Commands module (incoming, EMSP side).
@@ -141,6 +153,56 @@ export default class OCPIv221CommandsModuleIncomingRequestService {
                 data: { ...logData, sessionId: session.id, status } 
             });
 
+            // Handle publish and on_update logic based on command type and result
+            if (command_type === OCPICommandType.START_SESSION) {
+                if (result?.result === OCPICommandResultType.ACCEPTED) {
+                    // Accepted: publish with reservation and send on_update async with ACTIVE status
+                    Utils.executeAsync(async () => {
+                        try {
+                            await OCPIv221CommandsModuleIncomingRequestService.handleStartChargingAccepted(
+                                session,
+                                reqId
+                            );
+                        }
+                        catch (e: any) {
+                            logger.error(`🔴 [${reqId}] Error handling start charging accepted: ${e?.toString()}`, e);
+                        }
+                    });
+                }
+                else {
+                    // Rejected: send on_update async with INTERRUPTED status, don't publish
+                    Utils.executeAsync(async () => {
+                        try {
+                            await OCPIv221CommandsModuleIncomingRequestService.sendOnUpdateWithStatus(
+                                session,
+                                ChargingSessionStatus.INTERRUPTED,
+                                reqId
+                            );
+                        }
+                        catch (e: any) {
+                            logger.error(`🔴 [${reqId}] Error sending on_update with INTERRUPTED status: ${e?.toString()}`, e);
+                        }
+                    });
+                }
+            }
+            else if (command_type === OCPICommandType.STOP_SESSION) {
+                if (result?.result === OCPICommandResultType.ACCEPTED) {
+                    // Accepted: publish without reservation and send on_update async with COMPLETED status
+                    Utils.executeAsync(async () => {
+                        try {
+                            await OCPIv221CommandsModuleIncomingRequestService.handleStopChargingAccepted(
+                                session,
+                                reqId
+                            );
+                        }
+                        catch (e: any) {
+                            logger.error(`🔴 [${reqId}] Error handling stop charging accepted: ${e?.toString()}`, e);
+                        }
+                    });
+                }
+                // If rejected, do nothing
+            }
+
             const response = {
                 httpStatus: 200,
                 payload: {
@@ -174,5 +236,246 @@ export default class OCPIv221CommandsModuleIncomingRequestService {
             });
             throw e;
         }
+    }
+
+    /**
+     * Handles start charging accepted: publishes catalog with reservation time and sends on_update with ACTIVE status
+     */
+    private static async handleStartChargingAccepted(
+        session: any,
+        reqId: string
+    ): Promise<void> {
+        if (!session?.authorization_reference) {
+            logger.warn(`🟡 [${reqId}] Session missing authorization_reference for start charging accepted`);
+            return;
+        }
+
+        // Get payment transaction to get estimated cost and beckn_transaction_id
+        const paymentTxn = await PaymentTxnDbService.getFirstByFilter({
+            where: {
+                authorization_reference: session.authorization_reference,
+            },
+        });
+
+        if (!paymentTxn) {
+            logger.warn(`🟡 [${reqId}] Payment txn not found for start charging: ${session.authorization_reference}`);
+            return;
+        }
+
+        // Get location to get ocpi_location_id
+        if (!session.location_id) {
+            logger.warn(`🟡 [${reqId}] Session missing location_id for start charging: ${session.id}`);
+            return;
+        }
+
+        const location = await databaseService.prisma.location.findUnique({
+            where: { id: session.location_id },
+            select: { ocpi_location_id: true },
+        });
+
+        if (!location?.ocpi_location_id) {
+            logger.warn(`🟡 [${reqId}] Location not found for start charging: ${session.location_id}`);
+            return;
+        }
+
+        // Reconstruct Beckn connector ID: IND*TP*{ocpi_location_id}*{evse_uid}*{connector_id}
+        if (!session.evse_uid || !session.connector_id) {
+            logger.warn(`🟡 [${reqId}] Session missing evse_uid or connector_id for start charging: ${session.id}`);
+            return;
+        }
+
+        const becknConnectorId = `IND*TP*${location.ocpi_location_id}*${session.evse_uid}*${session.connector_id}`;
+
+        // Find EVSE and connector to get power rating and tariff
+        const evse = await LocationDbService.findEVSEByBecknConnectorId(becknConnectorId);
+        if (!evse) {
+            logger.warn(`🟡 [${reqId}] EVSE not found for start charging: ${becknConnectorId}`);
+            return;
+        }
+
+        const parsedConnectorId = LocationDbService.parseBecknConnectorId(becknConnectorId);
+        const evseConnector = evse.evse_connectors.find(
+            connector => connector.connector_id === parsedConnectorId.connectorId && !connector.deleted
+        );
+
+        if (!evseConnector) {
+            logger.warn(`🟡 [${reqId}] EVSE Connector not found for start charging: ${becknConnectorId}`);
+            return;
+        }
+
+        // Calculate reservation time based on estimated cost, power rating, and tariff rate
+        const estimatedCost = Number(paymentTxn.amount);
+        const powerRating = evseConnector.max_electric_power ? Number(evseConnector.max_electric_power) / 1000 : 0; // Convert W to kW
+
+        // Get tariff rate from connector's first tariff
+        let tariffRate = 0;
+        if (evseConnector.tariff_ids && evseConnector.tariff_ids.length > 0) {
+            const tariff = await TariffDbService.getByOcpiTariffId(evseConnector.tariff_ids[0]);
+            if (tariff) {
+                const ocpiTariff = TariffDbService.mapPrismaTariffToOcpi(tariff);
+                const tariffElements = ocpiTariff.elements || [];
+                if (tariffElements.length > 0 && tariffElements[0].price_components && tariffElements[0].price_components.length > 0) {
+                    tariffRate = tariffElements[0].price_components[0].price || 0;
+                }
+            }
+        }
+
+        const reservationTime = PublishActionService.calculateReservationTimeForStartCharging({
+            estimatedCost,
+            powerRating,
+            tariffRate,
+        });
+
+        // Publish catalog with reservation
+        await PublishActionService.publishWithReservation(
+            location.ocpi_location_id,
+            reservationTime,
+            becknConnectorId
+        );
+    }
+
+    /**
+     * Handles stop charging accepted: publishes catalog without reservation and sends on_update with COMPLETED status
+     */
+    private static async handleStopChargingAccepted(
+        session: any,
+        reqId: string
+    ): Promise<void> {
+        if (!session?.location_id || !session?.evse_uid || !session?.connector_id) {
+            logger.warn(`🟡 [${reqId}] Session missing required fields for stop charging: ${session?.id}`);
+            return;
+        }
+
+        const location = await databaseService.prisma.location.findUnique({
+            where: { id: session.location_id },
+            select: { ocpi_location_id: true },
+        });
+
+        const ocpiLocationId = location?.ocpi_location_id ?? undefined;
+        if (ocpiLocationId) {
+            // Reconstruct Beckn connector ID: IND*TP*{ocpi_location_id}*{evse_uid}*{connector_id}
+            const becknConnectorId = `IND*TP*${ocpiLocationId}*${session.evse_uid}*${session.connector_id}`;
+            // Publish with no reservation (undefined) to restore normal availability
+            await PublishActionService.publishWithReservation(
+                ocpiLocationId,
+                undefined,
+                becknConnectorId
+            );
+        }
+
+        // Send on_update with COMPLETED status
+        await OCPIv221CommandsModuleIncomingRequestService.sendOnUpdateWithStatus(
+            session,
+            ChargingSessionStatus.COMPLETED,
+            reqId
+        );
+    }
+
+    /**
+     * Sends on_update async with the specified session status
+     */
+    private static async sendOnUpdateWithStatus(
+        session: any,
+        sessionStatus: ChargingSessionStatus,
+        reqId: string
+    ): Promise<void> {
+        if (!session?.authorization_reference) {
+            logger.warn(`🟡 [${reqId}] Session missing authorization_reference for on_update: ${session?.id}`);
+            return;
+        }
+
+        // Get payment transaction to get beckn_transaction_id
+        const paymentTxn = await PaymentTxnDbService.getFirstByFilter({
+            where: {
+                authorization_reference: session.authorization_reference,
+            },
+        });
+
+        if (!paymentTxn?.beckn_transaction_id) {
+            logger.warn(`🟡 [${reqId}] Payment txn or beckn_transaction_id not found for on_update: ${session.authorization_reference}`);
+            return;
+        }
+
+        // Fetch existing on_update response to build new one
+        const existingBppOnUpdateResponse =
+            await UpdateActionHandler.fetchExistingBppOnUpdateResponse(paymentTxn.beckn_transaction_id);
+
+        if (!existingBppOnUpdateResponse) {
+            logger.warn(`🟡 [${reqId}] No existing on_update response found for transaction: ${paymentTxn.beckn_transaction_id}`);
+            return;
+        }
+
+        // Build new on_update payload with updated status
+        const order = existingBppOnUpdateResponse.message.order;
+        const fulfillment = order['beckn:fulfillment'];
+        const deliveryAttributes = fulfillment?.['beckn:deliveryAttributes'] as Record<string, unknown>;
+
+        // Determine orderStatus based on session status
+        let orderStatus: OrderStatus;
+        if (sessionStatus === ChargingSessionStatus.ACTIVE) {
+            orderStatus = OrderStatus.INPROGRESS;
+        }
+        else if (sessionStatus === ChargingSessionStatus.COMPLETED) {
+            orderStatus = OrderStatus.COMPLETED;
+        }
+        else if (sessionStatus === ChargingSessionStatus.INTERRUPTED) {
+            orderStatus = OrderStatus.CANCELLED;
+        }
+        else {
+            orderStatus = order['beckn:orderStatus'] as OrderStatus;
+        }
+
+        // Update delivery attributes with new session status
+        const updatedDeliveryAttributes = {
+            ...deliveryAttributes,
+            "@context": (deliveryAttributes?.['@context'] as string) || "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/EvChargingSession/v1/context.jsonld",
+            "@type": "ChargingSession" as const,
+            'sessionStatus': sessionStatus,
+        };
+
+        // Build on_update payload
+        const context = Utils.getBPPContext({
+            ...existingBppOnUpdateResponse.context,
+            action: BecknAction.on_update,
+        });
+
+        const ubcOnUpdatePayload: UBCOnUpdateRequestPayload = {
+            context: context,
+            message: {
+                order: {
+                    "@context": order['@context'],
+                    "@type": order['@type'],
+                    "beckn:id": order['beckn:id'],
+                    'beckn:orderStatus': orderStatus,
+                    "beckn:seller": order['beckn:seller'],
+                    "beckn:buyer": order['beckn:buyer'],
+                    "beckn:orderItems": order['beckn:orderItems'],
+                    "beckn:orderValue": order['beckn:orderValue'],
+                    "beckn:payment": order['beckn:payment'],
+                    'beckn:fulfillment': {
+                        ...fulfillment,
+                        "@context": fulfillment?.['@context'] || "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
+                        "@type": fulfillment?.['@type'] || "beckn:Fulfillment",
+                        "beckn:id": fulfillment?.['beckn:id'] || `fulfillment-${order['beckn:id']}`,
+                        "beckn:mode": fulfillment?.['beckn:mode'] || "RESERVATION",
+                        'beckn:deliveryAttributes': updatedDeliveryAttributes,
+                    },
+                },
+            },
+        };
+
+        // Send on_update to Beckn ONIX
+        const bppHost = Utils.getBPPClientHost();
+        await BppOnixRequestService.sendPostRequest(
+            {
+                url: `${bppHost}/${BecknAction.on_update}`,
+                data: ubcOnUpdatePayload,
+            },
+            BecknDomain.EVChargingUBC
+        );
+
+        logger.debug(`🟢 [${reqId}] Sent on_update with status ${sessionStatus}`, {
+            data: { authorization_reference: session.authorization_reference, sessionStatus }
+        });
     }
 }
