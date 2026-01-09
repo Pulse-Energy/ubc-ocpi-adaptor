@@ -301,7 +301,7 @@ export default class UpdateActionHandler {
             const ocpiCommandResponse = response.payload.data as OCPICommandResponseResponse;
             
             return {
-                session_status: ocpiCommandResponse.data?.result === OCPICommandResponseType.ACCEPTED ? ChargingSessionStatus.ACTIVE : ChargingSessionStatus.COMPLETED,
+                session_status: ocpiCommandResponse.data?.result === OCPICommandResponseType.ACCEPTED ? ChargingSessionStatus.ACTIVE : ChargingSessionStatus.INTERRUPTED,
             };
         } 
         else if (charging_action === ChargingAction.StopCharging) {
@@ -319,7 +319,7 @@ export default class UpdateActionHandler {
             const ocpiCommandResponse = response.payload.data as OCPICommandResponseResponse;
             
             return {
-                session_status: ocpiCommandResponse.data?.result === OCPICommandResponseType.ACCEPTED ? ChargingSessionStatus.COMPLETED : ChargingSessionStatus.INTERRUPTED,
+                session_status: ocpiCommandResponse.data?.result === OCPICommandResponseType.ACCEPTED ? ChargingSessionStatus.COMPLETED : ChargingSessionStatus.ACTIVE,
             };
         }
         else {
@@ -350,6 +350,9 @@ export default class UpdateActionHandler {
         }
         else if (sessionStatus === ChargingSessionStatus.COMPLETED) {
             orderStatus = OrderStatus.COMPLETED;
+        }
+        else if (sessionStatus === ChargingSessionStatus.INTERRUPTED) {
+            orderStatus = OrderStatus.CANCELLED;
         }
         else {
             orderStatus = order['beckn:orderStatus'] as OrderStatus;

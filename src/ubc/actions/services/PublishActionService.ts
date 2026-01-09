@@ -15,7 +15,7 @@ import { BecknCatalogOffer } from '../../schema/v2.0.0/types/CatalogOffer';
 import { BecknChargingServiceAttributes } from '../../schema/v2.0.0/types/ChargingService';
 import { ObjectType } from '../../schema/v2.0.0/enums/ObjectType';
 import { AcceptedPaymentMethod } from '../../schema/v2.0.0/enums/AcceptedPaymentMethod';
-import { LocationWithRelations } from '../../../db-services/LocationDbService';
+import { LocationWithRelations, LocationDbService } from '../../../db-services/LocationDbService';
 import { TariffDbService } from '../../../db-services/TariffDbService';
 import { EVSEConnector, Location, EVSE, OCPIPartner } from '@prisma/client';
 import { databaseService } from '../../../services/database.service';
@@ -518,12 +518,114 @@ export default class PublishActionService {
             ? acceptedPaymentMethods as AcceptedPaymentMethod[]
             : [AcceptedPaymentMethod.UPI, AcceptedPaymentMethod.BANK_TRANSFER];
 
-        // Build items from connectors (one item per connector) from all locations
+        // Build a map structure: {location_id: location & {evses: {evse_id: evse & {connectors: [...]}}}}
+        type LocationMapEntry = Location & {
+            evses: Map<string, EVSE & {
+                connectors: EVSEConnector[];
+            }>;
+            partner: OCPIPartner | null;
+        };
+        const locationsMap = new Map<string, LocationMapEntry>();
+
+        // If connectorId is provided, parse it and query the specific location/evse/connector
+        if (connectorId) {
+            try {
+                const parsed = LocationDbService.parseBecknConnectorId(connectorId);
+                const ocpiLocationId = parsed.csId;
+                const evseUid = parsed.cpId;
+                const connectorIdValue = parsed.connectorId;
+
+                // Query the specific location with the matching EVSE and connector
+                const specificLocation = await databaseService.prisma.location.findFirst({
+                    where: {
+                        ocpi_location_id: ocpiLocationId,
+                        deleted: false,
+                    },
+                    include: {
+                        evses: {
+                            where: {
+                                uid: evseUid,
+                                deleted: false,
+                            },
+                            include: {
+                                evse_connectors: {
+                                    where: {
+                                        connector_id: connectorIdValue,
+                                        deleted: false,
+                                    },
+                                },
+                            },
+                        },
+                        partner: true,
+                    },
+                });
+
+                if (!specificLocation) {
+                    logger.warn(`🟡 Location not found for connector ID: ${connectorId}`);
+                    return this.buildEmptyCatalog(bpp_id, bpp_uri);
+                }
+
+                if (specificLocation.evses.length === 0) {
+                    logger.warn(`🟡 EVSE not found for connector ID: ${connectorId} (evse_uid: ${evseUid})`);
+                    return this.buildEmptyCatalog(bpp_id, bpp_uri);
+                }
+
+                if (specificLocation.evses[0].evse_connectors.length === 0) {
+                    logger.warn(`🟡 Connector not found for connector ID: ${connectorId} (connector_id: ${connectorIdValue})`);
+                    return this.buildEmptyCatalog(bpp_id, bpp_uri);
+                }
+
+                // Build map structure for the single location
+                const evsesMap = new Map<string, EVSE & { connectors: EVSEConnector[] }>();
+                const evse = specificLocation.evses[0];
+                evsesMap.set(evse.id, {
+                    ...evse,
+                    connectors: evse.evse_connectors,
+                });
+
+                locationsMap.set(specificLocation.id, {
+                    ...specificLocation,
+                    evses: evsesMap,
+                    partner: specificLocation.partner,
+                });
+            }
+            catch (e: any) {
+                logger.error(`🔴 Error parsing connector ID ${connectorId}: ${e?.toString()}`, e);
+                return this.buildEmptyCatalog(bpp_id, bpp_uri);
+            }
+        }
+        else {
+            // No connector filter - build map from all provided locations
+            for (const location of locations) {
+                const evsesMap = new Map<string, EVSE & { connectors: EVSEConnector[] }>();
+                
+                for (const evse of location.evses) {
+                    if (evse.deleted) continue;
+                    
+                    const connectors = evse.evse_connectors.filter(c => !c.deleted);
+                    if (connectors.length > 0) {
+                        evsesMap.set(evse.id, {
+                            ...evse,
+                            connectors: connectors,
+                        });
+                    }
+                }
+
+                if (evsesMap.size > 0) {
+                    locationsMap.set(location.id, {
+                        ...location,
+                        evses: evsesMap,
+                        partner: location.partner,
+                    });
+                }
+            }
+        }
+
+        // Build items from the map structure
         const items: BecknItem[] = [];
         const allTariffIds = new Set<string>();
 
-        // Process all locations
-        for (const location of locations) {
+        for (const [, location] of locationsMap.entries()) {
             // Determine availability windows for this location
             let locationAvailabilityWindows: Array<{ "@type": ObjectType.timePeriod; "schema:startTime": string; "schema:endTime": string }> = [];
             
@@ -546,56 +648,55 @@ export default class PublishActionService {
                 }));
             }
 
-            for (const evse of location.evses) {
-            if (evse.deleted) continue;
+            // Convert location map entry to LocationWithRelations format for getItemAttributesFromConnector
+            const locationWithRelations: LocationWithRelations = {
+                ...location,
+                evses: Array.from(location.evses.values()).map(evse => ({
+                    ...evse,
+                    evse_connectors: evse.connectors,
+                })),
+            };
 
-            for (const connector of evse.evse_connectors) {
-                if (connector.deleted) continue;
+            for (const [, evse] of location.evses.entries()) {
+                for (const connector of evse.connectors) {
+                    // Build Beckn connector ID (format: IND*TP*{ocpi_location_id}*{evse_uid}*{connector_id})
+                    const builtConnectorId = `IND*TP*${location.ocpi_location_id}*${evse.uid}*${connector.connector_id}`;
+                    
+                    // Collect tariff IDs from connector
+                    if (connector.tariff_ids && connector.tariff_ids.length > 0) {
+                        connector.tariff_ids.forEach(id => allTariffIds.add(id));
+                    }
+                    
+                    const locationName = location.name || location.ocpi_location_id;
 
-                // Build Beckn connector ID (format: IND*TP*{ocpi_location_id}*{evse_uid}*{connector_id})
-                // Format: IND*TP*{ocpi_location_id}*{evse_uid}*{connector_id (1,2,3..)}
-                const builtConnectorId = `IND*TP*${location.ocpi_location_id}*${evse.uid}*${connector.connector_id}`;
-                
-                // If connectorId filter is provided, only include matching connector
-                if (connectorId && builtConnectorId !== connectorId) {
-                    continue;
-                }
-                
-                // Collect tariff IDs from connector (only if this connector is included)
-                if (connector.tariff_ids && connector.tariff_ids.length > 0) {
-                    connector.tariff_ids.forEach(id => allTariffIds.add(id));
-                }
-                
-                const locationName = location.name || location.ocpi_location_id;
-
-                items.push({
-                    "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
-                    "@type": ObjectType.item,
-                    "beckn:id": builtConnectorId,
-                    "beckn:descriptor": {
-                        "@type": ObjectType.descriptor,
-                        "schema:name": `${locationName} - ${connector.standard}`,
-                        "beckn:shortDesc": this.getChargingDescription(connector, locationName),
-                        "beckn:longDesc": this.getChargingLongDescription(connector, locationName),
-                    },
-                    "beckn:category": {
-                        "@type": "schema:CategoryCode",
-                        "schema:codeValue": "ev-charging",
-                        "schema:name": "EV Charging",
-                    },
-                    "beckn:availabilityWindow": locationAvailabilityWindows.length > 0 ? locationAvailabilityWindows : undefined,
-                    "beckn:isActive": isActive !== undefined ? isActive : true,
-                    "beckn:rateable": false,
-                    "beckn:provider": {
-                        "beckn:id": `${partner.country_code}*${partner.party_id}`,
+                    items.push({
+                        "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
+                        "@type": ObjectType.item,
+                        "beckn:id": builtConnectorId,
                         "beckn:descriptor": {
                             "@type": ObjectType.descriptor,
-                            "schema:name": partner.name || `${partner.country_code}*${partner.party_id}`,
+                            "schema:name": `${locationName} - ${connector.standard}`,
+                            "beckn:shortDesc": this.getChargingDescription(connector, locationName),
+                            "beckn:longDesc": this.getChargingLongDescription(connector, locationName),
                         },
-                    },
-                    "beckn:itemAttributes": this.getItemAttributesFromConnector(connector, evse, location),
-                });
-            }
+                        "beckn:category": {
+                            "@type": "schema:CategoryCode",
+                            "schema:codeValue": "ev-charging",
+                            "schema:name": "EV Charging",
+                        },
+                        "beckn:availabilityWindow": locationAvailabilityWindows.length > 0 ? locationAvailabilityWindows : undefined,
+                        "beckn:isActive": isActive !== undefined ? isActive : true,
+                        "beckn:rateable": false,
+                        "beckn:provider": {
+                            "beckn:id": `${partner.country_code}*${partner.party_id}`,
+                            "beckn:descriptor": {
+                                "@type": ObjectType.descriptor,
+                                "schema:name": partner.name || `${partner.country_code}*${partner.party_id}`,
+                            },
+                        },
+                        "beckn:itemAttributes": this.getItemAttributesFromConnector(connector, evse, locationWithRelations),
+                    });
+                }
             }
         }
 
@@ -720,6 +821,28 @@ export default class PublishActionService {
         ];
 
         return catalogs;
+    }
+
+    /**
+     * Builds an empty catalog (used when connector is not found)
+     */
+    private static buildEmptyCatalog(bpp_id: string, bpp_uri: string): BecknCatalog[] {
+        return [
+            {
+                "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
+                "@type": "beckn:Catalog",
+                "beckn:id": `pulse-energy-catalog-v1`,
+                "beckn:descriptor": {
+                    "@type": ObjectType.descriptor,
+                    "schema:name": `${bpp_id} Charging Network`,
+                    "beckn:shortDesc": "Comprehensive network of charging stations",
+                },
+                "beckn:bppId": bpp_id,
+                "beckn:bppUri": bpp_uri,
+                "beckn:items": [],
+                "beckn:offers": [],
+            },
+        ];
     }
 
     /**
