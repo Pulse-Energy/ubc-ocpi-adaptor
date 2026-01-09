@@ -45,6 +45,10 @@ import {
     BillDeskRetrieveTransactionRequest,
     BillDeskRetrieveTransactionResponse,
     BillDeskPaymentLinkData,
+    BillDeskCreateTransactionRequest,
+    BillDeskCreateTransactionResponse,
+    BillDeskUpdateTransactionRequest,
+    BillDeskUpdateTransactionResponse,
 } from '../../../../types/BillDesk';
 
 // Helper function to extract error message from unknown error
@@ -381,6 +385,348 @@ export default class BillDeskPaymentGatewayService {
 
             logger.error(`BillDesk: Failed to create order - ${errorMessage}`, err, {
                 order,
+                partnerId,
+                statusCode,
+                responseHeaders,
+                rawResponseData,
+                response_data: errorData,
+                decrypted_data: decryptedErrorData,
+            });
+
+            // Prefer decrypted error data if available (for JOSE encrypted responses)
+            // Otherwise try to parse raw response as JSON
+            let parsedError = decryptedErrorData || rawResponseData;
+            if (!decryptedErrorData && typeof rawResponseData === 'string') {
+                try {
+                    parsedError = JSON.parse(rawResponseData);
+                }
+                catch {
+                    // Keep as string if not valid JSON
+                }
+            }
+
+            return {
+                success: false,
+                error: parsedError?.message || `${errorMessage} (Status: ${statusCode})`,
+                error_details: {
+                    billdesk_error: parsedError,
+                    status_code: statusCode,
+                    error_code: parsedError?.error_code,
+                    error_type: parsedError?.error_type,
+                },
+            };
+        }
+    }
+
+    /**
+     * Create a BillDesk transaction (initiate a charge)
+     * Reference: https://docs.billdesk.io/reference/createtransaction
+     * @param request - Transaction request payload
+     * @param partnerId - Partner ID for credentials
+     */
+    public static async createTransaction(
+        request: BillDeskCreateTransactionRequest,
+        partnerId: string,
+    ): Promise<{
+        success: boolean;
+        transaction?: BillDeskCreateTransactionResponse;
+        external_integration_id?: string;
+        error?: string;
+        error_details?: any;
+    }> {
+        let credentials: { encryption_key: string; secret_key: string } | null = null;
+        try {
+            const billDeskCredentials = await this.getCredentials(partnerId);
+            if (!billDeskCredentials || !billDeskCredentials.credentials) {
+                logger.error('BillDesk: Failed to create transaction - External Integration not found', undefined, {
+                    request,
+                    partnerId,
+                });
+                return { success: false, error: 'BillDesk credentials not found for partner' };
+            }
+
+            const {
+                client_id: clientId,
+                key_id: keyId,
+                secret_key: secretKey,
+                encryption_key: encryptionKey,
+                merchant_id: merchantId,
+                proxy_host: proxyHost,
+                proxy_port: proxyPort,
+                api_url: apiUrl,
+            } = billDeskCredentials.credentials;
+
+            credentials = { encryption_key: encryptionKey, secret_key: secretKey };
+            const billDeskCredentialsId = billDeskCredentials.external_integration_id;
+
+            const updatedRequest: BillDeskCreateTransactionRequest = {
+                ...request,
+                mercid: merchantId,
+            };
+
+            logger.info('BillDesk: Creating transaction with credentials', {
+                merchantId,
+                clientId,
+                keyId,
+                apiUrl,
+                bdorderid: request.bdorderid,
+                payment_method_type: request.payment_method_type,
+            });
+
+            // Encrypt and sign the payload as per BillDesk JOSE spec
+            const signedEncryptedPayload = await encryptAndSignPayload(
+                updatedRequest,
+                clientId,
+                keyId,
+                encryptionKey,
+                secretKey
+            );
+
+            const traceId = randomUUID().replace(/-/g, '');
+            const timestamp = Math.floor(Date.now() / 1000).toString();
+
+            const headers = {
+                'Content-Type': 'application/jose',
+                Accept: 'application/jose',
+                'BD-Traceid': traceId,
+                'BD-Timestamp': timestamp,
+            };
+
+            logger.info('BillDesk: Sending request to create transaction', {
+                url: `${apiUrl}/payments/ve1_2/transactions/create`,
+                traceId,
+                timestamp,
+                payloadPreview: signedEncryptedPayload.substring(0, 100) + '...',
+            });
+
+            const response = await axios.post<string>(`${apiUrl}/payments/ve1_2/transactions/create`, signedEncryptedPayload, {
+                headers,
+                proxy: proxyHost && proxyPort ? {
+                    host: proxyHost,
+                    port: proxyPort,
+                    protocol: "http",
+                } : false,
+            });
+
+            logger.info('BillDesk: Transaction created - raw response received', {
+                bdorderid: request.bdorderid,
+                statusCode: response.status,
+            });
+
+            // Verify and decrypt the response
+            const decryptedData = await verifyAndDecryptResponse(
+                response.data,
+                encryptionKey,
+                secretKey
+            );
+
+            logger.info('BillDesk: Transaction created successfully - Decrypted Data', {
+                bdorderid: request.bdorderid,
+                decryptedData,
+            });
+
+            const responseData: BillDeskCreateTransactionResponse = decryptedData;
+
+            return {
+                transaction: responseData,
+                external_integration_id: billDeskCredentialsId,
+                success: true,
+            };
+        }
+        catch (e: unknown) {
+            const errorMessage = getErrorMessage(e);
+            const errorData = getAxiosErrorData(e);
+            const err = e instanceof Error ? e : new Error(errorMessage);
+
+            let decryptedErrorData = null;
+            if (errorData && credentials) {
+                decryptedErrorData = await verifyAndDecryptResponse(
+                    errorData,
+                    credentials.encryption_key,
+                    credentials.secret_key
+                );
+            }
+
+            // Get more error details from axios error
+            const axiosError = e as any;
+            const statusCode = axiosError?.response?.status;
+            const responseHeaders = axiosError?.response?.headers;
+            const rawResponseData = axiosError?.response?.data;
+
+            logger.error(`BillDesk: Failed to create transaction - ${errorMessage}`, err, {
+                request,
+                partnerId,
+                statusCode,
+                responseHeaders,
+                rawResponseData,
+                response_data: errorData,
+                decrypted_data: decryptedErrorData,
+            });
+
+            // Prefer decrypted error data if available (for JOSE encrypted responses)
+            // Otherwise try to parse raw response as JSON
+            let parsedError = decryptedErrorData || rawResponseData;
+            if (!decryptedErrorData && typeof rawResponseData === 'string') {
+                try {
+                    parsedError = JSON.parse(rawResponseData);
+                }
+                catch {
+                    // Keep as string if not valid JSON
+                }
+            }
+
+            return {
+                success: false,
+                error: parsedError?.message || `${errorMessage} (Status: ${statusCode})`,
+                error_details: {
+                    billdesk_error: parsedError,
+                    status_code: statusCode,
+                    error_code: parsedError?.error_code,
+                    error_type: parsedError?.error_type,
+                },
+            };
+        }
+    }
+
+    /**
+     * Update/Authorize a BillDesk transaction
+     * Reference: https://docs.billdesk.io/reference/updatetransaction
+     * @param request - Update transaction request payload
+     * @param partnerId - Partner ID for credentials
+     */
+    public static async updateTransaction(
+        request: BillDeskUpdateTransactionRequest,
+        partnerId: string,
+    ): Promise<{
+        success: boolean;
+        transaction?: BillDeskUpdateTransactionResponse;
+        external_integration_id?: string;
+        error?: string;
+        error_details?: any;
+    }> {
+        let credentials: { encryption_key: string; secret_key: string } | null = null;
+        try {
+            const billDeskCredentials = await this.getCredentials(partnerId);
+            if (!billDeskCredentials || !billDeskCredentials.credentials) {
+                logger.error('BillDesk: Failed to update transaction - External Integration not found', undefined, {
+                    request,
+                    partnerId,
+                });
+                return { success: false, error: 'BillDesk credentials not found for partner' };
+            }
+
+            const {
+                client_id: clientId,
+                key_id: keyId,
+                secret_key: secretKey,
+                encryption_key: encryptionKey,
+                merchant_id: merchantId,
+                proxy_host: proxyHost,
+                proxy_port: proxyPort,
+                api_url: apiUrl,
+            } = billDeskCredentials.credentials;
+
+            credentials = { encryption_key: encryptionKey, secret_key: secretKey };
+            const billDeskCredentialsId = billDeskCredentials.external_integration_id;
+
+            const updatedRequest: BillDeskUpdateTransactionRequest = {
+                ...request,
+                mercid: merchantId,
+            };
+
+            logger.info('BillDesk: Updating transaction with credentials', {
+                merchantId,
+                clientId,
+                keyId,
+                apiUrl,
+                bdorderid: request.bdorderid,
+                transactionid: request.transactionid,
+            });
+
+            // Encrypt and sign the payload as per BillDesk JOSE spec
+            const signedEncryptedPayload = await encryptAndSignPayload(
+                updatedRequest,
+                clientId,
+                keyId,
+                encryptionKey,
+                secretKey
+            );
+
+            const traceId = randomUUID().replace(/-/g, '');
+            const timestamp = Math.floor(Date.now() / 1000).toString();
+
+            const headers = {
+                'Content-Type': 'application/jose',
+                Accept: 'application/jose',
+                'BD-Traceid': traceId,
+                'BD-Timestamp': timestamp,
+            };
+
+            logger.info('BillDesk: Sending request to update transaction', {
+                url: `${apiUrl}/payments/ve1_2/transactions/update`,
+                traceId,
+                timestamp,
+                payloadPreview: signedEncryptedPayload.substring(0, 100) + '...',
+            });
+
+            const response = await axios.post<string>(`${apiUrl}/payments/ve1_2/transactions/update`, signedEncryptedPayload, {
+                headers,
+                proxy: proxyHost && proxyPort ? {
+                    host: proxyHost,
+                    port: proxyPort,
+                    protocol: "http",
+                } : false,
+            });
+
+            logger.info('BillDesk: Transaction updated - raw response received', {
+                bdorderid: request.bdorderid,
+                transactionid: request.transactionid,
+                statusCode: response.status,
+            });
+
+            // Verify and decrypt the response
+            const decryptedData = await verifyAndDecryptResponse(
+                response.data,
+                encryptionKey,
+                secretKey
+            );
+
+            logger.info('BillDesk: Transaction updated successfully - Decrypted Data', {
+                bdorderid: request.bdorderid,
+                transactionid: request.transactionid,
+                decryptedData,
+            });
+
+            const responseData: BillDeskUpdateTransactionResponse = decryptedData;
+
+            return {
+                transaction: responseData,
+                external_integration_id: billDeskCredentialsId,
+                success: true,
+            };
+        }
+        catch (e: unknown) {
+            const errorMessage = getErrorMessage(e);
+            const errorData = getAxiosErrorData(e);
+            const err = e instanceof Error ? e : new Error(errorMessage);
+
+            let decryptedErrorData = null;
+            if (errorData && credentials) {
+                decryptedErrorData = await verifyAndDecryptResponse(
+                    errorData,
+                    credentials.encryption_key,
+                    credentials.secret_key
+                );
+            }
+
+            // Get more error details from axios error
+            const axiosError = e as any;
+            const statusCode = axiosError?.response?.status;
+            const responseHeaders = axiosError?.response?.headers;
+            const rawResponseData = axiosError?.response?.data;
+
+            logger.error(`BillDesk: Failed to update transaction - ${errorMessage}`, err, {
+                request,
                 partnerId,
                 statusCode,
                 responseHeaders,

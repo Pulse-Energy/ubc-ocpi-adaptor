@@ -6,6 +6,7 @@ import { AppPublishResponsePayload } from '../../schema/v2.0.0/actions/publish/t
 import PublishActionService from '../services/PublishActionService';
 import RequestsStoreService from '../../../utils/RequestsStoreService';
 import { UBCPublishRequestPayload } from '../../schema/v2.0.0/actions/publish/types/PublishPayload';
+import Utils from '../../../utils/Utils';
 
 /**
  * Handler for publish action
@@ -23,16 +24,15 @@ export default class PublishActionHandler {
         // Debug: Log the incoming request body structure
         logger.debug(`🟡 Received publish request body`, { 
             body: req.body,
-            hasMetadata: !!payload?.metadata,
-            hasPayload: !!payload?.payload 
+            hasOcpiLocationIds: !!payload?.ocpi_location_ids 
         });
 
-        if (!payload || !payload.metadata) {
+        if (!payload || !payload.ocpi_location_ids || !Array.isArray(payload.ocpi_location_ids) || payload.ocpi_location_ids.length === 0) {
             logger.error(`🔴 Invalid publish request payload structure`, undefined, { 
                 body: req.body,
                 payload 
             });
-            throw new Error('Invalid publish request payload: metadata is required');
+            throw new Error('Invalid publish request payload: ocpi_location_ids array is required');
         }
 
         try {
@@ -59,8 +59,8 @@ export default class PublishActionHandler {
     public static async handleEVChargingUBCBppPublishAction(
         reqPayload: PostAppPublishRequestPayload
     ): Promise<AppPublishResponsePayload> {
-        const reqId = reqPayload.metadata?.beckn_transaction_id || 'unknown';
-        const logData = { action: 'publish', transactionId: reqId };
+        const reqId = Utils.generateUUID();
+        const logData = { action: 'publish', locationIds: reqPayload.ocpi_location_ids };
 
         try {
             // Translate app payload to UBC format
@@ -68,7 +68,7 @@ export default class PublishActionHandler {
                 `🟡 [${reqId}] Translating app payload to UBC format in handleEVChargingUBCBppPublishAction`,
                 { data: { logData, reqPayload } }
             );
-            const ubcPublishPayload: UBCPublishRequestPayload = PublishActionService.translateAppPayloadToUBC(reqPayload);
+            const ubcPublishPayload: UBCPublishRequestPayload = await PublishActionService.translateAppPayloadToUBC(reqPayload);
 
             // Send publish request to CDS/ONIX and wait for stitched on_catalog_publish callback
             logger.debug(

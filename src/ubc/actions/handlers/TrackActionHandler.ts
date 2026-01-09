@@ -7,6 +7,9 @@ import { BecknActionResponse } from "../../schema/v2.0.0/types/AckResponse";
 import OnixBppController from "../../controller/OnixBppController";
 import { BecknAction } from "../../schema/v2.0.0/enums/BecknAction";
 import TrackActionService from "../services/TrackActionService";
+import { BecknDomain } from "../../schema/v2.0.0/enums/BecknDomain";
+import { Prisma } from "@prisma/client";
+import BecknLogDbService from "../../../db-services/BecknLogDbService";
 
 /**
  * Handler for track action
@@ -83,4 +86,36 @@ export default class TrackActionHandler {
             throw e;
         }
     }
+
+    public static async fetchExistingBppTrackResponse(transactionId: string): Promise<any | null> {
+        const becknLogs = await BecknLogDbService.getByFilters({
+            where: {
+                transaction_id: transactionId,
+                action: `bpp.in.request.${BecknAction.track}`,
+                domain: BecknDomain.EVChargingUBC,
+            },
+            select: {
+                payload: true,
+            },
+            orderBy: {
+                created_on: Prisma.SortOrder.desc,
+            },
+            take: 1,
+        });
+
+        if (becknLogs?.records && becknLogs.records.length > 0) {
+            return becknLogs.records[0].payload;
+        }
+
+        return null;
+    }
+
+    public static async sendOnTrackToBAPONIX(authorization_reference: string): Promise<void> {
+        const existingBppTrackResponse = await TrackActionHandler.fetchExistingBppTrackResponse(authorization_reference);
+        if (existingBppTrackResponse) {
+            TrackActionService.sendOnTrackCallToBecknONIX(existingBppTrackResponse?.payload);
+        }
+        logger.warn(`🟡 [${authorization_reference}] No existing BPP track response found in sendOnTrackToBAPONIX`, { data: { authorization_reference } });
+    }
+
 }

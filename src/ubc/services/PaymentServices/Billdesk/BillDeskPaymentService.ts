@@ -21,12 +21,18 @@ import {
     PaymentSDK,
     mapBillDeskStatusToGeneric,
     CreateOrderWithBillDeskResponse,
+    BillDeskCreateTransactionRequest,
+    BillDeskCreateTransactionResponse,
+    BillDeskUpdateTransactionRequest,
+    CreateTransactionWithBillDeskResponse,
+    UpdateTransactionWithBillDeskResponse,
 } from "../../../../types/BillDesk";
 import { HttpResponse } from "../../../../types/responses";
 import OnStatusActionHandler from "../../../actions/handlers/OnStatusActionHandler";
 import { BecknPaymentStatus } from "../../../schema/v2.0.0/enums/PaymentStatus";
 import { PaymentTxnAdditionalProps } from "../../../../types/PaymentTxn";
 import Utils from "../../../../utils/Utils";
+import GLOBAL_VARS from "../../../../constants/global-vars";
 
 // Helper function to extract error message
 const getErrorMessage = (error: unknown): string => {
@@ -88,7 +94,9 @@ export default class BillDeskPaymentService {
             else if (reqPayload.transaction_response) {
                 // Redirect callback (JWT encoded transaction response)
                 const response = reqPayload.transaction_response;
-                decodedResponse = await BillDeskPaymentGatewayService.decodeString(response);
+                const orderId = reqPayload?.orderid ?? '';
+                paymentTxn = await PaymentTxnDbService.getByOrderId(orderId);
+                decodedResponse = await BillDeskPaymentGatewayService.decodeString(response, paymentTxn?.partner_id);
 
                 logger.info('BillDesk Redirect Callback - decoded response', { decodedResponse });
 
@@ -101,8 +109,6 @@ export default class BillDeskPaymentService {
                     });
                 }
 
-                const orderId = decodedResponse.orderid;
-                paymentTxn = await PaymentTxnDbService.getByOrderId(orderId);
             }
             else if (reqPayload.encrypted_response) {
                 // Redirect callback (JWT encoded transaction response)
@@ -157,6 +163,18 @@ export default class BillDeskPaymentService {
                 paymentTxnStatus: paymentTxn.status,
             });
 
+            if (paymentTxn.status !== GenericPaymentTxnStatus.Pending) {
+                logger.info('BillDesk Callback: PaymentTxn not in pending status', {
+                    paymentTxnId: paymentTxn.id,
+                    paymentTxnStatus: paymentTxn.status,
+                });
+                return ResponsesService.success({
+                    success: true,
+                    message: 'PaymentTxn not in pending status',
+                    data: {}
+                });
+            }
+
             // Process the callback - update payment status
             const oldPaymentStatus = paymentTxn.status;
             const statusResult = await this.getPaymentStatusOfBillDeskPayment(paymentTxn);
@@ -183,6 +201,7 @@ export default class BillDeskPaymentService {
                         await OnStatusActionHandler.handleEVChargingUBCBppOnStatusAction({
                             authorization_reference: paymentTxn.authorization_reference,
                             payment_status: becknPaymentStatus,
+                            oldPaymentStatus: oldPaymentStatus as GenericPaymentTxnStatus,
                         });
 
                         logger.info('BillDesk Callback: Status forwarded to BPP ONIX successfully', {
@@ -590,9 +609,10 @@ export default class BillDeskPaymentService {
             // Extract redirect link
             const redirectLink = billDeskOrder.links?.find(link => link.rel === 'redirect');
 
+            const paymentUrl = `${GLOBAL_VARS.INTERNAL_PAYMENT_LINK_HOST}/api/app/billdesk/pay/${paymentTxn.id}?autoSubmit=true`;
             const billDeskObject: BillDeskObject | undefined = redirectLink ? {
                 ...redirectLink,
-                payment_url: redirectLink.href,
+                payment_url: paymentUrl,
                 authorization_reference: paymentTxn.authorization_reference || paymentTxn.id,
             } : undefined;
 
@@ -606,6 +626,243 @@ export default class BillDeskPaymentService {
             const errorMessage = getErrorMessage(error);
             const err = error instanceof Error ? error : new Error(errorMessage);
             logger.error(`BillDesk: Failed to create order - ${errorMessage}`, err, { paymentTxnId: paymentTxn.id });
+
+            return {
+                success: false,
+                error: errorMessage,
+            };
+        }
+    }
+
+    /**
+     * Create transaction with BillDesk Payment Gateway
+     * This initiates a charge using a specific payment method
+     * 
+     * @param paymentTxn - Payment transaction object
+     * @param transactionProps - Transaction properties including payment method, device, etc.
+     * @returns Created transaction details
+     */
+    public static async createTransactionWithBillDeskPaymentGateway(
+        paymentTxn: PaymentTxn,
+        transactionProps: {
+            payment_method_type: 'card' | 'netbanking' | 'upi' | 'wallet' | string;
+            authentication_type?: '3ds2' | 'otp' | string;
+            '3ds_parameter'?: 'merchant' | 'issuer' | string;
+            txn_process_type?: 'intent' | 'collect' | string;
+            payment_method?: BillDeskCreateTransactionRequest['payment_method'];
+            device?: BillDeskCreateTransactionRequest['device'];
+            return_url?: string;
+        }
+    ): Promise<CreateTransactionWithBillDeskResponse> {
+        try {
+            const partnerId = paymentTxn.partner_id;
+
+            if (!partnerId) {
+                logger.error('BillDesk: Partner ID not found in payment txn', undefined, { paymentTxn });
+                return {
+                    success: false,
+                    error: 'Partner ID not found',
+                };
+            }
+
+            // Get the BillDesk order from additional_props (optional - transaction can be created without order)
+            const existingProps = paymentTxn.additional_props as Record<string, unknown> | null;
+            const existingOrder = existingProps?.payment_gateway_create_object as BillDeskCreateOrderResponse | undefined;
+            
+            // Use order ID from existing order or generate one
+            const orderId = existingOrder?.orderid || paymentTxn.payment_gateway_order_id || `TXN${Date.now()}`;
+            const amountStr = paymentTxn.amount.toString();
+
+            const createTransactionRequest: BillDeskCreateTransactionRequest = {
+                mercid: '', // Will be populated by createTransaction
+                orderid: orderId,
+                amount: amountStr.includes('.') ? amountStr : `${amountStr}.00`,
+                currency: '356',
+                itemcode: 'DIRECT',
+                ru: transactionProps.return_url || existingOrder?.ru || GLOBAL_VARS.INTERNAL_PAYMENT_LINK_HOST + '/api/app/redirect/billdesk',
+                payment_method_type: transactionProps.payment_method_type,
+                authentication_type: transactionProps.authentication_type,
+                '3ds_parameter': transactionProps['3ds_parameter'],
+                txn_process_type: transactionProps.txn_process_type,
+                bdorderid: existingOrder?.bdorderid,
+                payment_method: transactionProps.payment_method,
+                device: transactionProps.device,
+            };
+
+            const createTransactionResult = await BillDeskPaymentGatewayService.createTransaction(
+                createTransactionRequest,
+                partnerId
+            );
+
+            if (!createTransactionResult.success || !createTransactionResult.transaction) {
+                logger.error('BillDesk: Create transaction request failed', undefined, { paymentTxn, createTransactionResult });
+                return {
+                    success: false,
+                    error: createTransactionResult.error || 'Create transaction request failed',
+                    error_details: createTransactionResult.error_details,
+                };
+            }
+
+            const billDeskTransaction = createTransactionResult.transaction;
+
+            logger.info('BillDesk transaction created', { 
+                paymentTxnId: paymentTxn.id, 
+                transactionid: billDeskTransaction.transactionid,
+                auth_status: billDeskTransaction.auth_status,
+            });
+
+            // Update payment txn with transaction details
+            const currentProps = paymentTxn.additional_props as Record<string, unknown> | null;
+            const updatedAdditionalProps = JSON.parse(JSON.stringify({
+                ...(currentProps || {}),
+                payment_sdk: PaymentSDK.BillDesk,
+                payment_gateway_transaction_object: billDeskTransaction,
+            }));
+
+            // Determine status based on auth_status
+            let newStatus = paymentTxn.status;
+            if (billDeskTransaction.auth_status === BillDeskTransactionAuthStatus.SUCCESS) {
+                newStatus = GenericPaymentTxnStatus.Success;
+            }
+            else if (billDeskTransaction.auth_status === BillDeskTransactionAuthStatus.FAILED) {
+                newStatus = GenericPaymentTxnStatus.Failed;
+            }
+
+            await PaymentTxnDbService.update(paymentTxn.id, {
+                payment_gateway_payment_id: billDeskTransaction.transactionid,
+                payment_gateway_order_id: orderId,
+                status: newStatus,
+                additional_props: updatedAdditionalProps,
+            } as any);
+
+            return {
+                success: true,
+                transaction: billDeskTransaction,
+            };
+        }
+        catch (error: unknown) {
+            const errorMessage = getErrorMessage(error);
+            const err = error instanceof Error ? error : new Error(errorMessage);
+            logger.error(`BillDesk: Failed to create transaction - ${errorMessage}`, err, { paymentTxnId: paymentTxn.id });
+
+            return {
+                success: false,
+                error: errorMessage,
+            };
+        }
+    }
+
+    /**
+     * Update/Authorize transaction with BillDesk Payment Gateway
+     * This is used to complete 2FA (OTP), 3DS authentication, etc.
+     * 
+     * @param paymentTxn - Payment transaction object (must have an existing transaction)
+     * @param authData - Authentication data (OTP, 3DS data, etc.)
+     * @param device - Device information
+     * @returns Updated transaction details
+     */
+    public static async updateTransactionWithBillDeskPaymentGateway(
+        paymentTxn: PaymentTxn,
+        authData?: BillDeskUpdateTransactionRequest['auth_data'],
+        device?: BillDeskUpdateTransactionRequest['device']
+    ): Promise<UpdateTransactionWithBillDeskResponse> {
+        try {
+            const partnerId = paymentTxn.partner_id;
+
+            if (!partnerId) {
+                logger.error('BillDesk: Partner ID not found in payment txn', undefined, { paymentTxn });
+                return {
+                    success: false,
+                    error: 'Partner ID not found',
+                };
+            }
+
+            // Get the BillDesk order and transaction from additional_props
+            const existingProps = paymentTxn.additional_props as Record<string, unknown> | null;
+            const existingOrder = existingProps?.payment_gateway_create_object as BillDeskCreateOrderResponse | undefined;
+            const existingTransaction = existingProps?.payment_gateway_transaction_object as BillDeskCreateTransactionResponse | undefined;
+            
+            if (!existingOrder || !existingOrder.bdorderid) {
+                logger.error('BillDesk: No existing order found for payment txn', undefined, { paymentTxnId: paymentTxn.id });
+                return {
+                    success: false,
+                    error: 'No existing BillDesk order found. Create an order first.',
+                };
+            }
+
+            // Transaction ID can come from existing transaction or payment_gateway_payment_id
+            const transactionId = existingTransaction?.transactionid || paymentTxn.payment_gateway_payment_id;
+            
+            if (!transactionId) {
+                logger.error('BillDesk: No existing transaction found for payment txn', undefined, { paymentTxnId: paymentTxn.id });
+                return {
+                    success: false,
+                    error: 'No existing BillDesk transaction found. Create a transaction first.',
+                };
+            }
+
+            const updateTransactionRequest: BillDeskUpdateTransactionRequest = {
+                mercid: '', // Will be populated by updateTransaction
+                bdorderid: existingOrder.bdorderid,
+                transactionid: transactionId,
+                auth_data: authData,
+                device: device,
+            };
+
+            const updateTransactionResult = await BillDeskPaymentGatewayService.updateTransaction(
+                updateTransactionRequest,
+                partnerId
+            );
+
+            if (!updateTransactionResult.success || !updateTransactionResult.transaction) {
+                logger.error('BillDesk: Update transaction request failed', undefined, { paymentTxn, updateTransactionResult });
+                return {
+                    success: false,
+                    error: updateTransactionResult.error || 'Update transaction request failed',
+                    error_details: updateTransactionResult.error_details,
+                };
+            }
+
+            const billDeskTransaction = updateTransactionResult.transaction;
+
+            logger.info('BillDesk transaction updated', { 
+                paymentTxnId: paymentTxn.id, 
+                transactionid: billDeskTransaction.transactionid,
+                auth_status: billDeskTransaction.auth_status,
+            });
+
+            // Update payment txn with transaction details
+            const currentProps = paymentTxn.additional_props as Record<string, unknown> | null;
+            const updatedAdditionalProps = JSON.parse(JSON.stringify({
+                ...(currentProps || {}),
+                payment_sdk: PaymentSDK.BillDesk,
+                payment_gateway_transaction_object: billDeskTransaction,
+            }));
+
+            // Determine status based on auth_status
+            let newStatus = paymentTxn.status;
+            if (billDeskTransaction.auth_status === BillDeskTransactionAuthStatus.SUCCESS) {
+                newStatus = GenericPaymentTxnStatus.Success;
+            }
+            else if (billDeskTransaction.auth_status === BillDeskTransactionAuthStatus.FAILED) {
+                newStatus = GenericPaymentTxnStatus.Failed;
+            }
+
+            await PaymentTxnDbService.update(paymentTxn.id, {
+                payment_gateway_payment_id: billDeskTransaction.transactionid,
+                status: newStatus,
+                additional_props: updatedAdditionalProps,
+            } as any);
+
+            return {
+                success: true,
+                transaction: billDeskTransaction,
+            };
+        }
+        catch (error: unknown) {
+            const errorMessage = getErrorMessage(error);
+            const err = error instanceof Error ? error : new Error(errorMessage);
+            logger.error(`BillDesk: Failed to update transaction - ${errorMessage}`, err, { paymentTxnId: paymentTxn.id });
 
             return {
                 success: false,

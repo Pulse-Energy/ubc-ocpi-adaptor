@@ -15,69 +15,452 @@ import { BecknCatalogOffer } from '../../schema/v2.0.0/types/CatalogOffer';
 import { BecknChargingServiceAttributes } from '../../schema/v2.0.0/types/ChargingService';
 import { ObjectType } from '../../schema/v2.0.0/enums/ObjectType';
 import { AcceptedPaymentMethod } from '../../schema/v2.0.0/enums/AcceptedPaymentMethod';
+import { LocationWithRelations, LocationDbService } from '../../../db-services/LocationDbService';
+import { TariffDbService } from '../../../db-services/TariffDbService';
+import { EVSEConnector, Location, EVSE, OCPIPartner } from '@prisma/client';
+import { databaseService } from '../../../services/database.service';
+import GLOBAL_VARS from '../../../constants/global-vars';
+import { OCPIHours, OCPIRegularHours } from '../../../ocpi/schema/modules/locations/types';
 
-type Connector = PostAppPublishRequestPayload['payload']['charging_stations'][0]['connectors'][0];
-type ChargingStation = PostAppPublishRequestPayload['payload']['charging_stations'][0];
+/**
+ * Formats a Date object to ISO 8601 string with timezone offset
+ * Format: yyyy-mm-ddTHH:MM:SS±hh:mm
+ */
+function formatISOWithOffset(date: Date): string {
+    const pad = (n: number) => String(n).padStart(2, "0");
+
+    const offsetMinutes = -date.getTimezoneOffset();
+    const sign = offsetMinutes >= 0 ? "+" : "-";
+    const offsetH = pad(Math.floor(Math.abs(offsetMinutes) / 60));
+    const offsetM = pad(Math.abs(offsetMinutes) % 60);
+
+    // yyyy-mm-ddTHH:MM:SS±hh:mm
+    return (
+        `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
+        `T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}` +
+        `${sign}${offsetH}:${offsetM}`
+    );
+}
+
+/**
+ * Gets start of today with timezone offset
+ */
+function getStartOfTodayWithOffset(): string {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return formatISOWithOffset(d);
+}
+
+/**
+ * Gets end of day N days from now with timezone offset
+ */
+function getEndOfDayNDaysFromNowWithOffset(days: number): string {
+    const d = new Date();
+    d.setDate(d.getDate() + days);
+    d.setHours(23, 59, 59, 0);
+    return formatISOWithOffset(d);
+}
+
+/**
+ * Calculates availability windows for the next 7 days based on opening hours
+ * Handles gaps in availability by creating separate time periods
+ * @param openingHours - OCPI opening hours
+ * @param reservationTime - Optional reservation time in seconds. If provided, excludes the period from now to now + reservationTime from availability
+ */
+function calculateAvailabilityWindowsFromOpeningHours(
+    openingHours: OCPIHours | null,
+    reservationTime?: number
+): Array<{ start_time: string; end_time: string }> {
+    const windows: Array<{ start_time: string; end_time: string }> = [];
+    const now = new Date();
+    const reservationEnd = reservationTime ? new Date(now.getTime() + reservationTime * 1000) : null;
+    
+    if (!openingHours) {
+        // No opening hours - default to 7 days continuous
+        const startTime = getStartOfTodayWithOffset();
+        const endTime = getEndOfDayNDaysFromNowWithOffset(6); // 7 days = today + 6 more days
+        const defaultWindow = { start_time: startTime, end_time: endTime };
+        
+        // Apply reservation time if provided
+        if (reservationEnd) {
+            return applyReservationToWindows([defaultWindow], now, reservationEnd);
+        }
+        return [defaultWindow];
+    }
+
+    // Handle 24/7 case
+    if (openingHours.twentyfourseven) {
+        const startTime = getStartOfTodayWithOffset();
+        const endTime = getEndOfDayNDaysFromNowWithOffset(6);
+        const defaultWindow = { start_time: startTime, end_time: endTime };
+        
+        // Apply reservation time if provided
+        if (reservationEnd) {
+            return applyReservationToWindows([defaultWindow], now, reservationEnd);
+        }
+        return [{ start_time: startTime, end_time: endTime }];
+    }
+
+    // Handle regular hours
+    if (openingHours.regular_hours && openingHours.regular_hours.length > 0) {
+        const today = new Date();
+
+        // Process each day for the next 7 days
+        for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
+            const currentDate = new Date(today);
+            currentDate.setDate(today.getDate() + dayOffset);
+            currentDate.setHours(0, 0, 0, 0);
+            
+            const weekday = currentDate.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+            // Convert to OCPI weekday format: 1 = Monday, 2 = Tuesday, ..., 7 = Sunday
+            const ocpiWeekday = weekday === 0 ? 7 : weekday;
+            
+            // Find regular hours for this weekday
+            const dayHours = openingHours.regular_hours.filter((rh: OCPIRegularHours) => {
+                const rhWeekday = typeof rh.weekday === 'bigint' ? Number(rh.weekday) : rh.weekday;
+                return rhWeekday === ocpiWeekday;
+            });
+
+            if (dayHours.length === 0) {
+                // No hours for this day - skip (closed)
+                continue;
+            }
+
+            // Sort periods by begin time
+            const sortedHours = dayHours.sort((a, b) => {
+                const timeA = a.period_begin || "00:00";
+                const timeB = b.period_begin || "00:00";
+                return timeA.localeCompare(timeB);
+            });
+
+            // Create windows for each period
+            for (const hour of sortedHours) {
+                const beginTime = hour.period_begin || "00:00";
+                const endTime = hour.period_end || "23:59";
+                
+                // Parse time (HH:MM format)
+                const [beginH, beginM] = beginTime.split(':').map(Number);
+                const [endH, endM] = endTime.split(':').map(Number);
+                
+                const startDateTime = new Date(currentDate);
+                startDateTime.setHours(beginH, beginM || 0, 0, 0);
+                
+                const endDateTime = new Date(currentDate);
+                endDateTime.setHours(endH, endM || 0, 59, 999);
+                
+                // If end time is before start time, it means it spans to next day
+                if (endDateTime < startDateTime) {
+                    endDateTime.setDate(endDateTime.getDate() + 1);
+                }
+                
+                windows.push({
+                    start_time: formatISOWithOffset(startDateTime),
+                    end_time: formatISOWithOffset(endDateTime),
+                });
+            }
+        }
+    }
+
+    // If no windows were created, default to 7 days continuous
+    if (windows.length === 0) {
+        const startTime = getStartOfTodayWithOffset();
+        const endTime = getEndOfDayNDaysFromNowWithOffset(6);
+        const defaultWindow = { start_time: startTime, end_time: endTime };
+        
+        // Apply reservation time if provided
+        if (reservationEnd) {
+            return applyReservationToWindows([defaultWindow], now, reservationEnd);
+        }
+        return [defaultWindow];
+    }
+
+    // Apply reservation time if provided
+    if (reservationEnd) {
+        return applyReservationToWindows(windows, now, reservationEnd);
+    }
+
+    return windows;
+}
+
+/**
+ * Applies reservation period exclusion to availability windows
+ * Splits windows that overlap with the reservation period [now, reservationEnd]
+ */
+function applyReservationToWindows(
+    windows: Array<{ start_time: string; end_time: string }>,
+    now: Date,
+    reservationEnd: Date
+): Array<{ start_time: string; end_time: string }> {
+    const result: Array<{ start_time: string; end_time: string }> = [];
+
+    for (const window of windows) {
+        const windowStart = new Date(window.start_time);
+        const windowEnd = new Date(window.end_time);
+
+        // Window is completely before now - keep as-is
+        if (windowEnd <= now) {
+            result.push(window);
+            continue;
+        }
+
+        // Window is completely after reservation end - keep as-is
+        if (windowStart >= reservationEnd) {
+            result.push(window);
+            continue;
+        }
+
+        // Window overlaps with reservation period - split it
+        // Add [start, now] if start < now
+        if (windowStart < now) {
+            result.push({
+                start_time: window.start_time,
+                end_time: formatISOWithOffset(now),
+            });
+        }
+
+        // Add [reservationEnd, end] if end > reservationEnd
+        if (windowEnd > reservationEnd) {
+            result.push({
+                start_time: formatISOWithOffset(reservationEnd),
+                end_time: window.end_time,
+            });
+        }
+
+        // If window is completely inside reservation period, skip it (no availability)
+    }
+
+    return result;
+}
 
 /**
  * Service for handling publish action
  */
 export default class PublishActionService {
     /**
+     * Formats a validity date to ISO 8601 datetime string with timezone
+     * Accepts date in any format (string or Date object) and converts to ISO 8601
+     * @param date - Date string or Date object (can be in any format)
+     * @param isStartDate - If true, uses 00:00:00Z, if false uses 23:59:59Z
+     * @returns ISO 8601 datetime string with timezone (e.g., "2026-03-31T23:59:59Z")
+     */
+    private static formatValidityDate(date: string | Date | null | undefined, isStartDate: boolean): string {
+        // Default date: current date for start, 1 year from now for end
+        const defaultDate = isStartDate 
+            ? new Date() 
+            : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+        
+        // If date is null/undefined, return default
+        if (!date) {
+            return this.formatDateToISO(defaultDate, isStartDate);
+        }
+        
+        // If already a Date object, format it
+        if (date instanceof Date) {
+            // Check if date is valid
+            if (isNaN(date.getTime())) {
+                return this.formatDateToISO(defaultDate, isStartDate);
+            }
+            return this.formatDateToISO(date, isStartDate);
+        }
+        
+        // If it's a string, try to parse it
+        if (typeof date === 'string') {
+            // If already in ISO datetime format with timezone, return as-is
+            if (date.includes('T') && (date.includes('Z') || date.includes('+') || date.includes('-'))) {
+                // Validate it's a valid ISO datetime
+                const parsed = new Date(date);
+                if (!isNaN(parsed.getTime())) {
+                    return date;
+                }
+            }
+            
+            // Try to parse the date string
+            const parsedDate = new Date(date);
+            
+            // Check if parsing was successful
+            if (!isNaN(parsedDate.getTime())) {
+                return this.formatDateToISO(parsedDate, isStartDate);
+            }
+        }
+        
+        // If all parsing attempts fail, return default
+        return this.formatDateToISO(defaultDate, isStartDate);
+    }
+
+    /**
+     * Formats a Date object to ISO 8601 datetime string with timezone
+     * @param date - Date object
+     * @param isStartDate - If true, uses 00:00:00Z, if false uses 23:59:59Z
+     * @returns ISO 8601 datetime string with timezone (e.g., "2026-03-31T23:59:59Z")
+     */
+    private static formatDateToISO(date: Date, isStartDate: boolean): string {
+        // Create a new date to avoid mutating the original
+        const formattedDate = new Date(date);
+        
+        if (isStartDate) {
+            // Set to start of day in UTC
+            formattedDate.setUTCHours(0, 0, 0, 0);
+        } else {
+            // Set to end of day in UTC
+            formattedDate.setUTCHours(23, 59, 59, 999);
+        }
+        
+        // Return ISO string (always ends with Z for UTC)
+        return formattedDate.toISOString();
+    }
+
+    /**
+     * Calculates reservation time for start charging based on estimated cost, power rating, and tariff rate
+     * Similar to calculateReservationTime but for start charging scenario
+     */
+    public static calculateReservationTimeForStartCharging(params: {
+        estimatedCost: number,
+        powerRating: number,
+        tariffRate: number,
+        efficiency?: number,
+        buffer?: number, // in seconds // 5 minute buffer is added by default
+    }): number {
+        const { estimatedCost, powerRating, tariffRate, efficiency = 0.9, buffer = 5 * 60 } = params;
+        const denominator = powerRating * tariffRate * efficiency;
+        if (denominator > 0) {
+            const reservationTimeHours = (estimatedCost / denominator);
+            return reservationTimeHours * 3600 + buffer;
+        }
+        return buffer;
+    }
+
+    /**
+     * Publishes catalog with reservation time for a specific connector
+     * Used to mark charger as unavailable during charging sessions
+     * @param ocpiLocationId - OCPI location ID
+     * @param reservationTime - Optional reservation time in seconds
+     * @param becknConnectorId - Optional Beckn connector ID (format: IND*TP*{ocpi_location_id}*{evse_uid}*{connector_id}). If provided, only this connector will be published.
+     */
+    public static async publishWithReservation(
+        ocpiLocationId: string,
+        reservationTime?: number,
+        becknConnectorId?: string
+    ): Promise<void> {
+        try {
+            const publishPayload: PostAppPublishRequestPayload = {
+                ocpi_location_ids: [ocpiLocationId],
+                reservationTime: reservationTime,
+                connector_id: becknConnectorId, // Pass connector ID to filter
+            };
+
+            const ubcPublishPayload = await this.translateAppPayloadToUBC(publishPayload);
+            await this.sendPublishCallToBecknONIX(ubcPublishPayload);
+
+            logger.debug(`🟢 Published catalog with reservation for ${becknConnectorId ? `connector ${becknConnectorId}` : `location ${ocpiLocationId}`}`, {
+                reservationTime: reservationTime,
+            });
+        }
+        catch (e: any) {
+            logger.error(`🔴 Error publishing with reservation for ${becknConnectorId ? `connector ${becknConnectorId}` : `location ${ocpiLocationId}`}: ${e?.toString()}`, e);
+            // Don't throw - publish failures shouldn't block charging operations
+        }
+    }
+    /**
      * Gets appropriate charging description based on connector type and power
      */
-    private static getChargingDescription(connector: Connector): string {
+    private static getChargingDescription(connector: EVSEConnector, locationName?: string): string {
         const powerType = connector.power_type || '';
         const isAC = powerType.toUpperCase() === 'AC';
         const isDC = powerType.toUpperCase() === 'DC';
+        const maxPower = connector.max_electric_power ? Number(connector.max_electric_power) / 1000 : 0; // Convert W to kW
         
         if (isAC) {
-            return `AC Charger - ${connector.type} (${connector.power_rating}kW)`;
+            return `AC Charger - ${connector.standard} (${maxPower}kW)`;
         }
         else if (isDC) {
-            if (connector.power_rating >= 50) {
-                return `DC Fast Charger - ${connector.type} (${connector.power_rating}kW)`;
+            if (maxPower >= 50) {
+                return `DC Fast Charger - ${connector.standard} (${maxPower}kW)`;
             }
-            return `DC Charger - ${connector.type} (${connector.power_rating}kW)`;
+            return `DC Charger - ${connector.standard} (${maxPower}kW)`;
         }
-        return `${connector.type} Charger (${connector.power_rating}kW)`;
+        return `${connector.standard} Charger (${maxPower}kW)`;
     }
 
     /**
      * Gets appropriate long description based on connector type and power
      */
-    private static getChargingLongDescription(connector: Connector): string {
+    private static getChargingLongDescription(connector: EVSEConnector, locationName?: string): string {
         const powerType = connector.power_type || '';
         const isAC = powerType.toUpperCase() === 'AC';
         const isDC = powerType.toUpperCase() === 'DC';
+        const maxPower = connector.max_electric_power ? Number(connector.max_electric_power) / 1000 : 0; // Convert W to kW
         
         if (isAC) {
-            return `AC charging station supporting ${connector.type} connector type with ${connector.power_rating}kW maximum power output. Suitable for overnight and extended charging sessions.`;
+            return `AC charging station supporting ${connector.standard} connector type with ${maxPower}kW maximum power output. Suitable for overnight and extended charging sessions.`;
         }
         else if (isDC) {
-            if (connector.power_rating >= 50) {
-                return `Fast DC charging station supporting ${connector.type} connector type with ${connector.power_rating}kW maximum power output. Features advanced thermal management and smart charging capabilities for rapid charging.`;
+            if (maxPower >= 50) {
+                return `Fast DC charging station supporting ${connector.standard} connector type with ${maxPower}kW maximum power output. Features advanced thermal management and smart charging capabilities for rapid charging.`;
             }
-            return `DC charging station supporting ${connector.type} connector type with ${connector.power_rating}kW maximum power output. Features advanced thermal management and smart charging capabilities.`;
+            return `DC charging station supporting ${connector.standard} connector type with ${maxPower}kW maximum power output. Features advanced thermal management and smart charging capabilities.`;
         }
-        return `Charging station supporting ${connector.type} connector type with ${connector.power_rating}kW maximum power output. Features advanced thermal management and smart charging capabilities.`;
+        return `Charging station supporting ${connector.standard} connector type with ${maxPower}kW maximum power output. Features advanced thermal management and smart charging capabilities.`;
     }
     /**
      * Translates app publish payload to UBC format
+     * Fetches location data from database using ocpi_location_ids array
      */
-    public static translateAppPayloadToUBC(payload: PostAppPublishRequestPayload): UBCPublishRequestPayload {
+    public static async translateAppPayloadToUBC(payload: PostAppPublishRequestPayload): Promise<UBCPublishRequestPayload> {
         if (!payload) {
             throw new Error('Payload is required');
         }
 
-        const { metadata } = payload;
-
-        if (!metadata) {
-            throw new Error('Metadata is required in payload');
+        if (!payload.ocpi_location_ids || !Array.isArray(payload.ocpi_location_ids) || payload.ocpi_location_ids.length === 0) {
+            throw new Error('ocpi_location_ids array is required in payload and must not be empty');
         }
 
-        if (!metadata.bpp_id || !metadata.bpp_uri || !metadata.beckn_transaction_id) {
-            throw new Error('Metadata must contain bpp_id, bpp_uri, and beckn_transaction_id');
+        // Get BPP ID and URI from config
+        const bpp_id = GLOBAL_VARS.EV_CHARGING_UBC_BPP_ID;
+        // Get BPP URI using Utils function and remove /bpp/caller suffix to get base URI
+        const bpp_uri = Utils.getBPPClientHost().replace('/bpp/caller', '');
+        const transaction_id = Utils.generateUUID();
+
+        // Fetch all locations from database (with partner relation)
+        const locations = await databaseService.prisma.location.findMany({
+            where: {
+                ocpi_location_id: {
+                    in: payload.ocpi_location_ids,
+                },
+                deleted: false,
+            },
+            include: {
+                evses: {
+                    include: {
+                        evse_connectors: true,
+                    },
+                    where: {
+                        deleted: false,
+                    },
+                },
+                partner: true,
+            },
+        });
+
+        if (locations.length === 0) {
+            throw new Error(`No locations found for provided ocpi_location_ids: ${payload.ocpi_location_ids.join(', ')}`);
+        }
+
+        // Check if all requested locations were found
+        const foundLocationIds = new Set(locations.map(l => l.ocpi_location_id));
+        const missingLocationIds = payload.ocpi_location_ids.filter(id => !foundLocationIds.has(id));
+        if (missingLocationIds.length > 0) {
+            logger.warn(`Some locations not found: ${missingLocationIds.join(', ')}`);
+        }
+
+        // Verify all locations have the same partner (required for single catalog)
+        const partners = new Set(locations.map(l => l.partner_id).filter(Boolean));
+        if (partners.size > 1) {
+            throw new Error('All locations must belong to the same partner');
+        }
+
+        const partner = locations[0].partner;
+        if (!partner) {
+            throw new Error(`Partner not found for locations`);
         }
 
         // For publish (BPP-only, goes to CDS), we create context without BAP info
@@ -87,187 +470,371 @@ export default class PublishActionService {
             version: UBCVersion.v2_0_0,
             domain: BecknDomain.EVChargingUBC,
             timestamp: new Date().toISOString(),
-            bpp_id: metadata.bpp_id,
-            bpp_uri: metadata.bpp_uri,
-            transaction_id: metadata.beckn_transaction_id,
+            bpp_id: bpp_id,
+            bpp_uri: bpp_uri,
+            transaction_id: transaction_id,
             message_id: Utils.generateUUID(),
         });
-
-        const catalogs = this.getCatalogsFromAppPayload(payload);
+        
+        // Build catalogs from all locations (combine into single catalog)
+        const catalogs = await this.getCatalogsFromLocations(
+            locations,
+            partner,
+            bpp_id,
+            bpp_uri,
+            payload.accepted_payment_methods,
+            payload.validity,
+            payload.availability_windows,
+            payload.isActive,
+            payload.reservationTime,
+            payload.connector_id
+        );
 
         const ubcPublishPayload: UBCPublishRequestPayload = {
             context: context,
-            catalogs: catalogs,
+            message: {
+                catalogs: catalogs,
+            },
         };
 
         return ubcPublishPayload;
     }
 
     /**
-     * Builds item attributes for a single connector
+     * Determines vehicle type based on power type
+     * DC → 4-WHEELER, otherwise → 2-WHEELER
+     */
+    private static getVehicleTypeFromConnector(powerType: string): string {
+        const isDC = powerType?.toUpperCase() === 'DC';
+        return isDC ? "4-WHEELER" : "2-WHEELER";
+    }
+
+    /**
+     * Builds item attributes for a single connector from database models
      * Item attributes contain connector-level information
      */
     private static getItemAttributesFromConnector(
-        connector: Connector,
-        cs: ChargingStation
+        connector: EVSEConnector,
+        evse: { uid: string },
+        location: LocationWithRelations
     ): BecknChargingServiceAttributes {
+        const maxPowerKW = connector.max_electric_power ? Number(connector.max_electric_power) / 1000 : 0; // Convert W to kW
+        const minPowerKW = maxPowerKW; // Make min and max the same
+
         const attributes: BecknChargingServiceAttributes = {
-            "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/draft/schema/EvChargingService/v1/context.jsonld",
+            "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/EvChargingService/v1/context.jsonld",
             "@type": "ChargingService",
-            "connectorType": connector.type,
-            "maxPowerKW": connector.power_rating,
-            "minPowerKW": connector.power_rating,
-            "socketCount": 1,
+            "connectorType": connector.standard,
+            "maxPowerKW": maxPowerKW,
+            "minPowerKW": minPowerKW,
             "reservationSupported": false,
-            "serviceLocation": {
-                "@type": "beckn:Location",
-                "geo": {
-                    "type": "Point",
-                    "coordinates": [
-                        cs.longitude,
-                        cs.latitude
-                    ]
+            "chargingStation": {
+                "id": location.ocpi_location_id,
+                "serviceLocation": {
+                    "@type": "beckn:Location",
+                    "geo": {
+                        "type": "Point",
+                        "coordinates": [
+                            parseFloat(location.longitude),
+                            parseFloat(location.latitude)
+                        ]
+                    },
+                    "address": {
+                        "streetAddress": location.address,
+                        "addressLocality": location.city,
+                        "addressRegion": location.state || '',
+                        "postalCode": location.postal_code || '',
+                        "addressCountry": location.country
+                    }
                 },
-                "address": {
-                    "streetAddress": cs.address,
-                    "addressLocality": cs.city,
-                    "addressRegion": cs.state,
-                    "postalCode": cs.pincode,
-                    "addressCountry": cs.country
-                }
             },
-            "amenityFeature": cs.amenities || [],
+            "amenityFeature": location.facilities || [],
         };
 
+        // Determine charging speed: CCS2 + DC = FAST, else SLOW
+        const isCCS2 = connector.standard?.toUpperCase() === 'CCS2';
+        const isDC = connector.power_type?.toUpperCase() === 'DC';
+        const chargingSpeed = (isCCS2 && isDC) ? 'FAST' : 'SLOW';
+        attributes.chargingSpeed = chargingSpeed;
+
+        // Determine vehicle type based on power type: DC → 4-WHEELER, else → 2-WHEELER
+        const vehicleType = this.getVehicleTypeFromConnector(connector.power_type || '');
+        attributes.vehicleType = vehicleType;
+
         // Only include optional fields if they have values (avoid undefined in JSON)
-        if (connector.ocpp_id) attributes.ocppId = connector.ocpp_id;
-        if (connector.evse_id) attributes.evseId = connector.evse_id;
-        if (cs.parking_type) attributes.parkingType = cs.parking_type;
-        if (connector.connector_id) attributes.connectorId = connector.connector_id;
+        if (evse.uid) attributes.evseId = evse.uid;
+        if (location.parking_type) attributes.parkingType = location.parking_type;
         if (connector.power_type) attributes.powerType = connector.power_type;
-        if (connector.connector_format) attributes.connectorFormat = connector.connector_format;
-        if (connector.charging_speed) attributes.chargingSpeed = connector.charging_speed;
-        if (connector.connector_status) attributes.stationStatus = connector.connector_status;
+        if (connector.format) attributes.connectorFormat = connector.format;
 
         return attributes;
     }
 
-    private static getCatalogsFromAppPayload(payload: PostAppPublishRequestPayload): BecknCatalog[] {
-        const { metadata, payload: appPayload } = payload;
-        const { org, charging_stations, tariffs, accepted_payment_methods, validity } = appPayload;
+    /**
+     * Builds catalogs from multiple locations fetched from database
+     * Combines all items and offers from all locations into a single catalog
+     */
+    private static async getCatalogsFromLocations(
+        locations: Array<Location & { evses: (EVSE & { evse_connectors: EVSEConnector[] })[]; partner: OCPIPartner | null }>,
+        partner: OCPIPartner,
+        bpp_id: string,
+        bpp_uri: string,
+        acceptedPaymentMethods?: string[],
+        validity?: { start_date: string; end_date: string },
+        availabilityWindows?: Array<{ start_time: string; end_time: string }>,
+        isActive?: boolean,
+        reservationTime?: number,
+        connectorId?: string
+    ): Promise<BecknCatalog[]> {
+        // Default accepted payment methods if not provided
+        const paymentMethods = acceptedPaymentMethods && acceptedPaymentMethods.length > 0
+            ? acceptedPaymentMethods as AcceptedPaymentMethod[]
+            : [AcceptedPaymentMethod.UPI, AcceptedPaymentMethod.BANK_TRANSFER];
 
-        // Build items from connectors (one item per connector)
-        const items: BecknItem[] = charging_stations.flatMap((cs) => {
-            return cs.connectors.map((connector): BecknItem => {
-                return {
-                    "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/draft/schema/core/v2/context.jsonld",
-                    "@type": ObjectType.item,
-                    "beckn:id": connector.id, // Connector external object uid (item is at connector level)
-                    "beckn:descriptor": {
-                        "@type": ObjectType.descriptor,
-                        "schema:name": `${cs.name} - ${connector.type}`, // Connector-specific name
-                        "beckn:shortDesc": this.getChargingDescription(connector), // Connector-specific description
-                        "beckn:longDesc": this.getChargingLongDescription(connector), // Long description
+        // Build a map structure: {location_id: location & {evses: {evse_id: evse & {connectors: [...]}}}}
+        type LocationMapEntry = Location & {
+            evses: Map<string, EVSE & {
+                connectors: EVSEConnector[];
+            }>;
+            partner: OCPIPartner | null;
+        };
+        const locationsMap = new Map<string, LocationMapEntry>();
+
+        // If connectorId is provided, parse it and query the specific location/evse/connector
+        if (connectorId) {
+            try {
+                const parsed = LocationDbService.parseBecknConnectorId(connectorId);
+                const ocpiLocationId = parsed.csId;
+                const evseUid = parsed.cpId;
+                const connectorIdValue = parsed.connectorId;
+
+                // Query the specific location with the matching EVSE and connector
+                const specificLocation = await databaseService.prisma.location.findFirst({
+                    where: {
+                        ocpi_location_id: ocpiLocationId,
+                        deleted: false,
                     },
-                    "beckn:category": {
-                        "@type": "schema:CategoryCode",
-                        "schema:codeValue": "EVSE",
-                        "schema:name": "EV Charging Service",
-                    },
-                    "beckn:availableAt": [
-                        {
-                            "@type": "beckn:Location",
-                            "geo": {
-                                type: "Point",
-                                coordinates: [cs.longitude, cs.latitude],
+                    include: {
+                        evses: {
+                            where: {
+                                uid: evseUid,
+                                deleted: false,
                             },
-                            "address": {
-                                streetAddress: cs.address,
-                                addressLocality: cs.city,
-                                addressRegion: cs.state,
-                                postalCode: cs.pincode,
-                                addressCountry: cs.country,
+                            include: {
+                                evse_connectors: {
+                                    where: {
+                                        connector_id: connectorIdValue,
+                                        deleted: false,
+                                    },
+                                },
                             },
                         },
-                    ],
-                    "beckn:availabilityWindow": [
-                        {
-                            "@type": ObjectType.timePeriod,
-                            "schema:startTime": cs.start_time,
-                            "schema:endTime": cs.end_time,
-                        },
-                    ],
-                    "beckn:rateable": cs.rating_value && cs.rating_count ? true : false,
-                    ...(cs.rating_value && cs.rating_count ? {
-                        "beckn:rating": {
-                            "@type": ObjectType.rating,
-                            "beckn:ratingValue": Math.min(cs.rating_value, 5), // Must be <= 5
-                            "beckn:ratingCount": Math.floor(cs.rating_count), // Must be integer
-                        }
-                    } : {}),
-                    "beckn:isActive": true,
-                    "beckn:networkId": [
-                        "beckn.open",
-                    ],
-                    "beckn:provider": {
-                        "beckn:id": org.id, // org external object uid
+                        partner: true,
+                    },
+                });
+
+                if (!specificLocation) {
+                    logger.warn(`🟡 Location not found for connector ID: ${connectorId}`);
+                    return this.buildEmptyCatalog(bpp_id, bpp_uri);
+                }
+
+                if (specificLocation.evses.length === 0) {
+                    logger.warn(`🟡 EVSE not found for connector ID: ${connectorId} (evse_uid: ${evseUid})`);
+                    return this.buildEmptyCatalog(bpp_id, bpp_uri);
+                }
+
+                if (specificLocation.evses[0].evse_connectors.length === 0) {
+                    logger.warn(`🟡 Connector not found for connector ID: ${connectorId} (connector_id: ${connectorIdValue})`);
+                    return this.buildEmptyCatalog(bpp_id, bpp_uri);
+                }
+
+                // Build map structure for the single location
+                const evsesMap = new Map<string, EVSE & { connectors: EVSEConnector[] }>();
+                const evse = specificLocation.evses[0];
+                evsesMap.set(evse.id, {
+                    ...evse,
+                    connectors: evse.evse_connectors,
+                });
+
+                locationsMap.set(specificLocation.id, {
+                    ...specificLocation,
+                    evses: evsesMap,
+                    partner: specificLocation.partner,
+                });
+            }
+            catch (e: any) {
+                logger.error(`🔴 Error parsing connector ID ${connectorId}: ${e?.toString()}`, e);
+                return this.buildEmptyCatalog(bpp_id, bpp_uri);
+            }
+        }
+        else {
+            // No connector filter - build map from all provided locations
+            for (const location of locations) {
+                const evsesMap = new Map<string, EVSE & { connectors: EVSEConnector[] }>();
+                
+                for (const evse of location.evses) {
+                    if (evse.deleted) continue;
+                    
+                    const connectors = evse.evse_connectors.filter(c => !c.deleted);
+                    if (connectors.length > 0) {
+                        evsesMap.set(evse.id, {
+                            ...evse,
+                            connectors: connectors,
+                        });
+                    }
+                }
+
+                if (evsesMap.size > 0) {
+                    locationsMap.set(location.id, {
+                        ...location,
+                        evses: evsesMap,
+                        partner: location.partner,
+                    });
+                }
+            }
+        }
+
+        // Build items from the map structure
+        const items: BecknItem[] = [];
+        const allTariffIds = new Set<string>();
+
+        for (const [, location] of locationsMap.entries()) {
+            // Determine availability windows for this location
+            let locationAvailabilityWindows: Array<{ "@type": ObjectType.timePeriod; "schema:startTime": string; "schema:endTime": string }> = [];
+            
+            if (availabilityWindows && availabilityWindows.length > 0) {
+                // Use provided availability windows
+                locationAvailabilityWindows = availabilityWindows.map(window => ({
+                    "@type": ObjectType.timePeriod,
+                    "schema:startTime": window.start_time,
+                    "schema:endTime": window.end_time,
+                }));
+            } 
+            else {
+                // Calculate from opening hours for the next 7 days
+                const openingHours = location.opening_times as OCPIHours | null;
+                const calculatedWindows = calculateAvailabilityWindowsFromOpeningHours(openingHours, reservationTime);
+                locationAvailabilityWindows = calculatedWindows.map(window => ({
+                    "@type": ObjectType.timePeriod,
+                    "schema:startTime": window.start_time,
+                    "schema:endTime": window.end_time,
+                }));
+            }
+
+            // Convert location map entry to LocationWithRelations format for getItemAttributesFromConnector
+            const locationWithRelations: LocationWithRelations = {
+                ...location,
+                evses: Array.from(location.evses.values()).map(evse => ({
+                    ...evse,
+                    evse_connectors: evse.connectors,
+                })),
+            };
+
+            for (const [, evse] of location.evses.entries()) {
+                for (const connector of evse.connectors) {
+                    // Build Beckn connector ID (format: IND*TP*{ocpi_location_id}*{evse_uid}*{connector_id})
+                    const builtConnectorId = `IND*TP*${location.ocpi_location_id}*${evse.uid}*${connector.connector_id}`;
+                    
+                    // Collect tariff IDs from connector
+                    if (connector.tariff_ids && connector.tariff_ids.length > 0) {
+                        connector.tariff_ids.forEach(id => allTariffIds.add(id));
+                    }
+                    
+                    const locationName = location.name || location.ocpi_location_id;
+
+                    items.push({
+                        "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
+                        "@type": ObjectType.item,
+                        "beckn:id": builtConnectorId,
                         "beckn:descriptor": {
                             "@type": ObjectType.descriptor,
-                            "schema:name": org.name, // org name
+                            "schema:name": `${locationName} - ${connector.standard}`,
+                            "beckn:shortDesc": this.getChargingDescription(connector, locationName),
+                            "beckn:longDesc": this.getChargingLongDescription(connector, locationName),
                         },
-                    },
-                    "beckn:itemAttributes": this.getItemAttributesFromConnector(connector, cs),
-                };
-            });
-        });
+                        "beckn:category": {
+                            "@type": "schema:CategoryCode",
+                            "schema:codeValue": "ev-charging",
+                            "schema:name": "EV Charging",
+                        },
+                        "beckn:availabilityWindow": locationAvailabilityWindows.length > 0 ? locationAvailabilityWindows : undefined,
+                        "beckn:isActive": isActive !== undefined ? isActive : true,
+                        "beckn:rateable": false,
+                        "beckn:provider": {
+                            "beckn:id": `${partner.country_code}*${partner.party_id}`,
+                            "beckn:descriptor": {
+                                "@type": ObjectType.descriptor,
+                                "schema:name": partner.name || `${partner.country_code}*${partner.party_id}`,
+                            },
+                        },
+                        "beckn:itemAttributes": this.getItemAttributesFromConnector(connector, evse, locationWithRelations),
+                    });
+                }
+            }
+        }
 
         const itemIds = items.map((item) => item['beckn:id']);
 
-        // Build offers from tariffs
-        // Deduplicate offers with same price, currency, and validity to avoid duplicate offers
-        const uniqueOffers = new Map<string, {
-            tariff: typeof tariffs[0],
-            itemIds: string[]
-        }>();
-
-        tariffs.forEach((tariff) => {
-            // Create a unique key based on price, currency, name, and validity
-            const offerKey = `${tariff.currency}_${tariff.price}_${tariff.name}_${validity.start_date}_${validity.end_date}`;
-            
-            if (!uniqueOffers.has(offerKey)) {
-                // For new unique offer, include all items
-                uniqueOffers.set(offerKey, {
-                    tariff,
-                    itemIds: [...itemIds]
-                });
+        // Fetch all tariffs referenced by connectors
+        const tariffsMap = new Map<string, any>();
+        for (const tariffId of allTariffIds) {
+            try {
+                const tariff = await TariffDbService.getByOcpiTariffId(tariffId);
+                if (tariff) {
+                    tariffsMap.set(tariffId, tariff);
+                }
             }
-        });
+            catch (error) {
+                logger.warn(`Failed to fetch tariff ${tariffId}: ${error}`);
+            }
+        }
 
-        // Build offers from unique tariffs
-        const offers: BecknCatalogOffer[] = Array.from(uniqueOffers.values()).map((offerData, index): BecknCatalogOffer => {
-            const { tariff } = offerData;
+        // Build offers from tariffs
+        // Each tariff becomes an offer, and each offer includes ALL itemIds
+        const offers: BecknCatalogOffer[] = Array.from(tariffsMap.values()).map((tariff, index): BecknCatalogOffer => {
+            const ocpiTariff = TariffDbService.mapPrismaTariffToOcpi(tariff);
+            
+            // Extract price from tariff elements (OCPI structure)
+            let priceValue = 0;
+            const tariffElements = ocpiTariff.elements || [];
+            if (tariffElements.length > 0) {
+                // Get first price component (usually energy price)
+                const firstElement = tariffElements[0];
+                if (firstElement.price_components && firstElement.price_components.length > 0) {
+                    priceValue = firstElement.price_components[0].price || 0;
+                }
+            }
+
+            // Determine validity dates - ensure ISO 8601 datetime format with timezone
+            let startDate: string;
+            let endDate: string;
+            
+            if (validity?.start_date && validity?.end_date) {
+                // Use provided validity dates
+                startDate = this.formatValidityDate(validity.start_date, true); // start of day
+                endDate = this.formatValidityDate(validity.end_date, false); // end of day
+            } 
+            else {
+                // Use tariff validity dates or defaults
+                const defaultStart = ocpiTariff.start_date_time || new Date().toISOString();
+                const defaultEnd = ocpiTariff.end_date_time || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(); // 1 year from now
+                startDate = this.formatValidityDate(defaultStart, true);
+                endDate = this.formatValidityDate(defaultEnd, false);
+            }
+
             return {
-                "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/draft/schema/core/v2/context.jsonld",
-                "beckn:provider": {
-                    "beckn:id": org.id, // org external object uid - must be object, not string
-                    "beckn:descriptor": {
-                        "@type": ObjectType.descriptor,
-                        "schema:name": org.name,
-                    },
-                },
+                "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
+                "beckn:provider": `${partner.country_code}*${partner.party_id}`,
                 "@type": ObjectType.offer,
-                "beckn:id": `${tariff.id}_${index}`, // tariff external object uid
+                "beckn:id": `${tariff.ocpi_tariff_id}_${index}`,
                 "beckn:descriptor": {
                     "@type": ObjectType.descriptor,
-                    "schema:name": tariff.name, // Tariff name
+                    "schema:name": `Tariff ${tariff.ocpi_tariff_id}`,
                 },
-                /**
-                 * this has to map the item id i.e. beckn:id of the item
-                 */
-                "beckn:items": offerData.itemIds, // Connector external object uid (cpc_id from tariff)
+                "beckn:items": [...itemIds],
                 "beckn:price": {
                     "currency": tariff.currency,
-                    "value": parseFloat(tariff.price), // tariff rate
+                    "value": priceValue,
                     "applicableQuantity": {
                         "unitText": "Kilowatt Hour",
                         "unitCode": "KWH",
@@ -276,46 +843,87 @@ export default class PublishActionService {
                 },
                 "beckn:validity": {
                     "@type": ObjectType.timePeriod,
-                    "schema:startDate": validity.start_date,
-                    "schema:endDate": validity.end_date,
+                    "schema:startDate": startDate,
+                    "schema:endDate": endDate,
                 },
-                "beckn:acceptedPaymentMethod": accepted_payment_methods as AcceptedPaymentMethod[],
+                "beckn:acceptedPaymentMethod": paymentMethods,
                 "beckn:offerAttributes": {
-                    "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/draft/schema/EvChargingOffer/v1/context.jsonld",
+                    "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/EvChargingOffer/v1/context.jsonld",
                     "@type": ObjectType.chargingOffer,
-                    "buyerFinderFee": {
-                        "feeType": "PERCENTAGE",
-                        "feeValue": tariff.finder_fee || 0,
+                    "idleFeePolicy": {
+                        "applicableQuantity": {
+                            unitCode: "MIN",
+                            unitQuantity: 10,
+                            unitText: "minutes",
+                        },
+                        "currency": tariff.currency,
+                        value: 0
                     },
+                    tariffModel: "PER_KWH"
                 },
             };
         });
 
+        // Determine catalog validity dates
+        let catalogStartDate = validity?.start_date;
+        let catalogEndDate = validity?.end_date;
+        if (!catalogStartDate || !catalogEndDate) {
+            // Use earliest tariff start and latest tariff end, or defaults
+            const tariffDates = Array.from(tariffsMap.values())
+                .map(t => TariffDbService.mapPrismaTariffToOcpi(t))
+                .filter(t => t.start_date_time || t.end_date_time);
+            
+            if (tariffDates.length > 0) {
+                const starts = tariffDates.map(t => t.start_date_time).filter(Boolean) as string[];
+                const ends = tariffDates.map(t => t.end_date_time).filter(Boolean) as string[];
+                catalogStartDate = starts.length > 0 ? starts.sort()[0].split('T')[0] : new Date().toISOString().split('T')[0];
+                catalogEndDate = ends.length > 0 ? ends.sort().reverse()[0].split('T')[0] : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+            } else {
+                catalogStartDate = new Date().toISOString().split('T')[0];
+                catalogEndDate = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+            }
+        }
+
         const catalogs: BecknCatalog[] = [
             {
-                "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/draft/schema/core/v2/context.jsonld",
-                "@type": ObjectType.catalog,
-                /**
-                 * catalog id has to be consistent always
-                 * We may have to use same catalog id for all CPOs
-                 */
+                "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
+                "@type": "beckn:Catalog",
                 "beckn:id": `pulse-energy-catalog-v1`,
                 "beckn:descriptor": {
                     "@type": ObjectType.descriptor,
-                    "schema:name": `${metadata.bpp_id} Charging Network`,
+                    "schema:name": `${bpp_id} Charging Network`,
                     "beckn:shortDesc": "Comprehensive network of charging stations",
                 },
-                "beckn:validity": {
-                    "@type": ObjectType.timePeriod,
-                    "schema:startDate": validity.start_date,
-                    "schema:endDate": validity.end_date,
-                },
+                "beckn:bppId": bpp_id,
+                "beckn:bppUri": bpp_uri,
                 "beckn:items": items,
                 "beckn:offers": offers,
             },
         ];
 
         return catalogs;
+    }
+
+    /**
+     * Builds an empty catalog (used when connector is not found)
+     */
+    private static buildEmptyCatalog(bpp_id: string, bpp_uri: string): BecknCatalog[] {
+        return [
+            {
+                "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
+                "@type": "beckn:Catalog",
+                "beckn:id": `pulse-energy-catalog-v1`,
+                "beckn:descriptor": {
+                    "@type": ObjectType.descriptor,
+                    "schema:name": `${bpp_id} Charging Network`,
+                    "beckn:shortDesc": "Comprehensive network of charging stations",
+                },
+                "beckn:bppId": bpp_id,
+                "beckn:bppUri": bpp_uri,
+                "beckn:items": [],
+                "beckn:offers": [],
+            },
+        ];
     }
 
     /**
@@ -359,4 +967,5 @@ export default class PublishActionService {
         }, BecknDomain.EVChargingUBC);
     }
 }
+
 

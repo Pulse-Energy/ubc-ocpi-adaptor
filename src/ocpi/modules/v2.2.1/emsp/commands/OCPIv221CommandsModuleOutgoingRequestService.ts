@@ -50,20 +50,38 @@ export default class OCPIv221CommandsModuleOutgoingRequestService {
         return requestHeaders;
     }
 
-    private static getLogCommandForCommandType(commandType: OCPICommandType): OCPILogCommand {
+    private static getLogCommandForCommandType(commandType: OCPICommandType): { requestCommand: OCPILogCommand; responseCommand: OCPILogCommand } {
         switch (commandType) {
             case OCPICommandType.START_SESSION:
-                return OCPILogCommand.SendStartSessionPostCommandReq;
+                return {
+                    requestCommand: OCPILogCommand.SendStartSessionPostCommandReq,
+                    responseCommand: OCPILogCommand.SendStartSessionPostCommandRes,
+                };
             case OCPICommandType.STOP_SESSION:
-                return OCPILogCommand.SendStopSessionPostCommandReq;
+                return {
+                    requestCommand: OCPILogCommand.SendStopSessionPostCommandReq,
+                    responseCommand: OCPILogCommand.SendStopSessionPostCommandRes,
+                };
             case OCPICommandType.RESERVE_NOW:
-                return OCPILogCommand.PostStartSessionCommand; // Using existing enum
+                return {
+                    requestCommand: OCPILogCommand.PostStartSessionCommand,
+                    responseCommand: OCPILogCommand.PostStartSessionCommand,
+                };
             case OCPICommandType.CANCEL_RESERVATION:
-                return OCPILogCommand.PostStopSessionCommand; // Using existing enum
+                return {
+                    requestCommand: OCPILogCommand.PostStopSessionCommand,
+                    responseCommand: OCPILogCommand.PostStopSessionCommand,
+                };
             case OCPICommandType.UNLOCK_CONNECTOR:
-                return OCPILogCommand.PostStartSessionCommand; // Using existing enum
+                return {
+                    requestCommand: OCPILogCommand.PostStartSessionCommand,
+                    responseCommand: OCPILogCommand.PostStartSessionCommand,
+                };
             default:
-                return OCPILogCommand.PostStartSessionCommand; // Fallback
+                return {
+                    requestCommand: OCPILogCommand.PostStartSessionCommand,
+                    responseCommand: OCPILogCommand.PostStartSessionCommand,
+                };
         }
     }
 
@@ -86,7 +104,7 @@ export default class OCPIv221CommandsModuleOutgoingRequestService {
             );
             const url = `${baseUrl}/${commandType}`;
 
-            const logCommand = OCPIv221CommandsModuleOutgoingRequestService.getLogCommandForCommandType(commandType);
+            const { requestCommand, responseCommand } = OCPIv221CommandsModuleOutgoingRequestService.getLogCommandForCommandType(commandType);
 
             // Extract IDs from command body for logging
             const logParams: any = {};
@@ -114,7 +132,8 @@ export default class OCPIv221CommandsModuleOutgoingRequestService {
                 headers: OCPIv221CommandsModuleOutgoingRequestService.getAuthHeaders(cpoAuthToken, headers),
                 data: body,
                 partnerId,
-                command: logCommand,
+                requestCommand,
+                responseCommand,
                 logParams,
             });
 

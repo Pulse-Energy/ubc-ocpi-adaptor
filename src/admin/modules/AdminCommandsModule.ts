@@ -7,6 +7,7 @@ import CommandsService, {
     StartChargingCommandParams,
     StopChargingCommandParams,
 } from '../../services/CommandsService';
+import { randomUUID } from 'crypto';
 
 /**
  * Admin Commands module
@@ -36,6 +37,29 @@ export default class AdminCommandsModule {
     public static async startCharging(
         req: Request,
     ): Promise<HttpResponse<AdminResponsePayload<any>>> {
+        // Ensure headers exist
+        if (!req.headers) {
+            req.headers = {};
+        }
+
+        // Generate request/correlation IDs if missing (case-insensitive check)
+        const correlationId = req.headers['x-correlation-id'] as string || req.headers['X-Correlation-Id'] as string;
+        const requestId = req.headers['x-request-id'] as string || req.headers['X-Request-Id'] as string;
+
+        // Generate correlation ID if missing
+        if (!correlationId) {
+            const newCorrelationId = randomUUID();
+            req.headers['x-correlation-id'] = newCorrelationId;
+            req.headers['X-Correlation-Id'] = newCorrelationId;
+        }
+
+        // Generate request ID if missing
+        if (!requestId) {
+            const newRequestId = randomUUID();
+            req.headers['x-request-id'] = newRequestId;
+            req.headers['X-Request-Id'] = newRequestId;
+        }
+
         const reqId = req.headers['x-correlation-id'] as string || req.headers['x-request-id'] as string || 'unknown';
         const logData = { action: 'startCharging' };
 
@@ -133,6 +157,29 @@ export default class AdminCommandsModule {
     public static async stopCharging(
         req: Request,
     ): Promise<HttpResponse<AdminResponsePayload<any>>> {
+        // Ensure headers exist
+        if (!req.headers) {
+            req.headers = {};
+        }
+
+        // Generate request/correlation IDs if missing (case-insensitive check)
+        const correlationId = req.headers['x-correlation-id'] as string || req.headers['X-Correlation-Id'] as string;
+        const requestId = req.headers['x-request-id'] as string || req.headers['X-Request-Id'] as string;
+
+        // Generate correlation ID if missing
+        if (!correlationId) {
+            const newCorrelationId = randomUUID();
+            req.headers['x-correlation-id'] = newCorrelationId;
+            req.headers['X-Correlation-Id'] = newCorrelationId;
+        }
+
+        // Generate request ID if missing
+        if (!requestId) {
+            const newRequestId = randomUUID();
+            req.headers['x-request-id'] = newRequestId;
+            req.headers['X-Request-Id'] = newRequestId;
+        }
+
         const reqId = req.headers['x-correlation-id'] as string || req.headers['x-request-id'] as string || 'unknown';
         const logData = { action: 'stopCharging' };
 

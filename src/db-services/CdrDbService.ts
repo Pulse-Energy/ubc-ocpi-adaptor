@@ -18,10 +18,10 @@ export class CdrDbService {
     }
 
     public static async findFirstByFilters(
-        where: Prisma.SessionWhereInput,
-        args: Omit<Prisma.SessionFindFirstArgs, 'where'> = {},
+        where: Prisma.CDRWhereInput,
+        args: Omit<Prisma.CDRFindFirstArgs, 'where'> = {},
     ): Promise<CDR | null> {
-        const record = await databaseService.prisma.session.findFirst({
+        const record = await databaseService.prisma.cDR.findFirst({
             where,
             ...args,
         });

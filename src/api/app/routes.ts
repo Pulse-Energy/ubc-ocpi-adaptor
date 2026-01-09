@@ -1,5 +1,5 @@
-import { Router, Request, Response, response } from 'express';
-import { BillDeskCallbackPayload, BillDeskPaymentServiceProps, BillDeskCredentials, BillDeskCreateLinkRequest } from '../../types/BillDesk';
+import { Router, Request, Response } from 'express';
+import { BillDeskCallbackPayload, BillDeskPaymentServiceProps, BillDeskCredentials, BillDeskCreateLinkRequest, BillDeskCreateTransactionRequest, BillDeskUpdateTransactionRequest } from '../../types/BillDesk';
 import BillDeskPaymentService from '../../ubc/services/PaymentServices/Billdesk/BillDeskPaymentService';
 import BillDeskPaymentGatewayService from '../../ubc/services/PaymentServices/Billdesk/index';
 import BillDeskInitializerService from '../../ubc/services/PaymentServices/Billdesk/BillDeskInitializerService';
@@ -383,6 +383,266 @@ router.post('/billdesk/create-order/:paymentTxnId', async (req: Request, res: Re
         res.status(500).json({
             success: false,
             message: 'BillDesk order creation failed',
+            timestamp: new Date().toISOString(),
+            error: error instanceof Error ? error.message : 'Unknown error',
+        });
+    }
+});
+
+/**
+ * Create BillDesk Transaction from existing PaymentTxn
+ * POST /api/app/billdesk/create-transaction/:paymentTxnId
+ * Reference: https://docs.billdesk.io/reference/createtransaction
+ * 
+ * Body:
+ * {
+ *   "payment_method_type": "card" | "netbanking" | "upi" | "wallet",
+ *   "authentication_type": "3ds2" | "otp" (optional),
+ *   "3ds_parameter": "merchant" | "issuer" (optional),
+ *   "txn_process_type": "intent" | "collect" (optional, for UPI),
+ *   "payment_method": {
+ *     "card": { "card_no": "...", "card_exp_month": "...", ... },
+ *     "upi": { "upiid": "...", "flow_type": "collect" | "intent" },
+ *     "netbanking": { "bankid": "..." },
+ *     "wallet": { "walletid": "..." }
+ *   },
+ *   "device": {
+ *     "init_channel": "internet",
+ *     "browser_javascript_enabled": "true",
+ *     "ip": "...",
+ *     "user_agent": "...",
+ *     "accept_header": "...",
+ *     "browser_tz": "-330",
+ *     "browser_color_depth": "32",
+ *     "browser_java_enabled": "false",
+ *     "browser_screen_height": "601",
+ *     "browser_screen_width": "657",
+ *     "browser_language": "en-US"
+ *   },
+ *   "return_url": "https://..." (optional)
+ * }
+ */
+router.post('/billdesk/create-transaction/:paymentTxnId', async (req: Request, res: Response) => {
+    try {
+        const { paymentTxnId } = req.params;
+        const { 
+            payment_method_type, 
+            authentication_type,
+            txn_process_type,
+            payment_method, 
+            device,
+            return_url 
+        } = req.body;
+        const threeDsParameter = req.body['3ds_parameter'];
+
+        if (!paymentTxnId) {
+            res.status(400).json({
+                success: false,
+                message: 'Missing required parameter: paymentTxnId',
+                timestamp: new Date().toISOString(),
+            });
+            return;
+        }
+
+        if (!payment_method_type) {
+            res.status(400).json({
+                success: false,
+                message: 'Missing required field: payment_method_type',
+                timestamp: new Date().toISOString(),
+            });
+            return;
+        }
+
+        // Fetch PaymentTxn from DB
+        const paymentTxn = await PaymentTxnDbService.getById(paymentTxnId);
+
+        if (!paymentTxn) {
+            res.status(404).json({
+                success: false,
+                message: 'PaymentTxn not found',
+                timestamp: new Date().toISOString(),
+            });
+            return;
+        }
+
+        if (!paymentTxn.partner_id) {
+            res.status(400).json({
+                success: false,
+                message: 'PaymentTxn does not have a partner_id',
+                timestamp: new Date().toISOString(),
+            });
+            return;
+        }
+
+        // Build device props with defaults
+        const deviceProps = {
+            init_channel: device?.init_channel || "internet",
+            browser_javascript_enabled: device?.browser_javascript_enabled || "true",
+            ip: device?.ip || req.ip || "127.0.0.1",
+            user_agent: device?.user_agent || req.get('user-agent') || "Mozilla/5.0",
+            accept_header: device?.accept_header || req.get('accept') || "application/json",
+            browser_tz: device?.browser_tz || "-330",
+            browser_color_depth: device?.browser_color_depth || "32",
+            browser_java_enabled: device?.browser_java_enabled || "false",
+            browser_screen_height: device?.browser_screen_height || "768",
+            browser_screen_width: device?.browser_screen_width || "1024",
+            browser_language: device?.browser_language || "en-US",
+        };
+
+        // Create transaction with BillDesk
+        const result = await BillDeskPaymentService.createTransactionWithBillDeskPaymentGateway(
+            paymentTxn,
+            {
+                payment_method_type,
+                authentication_type,
+                '3ds_parameter': threeDsParameter,
+                txn_process_type,
+                payment_method,
+                device: deviceProps,
+                return_url,
+            }
+        );
+
+        if (result.success) {
+            res.status(200).json({
+                success: true,
+                message: 'BillDesk transaction created successfully',
+                data: {
+                    paymentTxnId: paymentTxn.id,
+                    transactionId: result.transaction?.transactionid,
+                    bdOrderId: result.transaction?.bdorderid,
+                    orderId: result.transaction?.orderid,
+                    authStatus: result.transaction?.auth_status,
+                    nextStep: result.transaction?.next_step,
+                    links: result.transaction?.links,
+                    transaction: result.transaction,
+                },
+                timestamp: new Date().toISOString(),
+            });
+        }
+        else {
+            res.status(400).json({
+                success: false,
+                message: result.error || 'Create transaction request failed',
+                error: result.error,
+                error_details: result.error_details,
+                paymentTxnId: paymentTxn.id,
+                partnerId: paymentTxn.partner_id,
+                timestamp: new Date().toISOString(),
+            });
+        }
+    }
+    catch (error) {
+        res.status(500).json({
+            success: false,
+            message: 'BillDesk transaction creation failed',
+            timestamp: new Date().toISOString(),
+            error: error instanceof Error ? error.message : 'Unknown error',
+        });
+    }
+});
+
+/**
+ * Update/Authorize BillDesk Transaction (2FA, 3DS, OTP)
+ * POST /api/app/billdesk/update-transaction/:paymentTxnId
+ * Reference: https://docs.billdesk.io/reference/updatetransaction
+ * 
+ * Body:
+ * {
+ *   "auth_data": {
+ *     "otp": "123456",
+ *     "acs_trans_id": "...",
+ *     "authentication_status": "...",
+ *     "cavv": "...",
+ *     "eci": "...",
+ *     "threeds_server_trans_id": "..."
+ *   },
+ *   "device": { "ip": "...", "user_agent": "...", ... }
+ * }
+ */
+router.post('/billdesk/update-transaction/:paymentTxnId', async (req: Request, res: Response) => {
+    try {
+        const { paymentTxnId } = req.params;
+        const { auth_data, device } = req.body;
+
+        if (!paymentTxnId) {
+            res.status(400).json({
+                success: false,
+                message: 'Missing required parameter: paymentTxnId',
+                timestamp: new Date().toISOString(),
+            });
+            return;
+        }
+
+        // Fetch PaymentTxn from DB
+        const paymentTxn = await PaymentTxnDbService.getById(paymentTxnId);
+
+        if (!paymentTxn) {
+            res.status(404).json({
+                success: false,
+                message: 'PaymentTxn not found',
+                timestamp: new Date().toISOString(),
+            });
+            return;
+        }
+
+        if (!paymentTxn.partner_id) {
+            res.status(400).json({
+                success: false,
+                message: 'PaymentTxn does not have a partner_id',
+                timestamp: new Date().toISOString(),
+            });
+            return;
+        }
+
+        // Build device props with defaults
+        const deviceProps = {
+            init_channel: device?.init_channel || "internet",
+            ip: device?.ip || req.ip || "127.0.0.1",
+            user_agent: device?.user_agent || req.get('user-agent') || "Mozilla/5.0",
+            accept_header: device?.accept_header || req.get('accept') || "application/json",
+        };
+
+        // Update transaction with BillDesk
+        const result = await BillDeskPaymentService.updateTransactionWithBillDeskPaymentGateway(
+            paymentTxn,
+            auth_data,
+            deviceProps
+        );
+
+        if (result.success) {
+            res.status(200).json({
+                success: true,
+                message: 'BillDesk transaction updated successfully',
+                data: {
+                    paymentTxnId: paymentTxn.id,
+                    transactionId: result.transaction?.transactionid,
+                    bdOrderId: result.transaction?.bdorderid,
+                    orderId: result.transaction?.orderid,
+                    authStatus: result.transaction?.auth_status,
+                    nextStep: result.transaction?.next_step,
+                    links: result.transaction?.links,
+                    transaction: result.transaction,
+                },
+                timestamp: new Date().toISOString(),
+            });
+        }
+        else {
+            res.status(400).json({
+                success: false,
+                message: result.error || 'Update transaction request failed',
+                error: result.error,
+                error_details: result.error_details,
+                paymentTxnId: paymentTxn.id,
+                partnerId: paymentTxn.partner_id,
+                timestamp: new Date().toISOString(),
+            });
+        }
+    }
+    catch (error) {
+        res.status(500).json({
+            success: false,
+            message: 'BillDesk transaction update failed',
             timestamp: new Date().toISOString(),
             error: error instanceof Error ? error.message : 'Unknown error',
         });

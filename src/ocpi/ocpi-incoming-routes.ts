@@ -121,7 +121,7 @@ const ocpiAuth = async (req: OCPIAuthedRequest, res: Response, next: NextFunctio
     });
 
     const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Token ')) {
+    if (!authHeader) {
         res.status(401).json({
             status_code: 2001,
             status_message: 'Unauthorized',
@@ -130,7 +130,7 @@ const ocpiAuth = async (req: OCPIAuthedRequest, res: Response, next: NextFunctio
         return;
     }
 
-    const rawToken = authHeader.substring('Token '.length);
+    const rawToken = authHeader?.replace('Token ', '').replace('Bearer ', '');
 
     // Some CPOs base64‑encode the EMSP auth token before sending it.
     // Try to decode as base64; if that fails, fall back to the raw token.
@@ -548,6 +548,24 @@ router.get(
 
 router.post(
     '/2.2.1/cdrs/:country_code/:party_id',
+    ocpiAuth,
+    async (req: Request, res: Response, next: NextFunction) =>
+        handleRequest(
+            req,
+            res,
+            next,
+            (innerReq: Request, innerRes: Response) =>
+                OCPIv221CDRsModuleIncomingRequestService.handlePostCDR(
+                    innerReq,
+                    innerRes,
+                    (req as OCPIAuthedRequest).ocpiPartnerCredentials!,
+                ),
+            (req as OCPIAuthedRequest).ocpiPartnerCredentials,
+        ),
+);
+
+router.post(
+    '/2.2.1/cdrs',
     ocpiAuth,
     async (req: Request, res: Response, next: NextFunction) =>
         handleRequest(

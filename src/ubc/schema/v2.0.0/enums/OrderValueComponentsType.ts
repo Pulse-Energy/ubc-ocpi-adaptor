@@ -3,4 +3,5 @@ export enum OrderValueComponentsType {
     SURCHARGE = 'SURCHARGE',
     DISCOUNT = 'DISCOUNT',
     FEE = 'FEE',
+    TAX = 'TAX',
 }

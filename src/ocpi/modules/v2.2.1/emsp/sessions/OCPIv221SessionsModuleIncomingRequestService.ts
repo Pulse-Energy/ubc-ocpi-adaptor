@@ -15,6 +15,8 @@ import ChargingService from '../../../../../ubc/actions/services/ChargingService
 import { SessionService } from './SessionService';
 import { isEmpty } from 'lodash';
 import { logger } from '../../../../../services/logger.service';
+import OCPIResponseService from '../../../../services/OCPIResponseService';
+import TrackActionHandler from '../../../../../ubc/actions/handlers/TrackActionHandler';
 
 /**
  * OCPI 2.2.1 – Sessions module (incoming, EMSP side).
@@ -352,6 +354,7 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
                     logger.debug(`🟢 [${reqId}] Updated existing session in handlePutSession`, { 
                         data: { logData, sessionId: stored.id } 
                     });
+                    TrackActionHandler.sendOnTrackToBAPONIX(stored?.authorization_reference ?? '');
                 }
                 else {
                     logger.debug(`🟡 [${reqId}] No changes detected, using existing session in handlePutSession`, { data: logData });
@@ -461,6 +464,33 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
                 },
             });
 
+            if (!existing && !patch.authorization_reference) {
+                // raise error
+                OCPIRequestLogService.logIncomingResponse({
+                    req,
+                    res,
+                    responseBody: {
+                        status_code: OCPIResponseStatusCode.status_2001,
+                        status_message: 'Session not found and authorization_reference is not provided',
+                        timestamp: new Date().toISOString(),
+                    },
+                    statusCode: 404,
+                    partnerId: partnerCredentials.partner_id,
+                    command: OCPILogCommand.PatchSessionRes,
+                    cpo_session_id: session_id,
+                    authorization_reference: patch.authorization_reference,
+                });
+                const response = {
+                    httpStatus: 404,
+                    payload: {
+                        status_code: OCPIResponseStatusCode.status_2001,
+                        status_message: 'Session not found and authorization_reference is not provided',
+                        timestamp: new Date().toISOString(),
+                    },
+                };
+                return response;
+            }
+
             if (!existing) {
                 // Try finding using authorization_reference
                 logger.debug(`🟡 [${reqId}] Session not found by session_id, trying authorization_reference in handlePatchSession`, { 
@@ -518,6 +548,8 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
                 logger.debug(`🟢 [${reqId}] Updated session in handlePatchSession`, { 
                     data: { logData, sessionId: stored.id } 
                 });
+
+                TrackActionHandler.sendOnTrackToBAPONIX(stored?.authorization_reference ?? '');
             }
 
             logger.debug(`🟡 [${reqId}] Mapping Prisma session to OCPI format in handlePatchSession`, { data: logData });

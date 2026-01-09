@@ -62,14 +62,15 @@ export default class InvoiceGenerationService {
             const finderFeePercentage = tataPowerConfig?.FINDER_FEE_PERCENTAGE || '-';
 
             // Build request with session_id (CPO session ID from Tata Power)
+            // v0.9: Updated buyer field names (displayName, telephone, taxID)
             const request: InvoiceGenerationRequest = {
                 session_id: session.cpo_session_id ?? authorization_reference,
                 finder_fee_flat: finderFeeFlat,
                 finder_fee_percentage: finderFeePercentage,
-                customer_name: buyerInfo?.['beckn:name'] ?? '-',
-                gst: buyerInfo?.['beckn:taxId'] ?? '-',
+                customer_name: buyerInfo?.['beckn:displayName'] ?? '-', // v0.9: renamed from beckn:name
+                gst: buyerInfo?.['beckn:taxID'] ?? '-', // v0.9: renamed from beckn:taxId
                 pincode: '-',
-                phone_no: buyerInfo?.['beckn:phone'] ?? '-',
+                phone_no: buyerInfo?.['beckn:telephone'] ?? '-', // v0.9: renamed from beckn:phone
                 customer_id: buyerInfo?.['beckn:id'] ?? '-',
                 address: buyerInfo?.['beckn:address'] ?? '-',
             };
