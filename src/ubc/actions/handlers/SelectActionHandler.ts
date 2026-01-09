@@ -365,7 +365,12 @@ export default class SelectActionHandler {
 
         const chargingSessionCost = priceComponents.reduce((acc: number, curr: OCPIv211PriceComponent) => acc + (curr.price * chargingOptionUnit) + (curr.vat ? (curr.price * chargingOptionUnit) * (curr.vat / 100) : 0), 0);
 
-        const serviceCharge = chargingSessionCost * 0.05;
+
+        // Add service charge on charging session cost
+        const bhimProcessingFee = chargingSessionCost * 0.02;
+        const pulseProcessingFee = Math.max(chargingSessionCost * 0.01, 5);
+
+        const serviceCharge = bhimProcessingFee + pulseProcessingFee;
         const buyerFinderFeeValue = buyerFinderFee?.feeValue || 0;
         const subtotal = chargingSessionCost + serviceCharge + buyerFinderFeeValue;
         const gst = subtotal * 0.18;

@@ -185,7 +185,7 @@ export default class OnUpdateActionHandler {
         const totalParkingCost = cdr.total_parking_cost as unknown as OCPIPrice | undefined;
 
         // Use incl_vat if available, otherwise excl_vat
-        const totalValue = totalCost.incl_vat ?? totalCost.excl_vat;
+        let totalValue = totalCost.incl_vat ?? totalCost.excl_vat;
 
         const components: BecknOrderValueComponents[] = [];
 
@@ -198,27 +198,16 @@ export default class OnUpdateActionHandler {
                 currency: currency,
                 description: 'Charging session cost',
             });
-
-            // Add 5% service charge on charging cost
-            const serviceCharge = energyCostValue * 0.05;
-            if (serviceCharge > 0) {
-                components.push({
-                    type: OrderValueComponentsType.FEE,
-                    value: serviceCharge,
-                    currency: currency,
-                    description: 'Service Charge',
-                });
-            }
         }
 
         // Add FEE component from total_time_cost
         if (totalTimeCost) {
             const timeCostValue = totalTimeCost.incl_vat ?? totalTimeCost.excl_vat;
             components.push({
-                type: OrderValueComponentsType.FEE,
+                type: OrderValueComponentsType.UNIT,
                 value: timeCostValue,
                 currency: currency,
-                description: 'Time-based fee',
+                description: 'Time-based cost',
             });
         }
 
@@ -226,10 +215,10 @@ export default class OnUpdateActionHandler {
         if (totalFixedCost) {
             const fixedCostValue = totalFixedCost.incl_vat ?? totalFixedCost.excl_vat;
             components.push({
-                type: OrderValueComponentsType.FEE,
+                type: OrderValueComponentsType.UNIT,
                 value: fixedCostValue,
                 currency: currency,
-                description: 'Fixed fee',
+                description: 'Fixed cost',
             });
         }
 
@@ -237,10 +226,10 @@ export default class OnUpdateActionHandler {
         if (totalParkingCost) {
             const parkingCostValue = totalParkingCost.incl_vat ?? totalParkingCost.excl_vat;
             components.push({
-                type: OrderValueComponentsType.FEE,
+                type: OrderValueComponentsType.UNIT,
                 value: parkingCostValue,
                 currency: currency,
-                description: 'Parking fee',
+                description: 'Parking cost',
             });
         }
 
@@ -257,7 +246,30 @@ export default class OnUpdateActionHandler {
             }
         }
 
-        // If no components were added, add a single UNIT component with total value
+        // Add service charge on total cost
+        if (totalCost.incl_vat || totalCost.excl_vat) {
+            const bhimProcessingFee = (totalCost.incl_vat ?? totalCost.excl_vat) * 0.02;
+            components.push({
+                type: OrderValueComponentsType.FEE,
+                value: bhimProcessingFee,
+                currency: currency,
+                description: 'BHIM Processing Fee',
+            });
+
+            totalValue += bhimProcessingFee;
+
+            // Pulse processing fee 1% or 5 rupees whichever is higher
+            const pulseProcessingFee = Math.max(totalValue * 0.01, 5);
+            components.push({
+                type: OrderValueComponentsType.FEE,
+                value: pulseProcessingFee,
+                currency: currency,
+                description: 'Service Charge',
+            });
+            totalValue += pulseProcessingFee;
+        }
+
+        // If no components were added, add 2 components with total value and service charge
         if (components.length === 0) {
             components.push({
                 type: OrderValueComponentsType.UNIT,
@@ -265,6 +277,25 @@ export default class OnUpdateActionHandler {
                 currency: currency,
                 description: 'Total charging cost',
             });
+
+            const serviceCharge = totalValue * 0.02;
+            components.push({
+                type: OrderValueComponentsType.FEE,
+                value: serviceCharge,
+                currency: currency,
+                description: 'BHIM Processing Fee',
+            });
+            totalValue += serviceCharge;
+
+            // Pulse processing fee 1% or 5 rupees whichever is higher
+            const pulseProcessingFee = Math.max(totalValue * 0.01, 5);
+            components.push({
+                type: OrderValueComponentsType.FEE,
+                value: pulseProcessingFee,
+                currency: currency,
+                description: 'Service Charge',
+            });
+            totalValue += pulseProcessingFee;
         }
 
         return {
