@@ -237,6 +237,79 @@ function applyReservationToWindows(
  */
 export default class PublishActionService {
     /**
+     * Formats a validity date to ISO 8601 datetime string with timezone
+     * Accepts date in any format (string or Date object) and converts to ISO 8601
+     * @param date - Date string or Date object (can be in any format)
+     * @param isStartDate - If true, uses 00:00:00Z, if false uses 23:59:59Z
+     * @returns ISO 8601 datetime string with timezone (e.g., "2026-03-31T23:59:59Z")
+     */
+    private static formatValidityDate(date: string | Date | null | undefined, isStartDate: boolean): string {
+        // Default date: current date for start, 1 year from now for end
+        const defaultDate = isStartDate 
+            ? new Date() 
+            : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+        
+        // If date is null/undefined, return default
+        if (!date) {
+            return this.formatDateToISO(defaultDate, isStartDate);
+        }
+        
+        // If already a Date object, format it
+        if (date instanceof Date) {
+            // Check if date is valid
+            if (isNaN(date.getTime())) {
+                return this.formatDateToISO(defaultDate, isStartDate);
+            }
+            return this.formatDateToISO(date, isStartDate);
+        }
+        
+        // If it's a string, try to parse it
+        if (typeof date === 'string') {
+            // If already in ISO datetime format with timezone, return as-is
+            if (date.includes('T') && (date.includes('Z') || date.includes('+') || date.includes('-'))) {
+                // Validate it's a valid ISO datetime
+                const parsed = new Date(date);
+                if (!isNaN(parsed.getTime())) {
+                    return date;
+                }
+            }
+            
+            // Try to parse the date string
+            const parsedDate = new Date(date);
+            
+            // Check if parsing was successful
+            if (!isNaN(parsedDate.getTime())) {
+                return this.formatDateToISO(parsedDate, isStartDate);
+            }
+        }
+        
+        // If all parsing attempts fail, return default
+        return this.formatDateToISO(defaultDate, isStartDate);
+    }
+
+    /**
+     * Formats a Date object to ISO 8601 datetime string with timezone
+     * @param date - Date object
+     * @param isStartDate - If true, uses 00:00:00Z, if false uses 23:59:59Z
+     * @returns ISO 8601 datetime string with timezone (e.g., "2026-03-31T23:59:59Z")
+     */
+    private static formatDateToISO(date: Date, isStartDate: boolean): string {
+        // Create a new date to avoid mutating the original
+        const formattedDate = new Date(date);
+        
+        if (isStartDate) {
+            // Set to start of day in UTC
+            formattedDate.setUTCHours(0, 0, 0, 0);
+        } else {
+            // Set to end of day in UTC
+            formattedDate.setUTCHours(23, 59, 59, 999);
+        }
+        
+        // Return ISO string (always ends with Z for UTC)
+        return formattedDate.toISOString();
+    }
+
+    /**
      * Calculates reservation time for start charging based on estimated cost, power rating, and tariff rate
      * Similar to calculateReservationTime but for start charging scenario
      */
@@ -732,13 +805,21 @@ export default class PublishActionService {
                 }
             }
 
-            // Determine validity dates
-            let startDate = validity?.start_date;
-            let endDate = validity?.end_date;
-            if (!startDate || !endDate) {
-                // Use tariff validity dates if provided
-                startDate = ocpiTariff.start_date_time || new Date().toISOString().split('T')[0];
-                endDate = ocpiTariff.end_date_time || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]; // 1 year from now
+            // Determine validity dates - ensure ISO 8601 datetime format with timezone
+            let startDate: string;
+            let endDate: string;
+            
+            if (validity?.start_date && validity?.end_date) {
+                // Use provided validity dates
+                startDate = this.formatValidityDate(validity.start_date, true); // start of day
+                endDate = this.formatValidityDate(validity.end_date, false); // end of day
+            } 
+            else {
+                // Use tariff validity dates or defaults
+                const defaultStart = ocpiTariff.start_date_time || new Date().toISOString();
+                const defaultEnd = ocpiTariff.end_date_time || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(); // 1 year from now
+                startDate = this.formatValidityDate(defaultStart, true);
+                endDate = this.formatValidityDate(defaultEnd, false);
             }
 
             return {
