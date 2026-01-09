@@ -5,7 +5,7 @@ import { OCPICommandResult } from '../../../../schema/modules/commands/types/req
 import { OCPIResponseStatusCode } from '../../../../schema/general/enum';
 import { logger } from '../../../../../services/logger.service';
 import { databaseService } from '../../../../../services/database.service';
-import { OCPIPartnerCredentials } from '@prisma/client';
+import { OCPIPartnerCredentials, Session } from '@prisma/client';
 import { OCPISessionStatus } from '../../../../schema/modules/sessions/enums';
 import { OCPICommandResultType, OCPICommandType } from '../../../../schema/modules/commands/enums';
 import { OCPIRequestLogService } from '../../../../services/OCPIRequestLogService';
@@ -242,7 +242,7 @@ export default class OCPIv221CommandsModuleIncomingRequestService {
      * Handles start charging accepted: publishes catalog with reservation time and sends on_update with ACTIVE status
      */
     private static async handleStartChargingAccepted(
-        session: any,
+        session: Session,
         reqId: string
     ): Promise<void> {
         if (!session?.authorization_reference) {
@@ -263,28 +263,12 @@ export default class OCPIv221CommandsModuleIncomingRequestService {
         }
 
         // Get location to get ocpi_location_id
-        if (!session.location_id) {
+        if (!session.location_id || !session.evse_uid || !session.connector_id) {
             logger.warn(`🟡 [${reqId}] Session missing location_id for start charging: ${session.id}`);
             return;
         }
 
-        const location = await databaseService.prisma.location.findUnique({
-            where: { id: session.location_id },
-            select: { ocpi_location_id: true },
-        });
-
-        if (!location?.ocpi_location_id) {
-            logger.warn(`🟡 [${reqId}] Location not found for start charging: ${session.location_id}`);
-            return;
-        }
-
-        // Reconstruct Beckn connector ID: IND*TP*{ocpi_location_id}*{evse_uid}*{connector_id}
-        if (!session.evse_uid || !session.connector_id) {
-            logger.warn(`🟡 [${reqId}] Session missing evse_uid or connector_id for start charging: ${session.id}`);
-            return;
-        }
-
-        const becknConnectorId = `IND*TP*${location.ocpi_location_id}*${session.evse_uid}*${session.connector_id}`;
+        const becknConnectorId = `IND*TP*${session.location_id}*${session.evse_uid}*${session.connector_id}`;
 
         // Find EVSE and connector to get power rating and tariff
         const evse = await LocationDbService.findEVSEByBecknConnectorId(becknConnectorId);
@@ -328,7 +312,7 @@ export default class OCPIv221CommandsModuleIncomingRequestService {
 
         // Publish catalog with reservation
         await PublishActionService.publishWithReservation(
-            location.ocpi_location_id,
+            session.location_id,
             reservationTime,
             becknConnectorId
         );
@@ -346,22 +330,17 @@ export default class OCPIv221CommandsModuleIncomingRequestService {
             return;
         }
 
-        const location = await databaseService.prisma.location.findUnique({
-            where: { id: session.location_id },
-            select: { ocpi_location_id: true },
-        });
 
-        const ocpiLocationId = location?.ocpi_location_id ?? undefined;
-        if (ocpiLocationId) {
-            // Reconstruct Beckn connector ID: IND*TP*{ocpi_location_id}*{evse_uid}*{connector_id}
-            const becknConnectorId = `IND*TP*${ocpiLocationId}*${session.evse_uid}*${session.connector_id}`;
-            // Publish with no reservation (undefined) to restore normal availability
-            await PublishActionService.publishWithReservation(
-                ocpiLocationId,
-                undefined,
-                becknConnectorId
-            );
-        }
+        // Reconstruct Beckn connector ID: IND*TP*{location_id}*{evse_uid}*{connector_id}
+        const becknConnectorId = `IND*TP*${session.location_id}*${session.evse_uid}*${session.connector_id}`;
+
+        
+        // Publish with no reservation (undefined) to restore normal availability
+        await PublishActionService.publishWithReservation(
+            session.location_id,
+            undefined,
+            becknConnectorId
+        );
 
         // Send on_update with COMPLETED status
         await OCPIv221CommandsModuleIncomingRequestService.sendOnUpdateWithStatus(
