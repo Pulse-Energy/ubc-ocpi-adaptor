@@ -1,7 +1,9 @@
 import { BillDeskCredentials } from '../BillDesk';
+import { RazorpayCredentials } from '../Razorpay';
 
 export enum PaymentServiceProvider {
     BillDesk = 'BILLDESK',
+    Razorpay = 'RAZORPAY',
     CPO = 'CPO',
 }
 
@@ -41,6 +43,7 @@ export type OCPIPartnerAdditionalProps = {
     payment_service_provider?: PaymentServiceProvider;
     payment_services?: {
         BillDesk?: BillDeskCredentials;
+        Razorpay?: RazorpayCredentials;
     };
     invoice_service_provider?: InvoiceServiceProvider;
     invoice_services?: {

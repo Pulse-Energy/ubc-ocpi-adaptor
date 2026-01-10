@@ -6,6 +6,7 @@ import { OCPIPartner, PaymentTxn } from "@prisma/client";
 import { logger } from "../../../../services/logger.service";
 import PaymentTxnDbService from "../../../../db-services/PaymentTxnDbService";
 import BillDeskPaymentService from "../Billdesk/BillDeskPaymentService";
+import RazorpayPaymentService from "../Razorpay/RazorpayPaymentService";
 import {
     BillDeskPaymentServiceProps,
     BillDeskObject,
@@ -13,6 +14,10 @@ import {
     GenericPaymentTxnStatus,
     PaymentSDK,
 } from "../../../../types/BillDesk";
+import {
+    RazorpayObject,
+    RazorpayPaymentResponse,
+} from "../../../../types/Razorpay";
 import { OCPIPartnerAdditionalProps } from "../../../../types/OCPIPartner";
 import { PaymentTxnAdditionalProps } from "../../../../types/PaymentTxn";
 
@@ -24,6 +29,7 @@ interface CreatePaymentGatewayOrderResponseType {
     error?: string;
     orderId?: string;
     bill_desk?: BillDeskObject;
+    razorpay?: RazorpayObject;
 }
 
 // Refund types
@@ -50,7 +56,7 @@ interface RefundStatusResponsePayload {
 interface VerifyPaymentResponsePayload {
     success: boolean;
     payment_status?: GenericPaymentTxnStatus;
-    transaction_details?: BillDeskRetrieveTransactionResponse;
+    transaction_details?: BillDeskRetrieveTransactionResponse | RazorpayPaymentResponse;
     error?: string;
 }
 
@@ -124,6 +130,26 @@ export default class PaymentGatewayService {
             return response;
         }
 
+        if (paymentSdk === PaymentSDK.Razorpay) {
+            const createOrderResponse = await RazorpayPaymentService.createOrderWithRazorpayPaymentGateway(
+                paymentTxn
+            );
+
+            if (createOrderResponse.success && createOrderResponse.razorpayOrder) {
+                response.success = true;
+                response.orderId = createOrderResponse.razorpayOrder.id;
+                response.razorpay = createOrderResponse.razorpayObject;
+                return response;
+            }
+
+            logger.error('Failed to create Razorpay order', undefined, { 
+                paymentTxn, 
+                createOrderResponse 
+            });
+            response.error = createOrderResponse.error || 'Failed to create Razorpay order';
+            return response;
+        }
+
         logger.error('Invalid payment sdk', undefined, { paymentTxn, paymentSdk });
         response.error = 'Invalid payment sdk';
         return response;
@@ -191,6 +217,42 @@ export default class PaymentGatewayService {
                     transactionId,
                     refund_amount.toFixed(2),
                     refundRefNo,
+                    partnerId
+                );
+
+                if (refundResult.success) {
+                    logger.info('Refund: Successfully initiated', {
+                        payment_txn_id,
+                        refund_id: refundResult.refundId,
+                        refund_status: refundResult.refundStatus,
+                    });
+
+                    return {
+                        success: true,
+                        refund_id: refundResult.refundId,
+                        refund_status: refundResult.refundStatus,
+                    };
+                }
+
+                logger.error('Refund: Failed to process', undefined, { 
+                    payment_txn_id, 
+                    error: refundResult.error 
+                });
+                return {
+                    success: false,
+                    error: refundResult.error || 'Failed to process refund',
+                };
+            }
+
+            if (paymentSdk === PaymentSDK.Razorpay) {
+                // For Razorpay, transactionId is the payment_id
+                const paymentId = transactionId;
+                // Convert refund amount to paise
+                const refundAmountInPaise = Math.round(refund_amount * 100);
+
+                const refundResult = await RazorpayPaymentService.processRefund(
+                    paymentId,
+                    refundAmountInPaise,
                     partnerId
                 );
 
@@ -339,18 +401,56 @@ export default class PaymentGatewayService {
             }
 
             const partnerId = paymentTxn.partner_id;
-            // Use authorization_reference as the order_id (this is what we sent to BillDesk)
-            const orderId = paymentTxn.authorization_reference;
+            const additionalProps = paymentTxn.additional_props as PaymentTxnAdditionalProps;
+            const paymentSdk = additionalProps?.payment_sdk || PaymentSDK.BillDesk;
+
+            // Use payment_gateway_order_id for both BillDesk and Razorpay
+            const orderId = paymentTxn.payment_gateway_order_id || paymentTxn.authorization_reference;
 
             if (!orderId) {
-                logger.error('Verify Payment: Authorization reference not found', undefined, { paymentTxnId });
+                logger.error('Verify Payment: Order ID not found', undefined, { paymentTxnId });
                 return {
                     success: false,
-                    error: 'Authorization reference not found',
+                    error: 'Order ID not found',
                 };
             }
 
-            // Verify transaction with BillDesk
+            // Verify based on payment SDK
+            if (paymentSdk === PaymentSDK.Razorpay) {
+                const result = await RazorpayPaymentService.verifyPayment(orderId, partnerId);
+
+                if (result.success) {
+                    logger.info('Verify Payment: Razorpay status retrieved successfully', {
+                        paymentTxnId,
+                        payment_status: result.status,
+                    });
+
+                    // Update payment txn status if changed
+                    if (result.status && result.status !== paymentTxn.status) {
+                        await PaymentTxnDbService.update(paymentTxn.id, {
+                            status: result.status,
+                            details: JSON.parse(JSON.stringify(result.paymentDetails || {})),
+                        } as any);
+                    }
+
+                    return {
+                        success: true,
+                        payment_status: result.status,
+                        transaction_details: result.paymentDetails,
+                    };
+                }
+
+                logger.error('Verify Payment: Failed to retrieve Razorpay status', undefined, { 
+                    paymentTxnId, 
+                    error: result.error 
+                });
+                return {
+                    success: false,
+                    error: result.error || 'Failed to verify payment status',
+                };
+            }
+
+            // Default: Verify transaction with BillDesk
             const result = await BillDeskPaymentService.verifyTransaction(orderId, partnerId);
 
             if (result.success) {

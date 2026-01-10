@@ -1,4 +1,5 @@
 import { BillDeskCreateOrderResponse, PaymentSDK } from "../BillDesk";
+import { RazorpayCreateOrderResponse, RazorpayCreateUPIPaymentResponse } from "../Razorpay";
 
 /**
  * Additional properties stored with a payment transaction
@@ -11,5 +12,8 @@ export type PaymentTxnAdditionalProps = {
     order_id?: string;
     app_variant?: string;
     refund_amount?: string;
-    payment_gateway_create_object?: BillDeskCreateOrderResponse;
+    /** BillDesk order object */
+    payment_gateway_create_object?: BillDeskCreateOrderResponse | RazorpayCreateOrderResponse;
+    /** Razorpay UPI payment response (for intent/collect flows) */
+    payment_gateway_upi_payment?: RazorpayCreateUPIPaymentResponse;
 };
