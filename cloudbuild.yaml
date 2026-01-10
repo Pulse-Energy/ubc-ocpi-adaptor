@@ -1,0 +1,21 @@
+steps:
+- name: 'gcr.io/cloud-builders/docker'
+  entrypoint: 'bash'
+  args:
+  - '-c'
+  - |
+    echo "GITHUB TOKEN is $$GITHUB_TOKEN"
+    docker build -t asia-south1-docker.pkg.dev/pulse-energy/pulse-ubc-ocpi-adaptor/pulse-ubc-ocpi-adaptor:$SHORT_SHA --build-arg GITHUB_TOKEN=$$GITHUB_TOKEN .
+  secretEnv: [
+    'GITHUB_TOKEN',
+  ]
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['push', 'asia-south1-docker.pkg.dev/pulse-energy/pulse-ubc-ocpi-adaptor/pulse-ubc-ocpi-adaptor:$SHORT_SHA']
+images: ['asia-south1-docker.pkg.dev/pulse-energy/pulse-ubc-ocpi-adaptor/pulse-ubc-ocpi-adaptor:$SHORT_SHA']
+options:
+  logging: CLOUD_LOGGING_ONLY
+serviceAccount: 637267550633@cloudbuild.gserviceaccount.com
+availableSecrets:
+  secretManager:
+  - versionName: projects/637267550633/secrets/GITHUB_TOKEN_CLOUD_BUILD/versions/latest
+    env: 'GITHUB_TOKEN'

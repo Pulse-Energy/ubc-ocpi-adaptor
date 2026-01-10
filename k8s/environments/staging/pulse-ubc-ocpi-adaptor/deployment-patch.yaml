@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pulse-ubc-ocpi-adaptor-wl
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pulse-ubc-ocpi-adaptor-wl
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pulse-ubc-ocpi-adaptor-wl
+    spec:
+      containers:
+      - name: pulse-ubc-ocpi-adaptor-container
+        image: asia-south1-docker.pkg.dev/pulse-energy-stg/pulse-ubc-ocpi-adaptor/pulse-ubc-ocpi-adaptor:4bde716 
+        ports:
+          - containerPort: 6001
+        resources:
+          limits:
+            memory: "800Mi"
+            cpu: "256m"
+            ephemeral-storage: "2Gi"
+          requests:
+            memory: "500Mi"
+            cpu: "128m"
+            ephemeral-storage: "1Gi"
+        lifecycle:
+          preStop:
+            exec:
+              command: [ "/bin/sleep", "60" ]
+        env:
+          - name: ENV
+            value: "stg"
+          - name: INSTANCE_NAME
+            value: "stg-pulse-ubc-ocpi-adaptor"
+        envFrom:
+          - secretRef:
+              name: stg-pulse-ubc-ocpi-adaptor-secret
+          - secretRef:
+              name: stg-pulse-ubc-ocpi-adaptor-secret
+---
+kind: Ingress
+apiVersion: networking.k8s.io/v1
+metadata:
+  name: pulse-ubc-ocpi-adaptor-ingress
+  annotations:
+    env: stg
+spec:
+  rules:
+    - host: stg-pulse-ubc-ocpi-adaptor.pulseenergy.io
+      http:
+        paths:
+        - path: /
+          pathType: Prefix
+          backend:
+            service:
+              name: pulse-ubc-ocpi-adaptor-service
+              port:
+                number: 6001
+  tls:
+    - secretName: pulse-energy-full-sectigo-cert1-2025
+      hosts:
+        - stg-pulse-ubc-ocpi-adaptor.pulseenergy.io
