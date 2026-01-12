@@ -26,39 +26,58 @@ import { OCPIHours, OCPIRegularHours } from '../../../ocpi/schema/modules/locati
  * Formats a Date object to ISO 8601 string with timezone offset
  * Format: yyyy-mm-ddTHH:MM:SS±hh:mm
  */
-function formatISOWithOffset(date: Date): string {
-    const pad = (n: number) => String(n).padStart(2, "0");
-
-    const offsetMinutes = -date.getTimezoneOffset();
-    const sign = offsetMinutes >= 0 ? "+" : "-";
-    const offsetH = pad(Math.floor(Math.abs(offsetMinutes) / 60));
-    const offsetM = pad(Math.abs(offsetMinutes) % 60);
-
-    // yyyy-mm-ddTHH:MM:SS±hh:mm
-    return (
-        `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
-        `T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}` +
-        `${sign}${offsetH}:${offsetM}`
-    );
+/**
+ * Formats a Date to ISO 8601 datetime string in UTC (ending with Z)
+ * @param date - Date object to format
+ * @returns ISO 8601 datetime string in UTC (e.g., "2026-01-04T08:00:00Z")
+ */
+function formatISOUTC(date: Date): string {
+    // Convert to UTC and format as ISO string ending with Z
+    return date.toISOString();
 }
 
 /**
- * Gets start of today with timezone offset
+ * Converts a timestamp string to ISO 8601 UTC format (ending with Z)
+ * Handles timestamps with timezone offsets (e.g., "+05:30") and converts them to UTC
+ * @param timestamp - Timestamp string in any ISO 8601 format
+ * @returns ISO 8601 datetime string in UTC (e.g., "2026-01-04T08:00:00Z")
+ */
+function convertToUTC(timestamp: string): string {
+    // If already in UTC format (ends with Z), return as-is
+    if (timestamp.endsWith('Z')) {
+        return timestamp;
+    }
+    
+    // Parse the timestamp and convert to UTC
+    const date = new Date(timestamp);
+    
+    // Check if parsing was successful
+    if (isNaN(date.getTime())) {
+        // If parsing fails, return original (shouldn't happen with valid ISO strings)
+        return timestamp;
+    }
+    
+    // Return in UTC format
+    return date.toISOString();
+}
+
+/**
+ * Gets start of today in UTC
  */
 function getStartOfTodayWithOffset(): string {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
-    return formatISOWithOffset(d);
+    return formatISOUTC(d);
 }
 
 /**
- * Gets end of day N days from now with timezone offset
+ * Gets end of day N days from now in UTC
  */
 function getEndOfDayNDaysFromNowWithOffset(days: number): string {
     const d = new Date();
     d.setDate(d.getDate() + days);
     d.setHours(23, 59, 59, 0);
-    return formatISOWithOffset(d);
+    return formatISOUTC(d);
 }
 
 /**
@@ -154,8 +173,8 @@ function calculateAvailabilityWindowsFromOpeningHours(
                 }
                 
                 windows.push({
-                    start_time: formatISOWithOffset(startDateTime),
-                    end_time: formatISOWithOffset(endDateTime),
+                    start_time: formatISOUTC(startDateTime),
+                    end_time: formatISOUTC(endDateTime),
                 });
             }
         }
@@ -214,14 +233,14 @@ function applyReservationToWindows(
         if (windowStart < now) {
             result.push({
                 start_time: window.start_time,
-                end_time: formatISOWithOffset(now),
+                end_time: formatISOUTC(now),
             });
         }
 
         // Add [reservationEnd, end] if end > reservationEnd
         if (windowEnd > reservationEnd) {
             result.push({
-                start_time: formatISOWithOffset(reservationEnd),
+                start_time: formatISOUTC(reservationEnd),
                 end_time: window.end_time,
             });
         }
@@ -703,11 +722,11 @@ export default class PublishActionService {
             let locationAvailabilityWindows: Array<{ "@type": ObjectType.timePeriod; "schema:startTime": string; "schema:endTime": string }> = [];
             
             if (availabilityWindows && availabilityWindows.length > 0) {
-                // Use provided availability windows
+                // Use provided availability windows - convert to UTC format (ending with Z)
                 locationAvailabilityWindows = availabilityWindows.map(window => ({
                     "@type": ObjectType.timePeriod,
-                    "schema:startTime": window.start_time,
-                    "schema:endTime": window.end_time,
+                    "schema:startTime": convertToUTC(window.start_time),
+                    "schema:endTime": convertToUTC(window.end_time),
                 }));
             } 
             else {
