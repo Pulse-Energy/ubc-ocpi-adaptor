@@ -206,7 +206,7 @@ export default class TrackActionService {
                         // v0.9: deliveryAttributes with chargingTelemetry
                         "beckn:deliveryAttributes": {
                             "@context":
-                                "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/EvChargingService/v1/context.jsonld",
+                                "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/EvChargingSession/v1/context.jsonld",
                             "@type": "ChargingSession",
                             chargingTelemetry: [
                                 {
