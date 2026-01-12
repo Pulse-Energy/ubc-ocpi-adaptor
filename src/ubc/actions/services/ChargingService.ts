@@ -141,7 +141,7 @@ export default class ChargingService {
             });
 
             // Store invoice response in CDR table if invoice was generated successfully
-            if (invoiceResponse.success && invoiceResponse.invoice_data) {
+            if (invoiceResponse.success && invoiceResponse) {
                 try {
                     if (storedCdr) {
                         // Update CDR with invoice details

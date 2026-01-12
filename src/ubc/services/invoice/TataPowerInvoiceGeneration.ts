@@ -130,7 +130,7 @@ export default class TataPowerInvoiceGenerationService {
 
             // Build request headers
             const headers = {
-                'Authorization': `Token ${auth_token}`,
+                'Authorization': `${auth_token}`,
                 'Content-Type': 'application/json',
             };
 
