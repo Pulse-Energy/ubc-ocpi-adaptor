@@ -19,6 +19,7 @@ import OCPIPartnerDbService from '../../../db-services/OCPIPartnerDbService';
 import { OCPIPartnerAdditionalProps } from '../../../types/OCPIPartner';
 import CPOBackendRequestService from '../../services/CPOBackendRequestService';
 import { RatingMessage } from '../../schema/v2.0.0/actions/rating/types/OnRatingPayload';
+import PaymentTxnDbService from '../../../db-services/PaymentTxnDbService';
 
 /**
  * Handler for rating action
@@ -132,16 +133,32 @@ export default class RatingActionHandler {
     public static async sendRatingCallToBackend(
         payload: ExtractedRatingRequestBody
     ): Promise<ExtractedOnRatingResponsePayload> {
-        const { auth_reference, rating, comments, tags } = payload.payload;
+        const { rating, comments, tags } = payload.payload;
+        const { beckn_transaction_id } = payload.metadata;
 
-        // Get session to find location_id and partner_id
-        const session = await SessionDbService.getByAuthorizationReference(auth_reference);
+        // Find PaymentTxn by beckn_transaction_id to get authorization_reference
+        const paymentTxn = await PaymentTxnDbService.getFirstByFilter({
+            where: {
+                beckn_transaction_id: beckn_transaction_id,
+            },
+        });
+
+        if (!paymentTxn) {
+            throw new Error(`Payment transaction not found for beckn_transaction_id: ${beckn_transaction_id}`);
+        }
+
+        if (!paymentTxn.authorization_reference) {
+            throw new Error(`Authorization reference not found in payment transaction for beckn_transaction_id: ${beckn_transaction_id}`);
+        }
+
+        // Get session using authorization_reference from PaymentTxn
+        const session = await SessionDbService.getByAuthorizationReference(paymentTxn.authorization_reference);
         if (!session) {
-            throw new Error(`Session not found for authorization_reference: ${auth_reference}`);
+            throw new Error(`Session not found for authorization_reference: ${paymentTxn.authorization_reference}`);
         }
 
         if (!session.partner_id) {
-            throw new Error(`Partner ID not found in session for authorization_reference: ${auth_reference}`);
+            throw new Error(`Partner ID not found in session for authorization_reference: ${paymentTxn.authorization_reference}`);
         }
 
         // Get OCPI partner to check for mock_rating_request flag
@@ -155,15 +172,16 @@ export default class RatingActionHandler {
 
         // Check if mock_rating_request is enabled
         if (ocpiPartnerAdditionalProps?.mock_rating_request === true) {
-            logger.debug(`🟡 Mocking rating response for authorization_reference: ${auth_reference}`);
+            logger.debug(`🟡 Mocking rating response for beckn_transaction_id: ${beckn_transaction_id}`);
             
-            // Return mocked response
+            // Return mocked response with session id for feedbackForm
             const backendOnRatingResponsePayload: ExtractedOnRatingResponsePayload = {
                 metadata: {
                     domain: BecknDomain.EVChargingUBC,
                 },
                 payload: {
                     success: true,
+                    session_id: session.id, // Pass session id for feedbackForm
                 },
             };
 
@@ -172,7 +190,7 @@ export default class RatingActionHandler {
 
         // Continue with actual backend call
         if (!session.location_id ) {
-            throw new Error(`Location ID not found in session for authorization_reference: ${auth_reference}`);
+            throw new Error(`Location ID not found in session for authorization_reference: ${paymentTxn.authorization_reference}`);
         }
 
         const submitRating =
@@ -189,7 +207,7 @@ export default class RatingActionHandler {
         const submitRatingPayload: SubmitRatingRequestPayload = {
             location_id: session.location_id,
             rating: rating,
-            auth_reference: auth_reference,
+            auth_reference: paymentTxn.authorization_reference,
         };
         
         // Add optional fields if they exist
@@ -224,6 +242,7 @@ export default class RatingActionHandler {
                 success: responseData.success ?? true,
                 message: responseData.message,
                 feedbackForm: responseData.feedbackForm,
+                session_id: session.id, // Pass session id for feedbackForm
             },
         };
 
@@ -243,10 +262,15 @@ export default class RatingActionHandler {
             received: backendOnRatingResponsePayload.payload.success,
         };
 
-        // Only include feedbackForm if it's provided by the CPO backend
-        if (backendOnRatingResponsePayload.payload.feedbackForm) {
-            message.feedbackForm = backendOnRatingResponsePayload.payload.feedbackForm;
-        }
+        // Always include feedbackForm with hardcoded values and session id as submission_id
+        const sessionId = backendOnRatingResponsePayload.payload.session_id || '';
+        message.feedbackForm = {
+            "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
+            "@type": "beckn:Form",
+            "mime_type": "application/xml",
+            "submission_id": sessionId,
+            "url": "https://example-bpp.com/feedback/portal",
+        };
 
         const ubcOnRatingPayload: UBCOnRatingRequestPayload = {
             context: context,
