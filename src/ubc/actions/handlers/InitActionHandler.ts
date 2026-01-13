@@ -31,6 +31,7 @@ import { OCPIPartnerAdditionalProps, PaymentServiceProvider } from '../../../typ
 import PaymentGatewayService from '../../services/PaymentServices/PaymentGatewayService';
 import PublishActionService from '../services/PublishActionService';
 import { databaseService } from '../../../services/database.service';
+import OnStatusActionHandler from './OnStatusActionHandler';
 
 export default class InitActionHandler {
     public static async handleBppInitAction(
@@ -115,6 +116,42 @@ export default class InitActionHandler {
                                     300, // 5 minutes
                                     chargePointConnectorId // Publish only this connector
                                 );
+                            }
+                        }
+                    }
+
+                    // Check if callback_on_status_api is enabled and send on_status after configured delay
+                    const authorizationReference = backendOnInitResponsePayload.payload.chargeTxnRef;
+                    if (authorizationReference) {
+                        // Get partner to check callback_on_status_api configuration
+                        const chargePointConnectorId = reqPayload.message?.order?.['beckn:orderItems']?.[0]?.['beckn:orderedItem'];
+                        if (chargePointConnectorId) {
+                            const evse = await LocationDbService.findEVSEByBecknConnectorId(chargePointConnectorId);
+                            if (evse?.evse_connectors?.[0]?.partner_id) {
+                                const partner = await OCPIPartnerDbService.getById(evse.evse_connectors[0].partner_id);
+                                const additionalProps = partner?.additional_props as OCPIPartnerAdditionalProps | undefined;
+                                const callbackConfig = additionalProps?.callback_on_status_api;
+
+                                if (callbackConfig?.enabled && callbackConfig?.callback_time) {
+                                    const callbackTimeMs = callbackConfig.callback_time * 1000; // Convert seconds to milliseconds
+                                    logger.debug(`🟡 [${reqId}] Scheduling on_status callback after ${callbackConfig.callback_time} seconds`, {
+                                        authorization_reference: authorizationReference,
+                                        callback_time: callbackConfig.callback_time,
+                                    });
+
+                                    setTimeout(() => {
+                                        logger.debug(`🟡 [${reqId}] Sending on_status call with COMPLETED payment status`, {
+                                            authorization_reference: authorizationReference,
+                                        });
+                                        OnStatusActionHandler.sendOnStatusWithCompletedPayment(authorizationReference)
+                                            .then(() => {
+                                                logger.debug(`🟢 [${reqId}] Successfully sent on_status call with COMPLETED payment status`);
+                                            })
+                                            .catch((e: any) => {
+                                                logger.error(`🔴 [${reqId}] Error sending on_status call: ${e?.toString()}`, e);
+                                            });
+                                    }, callbackTimeMs);
+                                }
                             }
                         }
                     }

@@ -21,6 +21,7 @@ import { Prisma } from "@prisma/client";
 import { LocationDbService } from "../../../db-services/LocationDbService";
 import { OCPIStatusMapper } from "../../utils/OCPIStatusMapper";
 import { GenericPaymentTxnStatus } from "../../../types/BillDesk";
+import { BecknPaymentStatus } from "../../schema/v2.0.0/enums/PaymentStatus";
 
 /**
  * Handler for status action
@@ -64,6 +65,63 @@ export default class OnStatusActionHandler {
                 data: { logData },
             });
             throw e;
+        }
+    }
+
+    /**
+     * Reusable function to send on_status with COMPLETED payment status
+     * Updates payment transaction status to COMPLETED and forwards on_status to BPP ONIX
+     * @param authorization_reference - Payment transaction authorization reference
+     * @param oldPaymentStatus - Optional old payment status (defaults to PENDING)
+     */
+    public static async sendOnStatusWithCompletedPayment(
+        authorization_reference: string,
+        oldPaymentStatus?: GenericPaymentTxnStatus
+    ): Promise<void> {
+        try {
+            logger.info('Sending on_status with COMPLETED payment status', {
+                authorization_reference,
+                oldPaymentStatus,
+            });
+
+            // Update payment status to COMPLETED
+            const paymentTxn = await PaymentTxnDbService.getFirstByFilter({
+                where: {
+                    authorization_reference: authorization_reference,
+                },
+            });
+
+            if (!paymentTxn) {
+                throw new Error(`Payment transaction not found for authorization_reference: ${authorization_reference}`);
+            }
+
+            // Update payment status to COMPLETED
+            await PaymentTxnDbService.update(paymentTxn.id, {
+                status: BecknPaymentStatus.COMPLETED,
+            });
+
+            logger.info('Updated payment status to COMPLETED', {
+                paymentTxnId: paymentTxn.id,
+                authorization_reference,
+            });
+
+            // Send on_status with COMPLETED payment status
+            await OnStatusActionHandler.handleEVChargingUBCBppOnStatusAction({
+                authorization_reference: authorization_reference,
+                payment_status: BecknPaymentStatus.COMPLETED,
+                oldPaymentStatus: oldPaymentStatus || GenericPaymentTxnStatus.Pending,
+            });
+
+            logger.info('Successfully sent on_status with COMPLETED payment status', {
+                authorization_reference,
+            });
+        }
+        catch (error: unknown) {
+            // Log error but don't fail - status update was already done
+            const err = error instanceof Error ? error : new Error(String(error));
+            logger.error('Failed to send on_status with COMPLETED payment status', err, {
+                authorization_reference,
+            });
         }
     }
 

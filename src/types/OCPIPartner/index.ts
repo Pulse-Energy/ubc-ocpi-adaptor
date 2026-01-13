@@ -49,4 +49,9 @@ export type OCPIPartnerAdditionalProps = {
     invoice_services?: {
         TataPower?: TataPowerInvoiceConfig;
     };
+    callback_on_status_api?: {
+        enabled: boolean;
+        callback_time: number; // seconds
+    };
+    beneficiary: "BPP" | "BAP";
 };
