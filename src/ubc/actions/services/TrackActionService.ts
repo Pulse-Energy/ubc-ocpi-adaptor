@@ -13,6 +13,7 @@ import {
 import Utils from "../../../utils/Utils";
 import BppOnixRequestService from "../../services/BppOnixRequestService";
 import { OrderStatus } from "../../schema/v2.0.0/enums/OrderStatus";
+import { ChargingSessionStatus } from "../../schema/v2.0.0/enums/ChargingSessionStatus";
 
 /**
  * Service encapsulating UBC EV-charging track flow:
@@ -148,8 +149,13 @@ export default class TrackActionService {
         return {
             order_id,
             order_status: orderStatus,
-            charge_point_connector_id: session.connector_id || "",
+            charge_point_connector_id: "", // Will be set from request in translateBackendToUBC
             telemetry_data: telemetry,
+            session_status: orderStatus === OrderStatus.INPROGRESS 
+                ? ChargingSessionStatus.ACTIVE 
+                : orderStatus === OrderStatus.COMPLETED
+                ? ChargingSessionStatus.COMPLETED
+                : ChargingSessionStatus.PENDING,
         };
     }
 
@@ -164,9 +170,17 @@ export default class TrackActionService {
         });
 
         const trackOrder = backendTrackPayload.message.order;
+        
+        // Get connector ID from request's orderItems
+        const orderedItem = trackOrder["beckn:orderItems"]?.[0]?.["beckn:orderedItem"] || "";
 
         // v0.9: OnTrack response includes seller, buyer (minimal), orderItems, and fulfillment
-        // v0.9: Fulfillment has trackingAction, sessionStatus at top level, and deliveryAttributes with chargingTelemetry
+        // v0.9: Fulfillment has trackingAction and deliveryAttributes with sessionStatus and chargingTelemetry
+        const sessionStatus = backendOnTrackResponsePayload.session_status || 
+            (backendOnTrackResponsePayload.order_status === OrderStatus.INPROGRESS 
+                ? ChargingSessionStatus.ACTIVE 
+                : ChargingSessionStatus.PENDING);
+
         return {
             context,
             message: {
@@ -181,8 +195,7 @@ export default class TrackActionService {
                     "beckn:buyer": trackOrder["beckn:buyer"],
                     "beckn:orderItems": [
                         {
-                            "beckn:orderedItem":
-                                backendOnTrackResponsePayload.charge_point_connector_id,
+                            "beckn:orderedItem": orderedItem,
                         },
                     ],
                     "beckn:fulfillment": {
@@ -199,15 +212,12 @@ export default class TrackActionService {
                                 url: backendOnTrackResponsePayload.track_url || "",
                             },
                         },
-                        // v0.9: sessionStatus at top level (ACTIVE, COMPLETED, etc.)
-                        sessionStatus: backendOnTrackResponsePayload.order_status === OrderStatus.INPROGRESS 
-                            ? "ACTIVE" 
-                            : backendOnTrackResponsePayload.order_status,
-                        // v0.9: deliveryAttributes with chargingTelemetry
+                        // v0.9: deliveryAttributes with sessionStatus and chargingTelemetry
                         "beckn:deliveryAttributes": {
                             "@context":
                                 "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/EvChargingSession/v1/context.jsonld",
                             "@type": "ChargingSession",
+                            sessionStatus: sessionStatus,
                             chargingTelemetry: [
                                 {
                                     eventTime:
