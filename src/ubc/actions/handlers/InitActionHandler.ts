@@ -96,7 +96,7 @@ export default class InitActionHandler {
             const backendInitPayload: ExtractedInitRequestBody =
                 InitActionHandler.translateUBCToBackendPayload(reqPayload);
 
-            // Only create payment txn if beneficiary is BPP (BAP will handle payment in confirm)
+            // Create payment txn for both BPP and BAP (BAP gets 0 rupees for consistency)
             let backendOnInitResponsePayload: ExtractedOnInitResponseBody;
             if (finalBeneficiary === 'BPP') {
                 // make a request to CPO BE server
@@ -112,9 +112,9 @@ export default class InitActionHandler {
                 );
             }
             else {
-                // For BAP beneficiary, create minimal response without payment txn
+                // For BAP beneficiary, create payment txn with 0 rupees for consistency (not used for payment)
                 logger.debug(
-                    `🟡 [${reqId}] Skipping payment txn creation for BAP beneficiary`,
+                    `🟡 [${reqId}] Creating payment txn with 0 rupees for BAP beneficiary`,
                     { data: { finalBeneficiary } }
                 );
                 backendOnInitResponsePayload = await InitActionHandler.createMinimalOnInitResponseForBAP(
@@ -385,27 +385,68 @@ export default class InitActionHandler {
     }
 
     /**
-     * Creates minimal on_init response for BAP beneficiary (no payment txn created)
+     * Creates minimal on_init response for BAP beneficiary
+     * Creates payment txn with 0 rupees for consistency (not used for actual payment)
      * Payment will be handled in confirm action
      */
     public static async createMinimalOnInitResponseForBAP(
         payload: ExtractedInitRequestBody,
         beneficiary: 'BAP' | 'BPP'
     ): Promise<ExtractedOnInitResponseBody> {
-        const finalAmount = payload.payload.amount;
-        const becknOrderId = Utils.generateUUID(); // Generate order ID for BAP beneficiary
+        const finalAmount = 0; // Set to 0 for BAP beneficiary
+        const authorizationReference = Utils.generateUUID(); // Generate order ID for BAP beneficiary
+        
+        // Find EVSE to get partner_id
+        const evse = await LocationDbService.findEVSEByBecknConnectorId(payload.payload.charge_point_connector_id);
+        
+        if (!evse) {
+            throw new Error(`EVSE not found for ID: ${payload.payload.charge_point_connector_id}`);
+        }
+
+        // Get connector from EVSE
+        const parsedConnectorId = LocationDbService.parseBecknConnectorId(payload.payload.charge_point_connector_id);
+        const evseConnector = evse.evse_connectors.find(
+            connector => connector.connector_id === parsedConnectorId.connectorId && !connector.deleted
+        );
+        
+        if (!evseConnector) {
+            throw new Error(`Connector not found for ID: ${payload.payload.charge_point_connector_id}`);
+        }
+
+        if (!evseConnector.partner_id) {
+            throw new Error(`Connector ${payload.payload.charge_point_connector_id} does not have a partner_id`);
+        }
+
+        // Create payment txn with 0 rupees for consistency (not used for payment when beneficiary is BAP)
+        const paymentTxnData: Prisma.PaymentTxnUncheckedCreateInput = {
+            authorization_reference: authorizationReference,
+            amount: finalAmount,
+            payment_link: '',
+            payment_breakdown: {
+                total: finalAmount,
+                breakdown: [],
+            },
+            status: BecknPaymentStatus.INITIATED,
+            requested_energy_units: payload.payload.charging_option_unit || 0,
+            partner_id: evseConnector.partner_id,
+            beckn_transaction_id: payload.metadata.beckn_transaction_id,
+        };
+        
+        const paymentTxn = await PaymentTxnDbService.create({
+            data: paymentTxnData,
+        });
         
         const extractedOnInitResponseBody: ExtractedOnInitResponseBody = {
             metadata: {
                 domain: BecknDomain.EVChargingUBC,
             },
             payload: {
-                becknPaymentId: '', // No payment txn for BAP beneficiary
+                becknPaymentId: paymentTxn.id,
                 paymentLink: '', // No payment link for BAP beneficiary
-                chargeTxnRef: '', // No charge txn ref for BAP beneficiary
+                chargeTxnRef: paymentTxn.authorization_reference,
                 beneficiary: beneficiary,
                 paymentStatus: BecknPaymentStatus.INITIATED, // Initial status for BAP
-                becknOrderId: becknOrderId,
+                becknOrderId: paymentTxn.authorization_reference,
                 amount: finalAmount,
             },
         };
