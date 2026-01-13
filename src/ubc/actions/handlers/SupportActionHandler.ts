@@ -147,17 +147,28 @@ export default class SupportActionHandler {
         backendSupportPayload: UBCSupportRequestPayload,
         backendOnSupportResponsePayload: ExtractedOnSupportResponsePayload
     ): UBCOnSupportRequestPayload {
+        const context = Utils.getBPPContext({
+            ...backendSupportPayload.context,
+            action: BecknAction.on_support,
+        });
+        
         const supportData = backendOnSupportResponsePayload.payload;
+        
+        // Convert channels to uppercase to match schema (PHONE, EMAIL, WEB, CHAT)
+        const channels = supportData.channels?.map(channel => channel.toUpperCase()) || [];
+        
         const ubcOnSupportPayload: UBCOnSupportRequestPayload = {
-            context: backendSupportPayload.context,
+            context: context,
             message: {
                 support: {
+                    "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
+                    "@type": "beckn:SupportInfo",
                     name: supportData.name,
                     phone: supportData.phone,
                     email: supportData.email,
                     url: supportData.url,
                     hours: supportData.hours,
-                    channels: supportData.channels,
+                    channels: channels,
                 },
             },
         };
@@ -189,6 +200,8 @@ export default class SupportActionHandler {
             context: context,
             message: {
                 support: {
+                    "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
+                    "@type": "beckn:SupportInfo",
                     name: '',
                     phone: '',
                     email: '',

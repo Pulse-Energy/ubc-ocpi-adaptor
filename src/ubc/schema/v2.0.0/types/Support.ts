@@ -1,4 +1,6 @@
 export type Support = {
+    "@context"?: string;
+    "@type"?: string;
     name?: string;
     phone?: string;
     email?: string;
