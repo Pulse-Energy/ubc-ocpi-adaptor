@@ -22,7 +22,7 @@ export type UBCOnStatusOrder = {
     "beckn:buyer": BecknBuyer | BecknBuyerMinimal; // Full buyer for sync, minimal (only id) for async
     "beckn:orderValue": BecknOrderValueResponse;
     "beckn:orderItems": BecknOrderItemResponse[];
-    "beckn:fulfillment": BecknFulfillment; // Required per schema (lines 2091-2104 for sync, 5690-5700 for async)
+    "beckn:fulfillment"?: BecknFulfillment; // Optional - not in example schema 06_on_status_1
     "beckn:payment": BecknPayment;
     // Per schema: orderAttributes and orderNumber are NOT present in on_status
 };
