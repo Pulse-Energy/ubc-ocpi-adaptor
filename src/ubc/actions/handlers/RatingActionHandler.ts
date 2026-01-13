@@ -134,22 +134,17 @@ export default class RatingActionHandler {
     ): Promise<ExtractedOnRatingResponsePayload> {
         const { auth_reference, rating, comments, tags } = payload.payload;
 
-
-        // Get session to find location_id
+        // Get session to find location_id and partner_id
         const session = await SessionDbService.getByAuthorizationReference(auth_reference);
         if (!session) {
             throw new Error(`Session not found for authorization_reference: ${auth_reference}`);
-        }
-
-        if (!session.location_id ) {
-            throw new Error(`Location ID not found in session for authorization_reference: ${auth_reference}`);
         }
 
         if (!session.partner_id) {
             throw new Error(`Partner ID not found in session for authorization_reference: ${auth_reference}`);
         }
 
-        // Get OCPI partner to find submit_rating endpoint
+        // Get OCPI partner to check for mock_rating_request flag
         const ocpiPartner = await OCPIPartnerDbService.getById(session.partner_id);
         if (!ocpiPartner) {
             throw new Error(`OCPI Partner not found for partner_id: ${session.partner_id}`);
@@ -157,6 +152,29 @@ export default class RatingActionHandler {
 
         const ocpiPartnerAdditionalProps =
             ocpiPartner.additional_props as OCPIPartnerAdditionalProps;
+
+        // Check if mock_rating_request is enabled
+        if (ocpiPartnerAdditionalProps?.mock_rating_request === true) {
+            logger.debug(`🟡 Mocking rating response for authorization_reference: ${auth_reference}`);
+            
+            // Return mocked response
+            const backendOnRatingResponsePayload: ExtractedOnRatingResponsePayload = {
+                metadata: {
+                    domain: BecknDomain.EVChargingUBC,
+                },
+                payload: {
+                    success: true,
+                },
+            };
+
+            return backendOnRatingResponsePayload;
+        }
+
+        // Continue with actual backend call
+        if (!session.location_id ) {
+            throw new Error(`Location ID not found in session for authorization_reference: ${auth_reference}`);
+        }
+
         const submitRating =
             ocpiPartnerAdditionalProps?.communication_urls?.submit_rating;
         
