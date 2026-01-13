@@ -59,6 +59,35 @@ export default class InitActionHandler {
         const logData = { action: 'init', messageId: reqId };
 
         try {
+            // Determine beneficiary: if BAP sends BPP, use BPP; if BAP sends BAP, check partner config
+            const bapBeneficiary = reqPayload.message?.order?.['beckn:payment']?.['beckn:beneficiary'] as 'BPP' | 'BAP' | undefined;
+            let finalBeneficiary: 'BPP' | 'BAP' = 'BPP'; // Default to BPP
+            
+            if (bapBeneficiary === 'BPP') {
+                finalBeneficiary = 'BPP';
+            }
+            else if (bapBeneficiary === 'BAP') {
+                // Get partner to check beneficiary configuration
+                const chargePointConnectorId = reqPayload.message?.order?.['beckn:orderItems']?.[0]?.['beckn:orderedItem'];
+                if (chargePointConnectorId) {
+                    const evse = await LocationDbService.findEVSEByBecknConnectorId(chargePointConnectorId);
+                    if (evse?.evse_connectors?.[0]?.partner_id) {
+                        const partner = await OCPIPartnerDbService.getById(evse.evse_connectors[0].partner_id);
+                        const additionalProps = partner?.additional_props as OCPIPartnerAdditionalProps | undefined;
+                        const partnerBeneficiary = additionalProps?.beneficiary;
+                        
+                        if (partnerBeneficiary === 'BAP' || partnerBeneficiary === 'BPP') {
+                            finalBeneficiary = partnerBeneficiary;
+                        }
+                    }
+                }
+            }
+            
+            logger.debug(`🟡 [${reqId}] Determined beneficiary: ${finalBeneficiary}`, {
+                bapBeneficiary,
+                finalBeneficiary,
+            });
+
             // translate BAP schema to CPO's BE server
             logger.debug(
                 `🟡 [${reqId}] Translating UBC to Backend payload in handleEVChargingUBCBppInitAction`,
@@ -67,17 +96,32 @@ export default class InitActionHandler {
             const backendInitPayload: ExtractedInitRequestBody =
                 InitActionHandler.translateUBCToBackendPayload(reqPayload);
 
-            // make a request to CPO BE server
-            logger.debug(
-                `🟡 [${reqId}] Sending init call to backend in handleEVChargingUBCBppInitAction`,
-                { data: { backendInitPayload } }
-            );
-            const backendOnInitResponsePayload: ExtractedOnInitResponseBody =
-                await InitActionHandler.createPaymentTxnDetails(backendInitPayload);
-            logger.debug(
-                `🟢 [${reqId}] Received init response from backend in handleEVChargingUBCBppInitAction`,
-                { data: { backendOnInitResponsePayload } }
-            );
+            // Only create payment txn if beneficiary is BPP (BAP will handle payment in confirm)
+            let backendOnInitResponsePayload: ExtractedOnInitResponseBody;
+            if (finalBeneficiary === 'BPP') {
+                // make a request to CPO BE server
+                logger.debug(
+                    `🟡 [${reqId}] Sending init call to backend in handleEVChargingUBCBppInitAction`,
+                    { data: { backendInitPayload } }
+                );
+                backendOnInitResponsePayload =
+                    await InitActionHandler.createPaymentTxnDetails(backendInitPayload);
+                logger.debug(
+                    `🟢 [${reqId}] Received init response from backend in handleEVChargingUBCBppInitAction`,
+                    { data: { backendOnInitResponsePayload } }
+                );
+            }
+            else {
+                // For BAP beneficiary, create minimal response without payment txn
+                logger.debug(
+                    `🟡 [${reqId}] Skipping payment txn creation for BAP beneficiary`,
+                    { data: { finalBeneficiary } }
+                );
+                backendOnInitResponsePayload = await InitActionHandler.createMinimalOnInitResponseForBAP(
+                    backendInitPayload,
+                    finalBeneficiary
+                );
+            }
 
             // translate CPO's BE Server response to UBC Schema
             logger.debug(
@@ -85,7 +129,7 @@ export default class InitActionHandler {
                 { data: { reqPayload, backendOnInitResponsePayload } }
             );
             const ubcOnInitPayload: UBCOnInitRequestPayload =
-                InitActionHandler.translateBackendToUBC(reqPayload, backendOnInitResponsePayload);
+                InitActionHandler.translateBackendToUBC(reqPayload, backendOnInitResponsePayload, finalBeneficiary);
 
             // Call BAP on_select
             logger.debug(
@@ -121,8 +165,10 @@ export default class InitActionHandler {
                     }
 
                     // Check if callback_on_status_api is enabled and send on_status after configured delay
-                    const authorizationReference = backendOnInitResponsePayload.payload.chargeTxnRef;
-                    if (authorizationReference) {
+                    // Only for BPP beneficiary (BAP handles payment in confirm)
+                    if (finalBeneficiary === 'BPP') {
+                        const authorizationReference = backendOnInitResponsePayload.payload.chargeTxnRef;
+                        if (authorizationReference) {
                         // Get partner to check callback_on_status_api configuration
                         const chargePointConnectorId = reqPayload.message?.order?.['beckn:orderItems']?.[0]?.['beckn:orderedItem'];
                         if (chargePointConnectorId) {
@@ -155,6 +201,7 @@ export default class InitActionHandler {
                             }
                         }
                     }
+                }
                 }
                 catch (e: any) {
                     logger.error(`🔴 [${reqId}] Error publishing with reservation after on_init: ${e?.toString()}`, e);
@@ -318,8 +365,37 @@ export default class InitActionHandler {
                 becknPaymentId: paymentTxn.id,
                 paymentLink: generatePaymentLinkResponse.payment_link,
                 chargeTxnRef: paymentTxn.authorization_reference,
+                beneficiary: 'BPP', // Payment txn is only created for BPP beneficiary
                 paymentStatus: paymentStatus,
                 becknOrderId: paymentTxn.authorization_reference,
+                amount: finalAmount,
+            },
+        };
+        return extractedOnInitResponseBody;
+    }
+
+    /**
+     * Creates minimal on_init response for BAP beneficiary (no payment txn created)
+     * Payment will be handled in confirm action
+     */
+    public static async createMinimalOnInitResponseForBAP(
+        payload: ExtractedInitRequestBody,
+        beneficiary: 'BAP' | 'BPP'
+    ): Promise<ExtractedOnInitResponseBody> {
+        const finalAmount = payload.payload.amount;
+        const becknOrderId = Utils.generateUUID(); // Generate order ID for BAP beneficiary
+        
+        const extractedOnInitResponseBody: ExtractedOnInitResponseBody = {
+            metadata: {
+                domain: BecknDomain.EVChargingUBC,
+            },
+            payload: {
+                becknPaymentId: '', // No payment txn for BAP beneficiary
+                paymentLink: '', // No payment link for BAP beneficiary
+                chargeTxnRef: '', // No charge txn ref for BAP beneficiary
+                beneficiary: beneficiary,
+                paymentStatus: BecknPaymentStatus.INITIATED, // Initial status for BAP
+                becknOrderId: becknOrderId,
                 amount: finalAmount,
             },
         };
@@ -381,7 +457,8 @@ export default class InitActionHandler {
 
     public static translateBackendToUBC(
         backendInitPayload: UBCInitRequestPayload,
-        backendOnInitResponsePayload: ExtractedOnInitResponseBody
+        backendOnInitResponsePayload: ExtractedOnInitResponseBody,
+        beneficiary?: 'BPP' | 'BAP'
     ): UBCOnInitRequestPayload {
         const context = Utils.getBPPContext({
             ...backendInitPayload.context,
@@ -389,9 +466,37 @@ export default class InitActionHandler {
         });
 
         const initOrder = backendInitPayload.message.order;
+        const finalBeneficiary = beneficiary ?? backendOnInitResponsePayload.payload.beneficiary ?? 'BPP';
 
         // v0.9: OnInit response - removed orderNumber, orderAttributes, fulfillment
         // v0.9: Added beckn:id (order id), full payment with paymentURL, txnRef, acceptedPaymentMethod
+        // Build payment object - conditionally include paymentURL, txnRef, acceptedPaymentMethod only for BPP
+        const paymentObject: any = {
+            '@context':
+                'https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld',
+            '@type': ObjectType.payment,
+            'beckn:id': backendOnInitResponsePayload.payload.becknPaymentId || Utils.generateUUID(),
+            'beckn:amount': {
+                currency: 'INR',
+                value: backendOnInitResponsePayload.payload.amount,
+            },
+            'beckn:beneficiary': finalBeneficiary,
+            'beckn:paymentStatus': backendOnInitResponsePayload.payload.paymentStatus,
+            // v0.9: paymentAttributes with settlementAccounts - inherited from init request if present
+            'beckn:paymentAttributes': initOrder['beckn:payment']?.['beckn:paymentAttributes'],
+        };
+
+        // Only include paymentURL, txnRef, acceptedPaymentMethod for BPP beneficiary
+        if (finalBeneficiary === 'BPP') {
+            paymentObject['beckn:paymentURL'] = backendOnInitResponsePayload.payload.paymentLink;
+            paymentObject['beckn:txnRef'] = backendOnInitResponsePayload.payload.chargeTxnRef;
+            paymentObject['beckn:acceptedPaymentMethod'] = [
+                AcceptedPaymentMethod.BANK_TRANSFER,
+                AcceptedPaymentMethod.UPI,
+                AcceptedPaymentMethod.WALLET,
+            ];
+        }
+
         const ubcOnInitPayload: UBCOnInitRequestPayload = {
             context: context,
             message: {
@@ -404,27 +509,7 @@ export default class InitActionHandler {
                     'beckn:buyer': initOrder['beckn:buyer'],
                     'beckn:orderItems': initOrder['beckn:orderItems'],
                     'beckn:orderValue': initOrder['beckn:orderValue'],
-                    'beckn:payment': {
-                        '@context':
-                            'https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld',
-                        '@type': ObjectType.payment,
-                        'beckn:id': backendOnInitResponsePayload.payload.becknPaymentId,
-                        'beckn:amount': {
-                            currency: 'INR',
-                            value: backendOnInitResponsePayload.payload.amount,
-                        },
-                        'beckn:paymentURL': backendOnInitResponsePayload.payload.paymentLink,
-                        'beckn:txnRef': backendOnInitResponsePayload.payload.chargeTxnRef,
-                        'beckn:beneficiary': backendOnInitResponsePayload.payload.beneficiary ?? 'BPP',
-                        'beckn:acceptedPaymentMethod': [
-                            AcceptedPaymentMethod.BANK_TRANSFER,
-                            AcceptedPaymentMethod.UPI,
-                            AcceptedPaymentMethod.WALLET,
-                        ],
-                        'beckn:paymentStatus': backendOnInitResponsePayload.payload.paymentStatus,
-                        // v0.9: paymentAttributes with settlementAccounts - inherited from init request if present
-                        'beckn:paymentAttributes': initOrder['beckn:payment']?.['beckn:paymentAttributes'],
-                    },
+                    'beckn:payment': paymentObject,
                 },
             },
         };
