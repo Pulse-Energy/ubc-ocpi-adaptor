@@ -18,6 +18,14 @@ export interface TataPowerInvoiceConfig {
     FINDER_FEE_PERCENTAGE?: string;
 }
 
+export interface SettlementAccount {
+    accountHolderName: string;
+    accountNumber: string;
+    ifscCode: string;
+    bankName: string;
+    vpa: string;
+}
+
 export type OCPIPartnerAdditionalProps = {
     communication_urls?: {
         generate_payment_link?: {
@@ -53,5 +61,6 @@ export type OCPIPartnerAdditionalProps = {
         enabled: boolean;
         callback_time: number; // seconds
     };
-    beneficiary: "BPP" | "BAP";
+    beneficiary?: "BPP" | "BAP";
+    settlement_account?: SettlementAccount; // BPP settlement account for paymentAttributes
 };

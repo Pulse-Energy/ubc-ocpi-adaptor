@@ -128,8 +128,18 @@ export default class InitActionHandler {
                 `🟡 [${reqId}] Translating Backend to UBC payload in handleEVChargingUBCBppInitAction`,
                 { data: { reqPayload, backendOnInitResponsePayload } }
             );
+            // Get partner for settlement account
+            let partner = null;
+            const chargePointConnectorId = reqPayload.message?.order?.['beckn:orderItems']?.[0]?.['beckn:orderedItem'];
+            if (chargePointConnectorId) {
+                const evse = await LocationDbService.findEVSEByBecknConnectorId(chargePointConnectorId);
+                if (evse?.evse_connectors?.[0]?.partner_id) {
+                    partner = await OCPIPartnerDbService.getById(evse.evse_connectors[0].partner_id);
+                }
+            }
+
             const ubcOnInitPayload: UBCOnInitRequestPayload =
-                InitActionHandler.translateBackendToUBC(reqPayload, backendOnInitResponsePayload, finalBeneficiary);
+                await InitActionHandler.translateBackendToUBC(reqPayload, backendOnInitResponsePayload, finalBeneficiary, partner);
 
             // Call BAP on_select
             logger.debug(
@@ -455,11 +465,12 @@ export default class InitActionHandler {
         return response.data as GeneratePaymentLinkResponsePayload;
     }
 
-    public static translateBackendToUBC(
+    public static async translateBackendToUBC(
         backendInitPayload: UBCInitRequestPayload,
         backendOnInitResponsePayload: ExtractedOnInitResponseBody,
-        beneficiary?: 'BPP' | 'BAP'
-    ): UBCOnInitRequestPayload {
+        beneficiary?: 'BPP' | 'BAP',
+        partner?: { additional_props: unknown } | null
+    ): Promise<UBCOnInitRequestPayload> {
         const context = Utils.getBPPContext({
             ...backendInitPayload.context,
             action: BecknAction.on_init,
@@ -467,6 +478,50 @@ export default class InitActionHandler {
 
         const initOrder = backendInitPayload.message.order;
         const finalBeneficiary = beneficiary ?? backendOnInitResponsePayload.payload.beneficiary ?? 'BPP';
+        const bppId = backendInitPayload.context.bpp_id;
+
+        // Build settlementAccounts array - include BAP from init request and BPP from partner config
+        const initPaymentAttributes = initOrder['beckn:payment']?.['beckn:paymentAttributes'] as Record<string, unknown> | undefined;
+        const initSettlementAccounts = initPaymentAttributes?.['settlementAccounts'] as Array<Record<string, unknown>> | undefined || [];
+
+        // Add BPP settlement account from partner config
+        if (partner && bppId) {
+            const additionalProps = partner.additional_props as OCPIPartnerAdditionalProps | undefined;
+            const bppSettlementAccount = additionalProps?.settlement_account;
+            if (bppSettlementAccount) {
+                initSettlementAccounts.push({
+                    beneficiaryId: bppId,
+                    accountHolderName: bppSettlementAccount.accountHolderName,
+                    accountNumber: bppSettlementAccount.accountNumber,
+                    ifscCode: bppSettlementAccount.ifscCode,
+                    bankName: bppSettlementAccount.bankName,
+                    vpa: bppSettlementAccount.vpa,
+                });
+            }
+        }
+
+        const settlementAccounts = initSettlementAccounts;
+
+        // Build paymentAttributes
+        const paymentAttributes: Record<string, unknown> = {};
+        if (initPaymentAttributes) {
+            paymentAttributes['@context'] = initPaymentAttributes['@context'] || "https://raw.githubusercontent.com/bhim/ubc-tsd/main/beckn-schemas/UBCExtensions/v1/context.jsonld";
+            paymentAttributes['@type'] = initPaymentAttributes['@type'] || "UBCPaymentAttributes";
+            
+            // Include upiTransactionId if present
+            if (initPaymentAttributes['upiTransactionId']) {
+                paymentAttributes['upiTransactionId'] = initPaymentAttributes['upiTransactionId'];
+            }
+        }
+        else {
+            paymentAttributes['@context'] = "https://raw.githubusercontent.com/bhim/ubc-tsd/main/beckn-schemas/UBCExtensions/v1/context.jsonld";
+            paymentAttributes['@type'] = "UBCPaymentAttributes";
+        }
+
+        // Include settlementAccounts if any are present
+        if (settlementAccounts.length > 0) {
+            paymentAttributes['settlementAccounts'] = settlementAccounts;
+        }
 
         // v0.9: OnInit response - removed orderNumber, orderAttributes, fulfillment
         // v0.9: Added beckn:id (order id), full payment with paymentURL, txnRef, acceptedPaymentMethod
@@ -482,8 +537,8 @@ export default class InitActionHandler {
             },
             'beckn:beneficiary': finalBeneficiary,
             'beckn:paymentStatus': backendOnInitResponsePayload.payload.paymentStatus,
-            // v0.9: paymentAttributes with settlementAccounts - inherited from init request if present
-            'beckn:paymentAttributes': initOrder['beckn:payment']?.['beckn:paymentAttributes'],
+            // v0.9: paymentAttributes with settlementAccounts (BAP from init request, BPP from partner config)
+            'beckn:paymentAttributes': Object.keys(paymentAttributes).length > 0 ? paymentAttributes : undefined,
         };
 
         // Only include paymentURL, txnRef, acceptedPaymentMethod for BPP beneficiary
