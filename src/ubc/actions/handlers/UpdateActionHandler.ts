@@ -62,13 +62,17 @@ export default class UpdateActionHandler {
             const backendUpdatePayload: ExtractedUpdateRequestBody =
                 UpdateActionHandler.translateUBCToBackendPayload(reqPayload);
 
+            // Fetch on_init response to get beneficiary
+            const existingOnInitResponse = await UpdateActionHandler.fetchExistingBppOnInitResponse(reqPayload.context.transaction_id);
+            const beneficiary = existingOnInitResponse?.message?.order?.['beckn:payment']?.['beckn:beneficiary'] as 'BPP' | 'BAP' | undefined || 'BPP';
+
             // make a request to CPO BE server
             logger.debug(
                 `🟡 [${reqId}] Sending update call to backend in handleEVChargingUBCBppUpdateAction`,
-                { data: { backendUpdatePayload } }
+                { data: { backendUpdatePayload, beneficiary } }
             );
             const ExtractedOnUpdateResponseBody: ExtractedOnUpdateResponsePayload =
-                await UpdateActionHandler.sendUpdateCallToBackend(backendUpdatePayload);
+                await UpdateActionHandler.sendUpdateCallToBackend(backendUpdatePayload, beneficiary);
             logger.debug(
                 `🟢 [${reqId}] Received update response from backend in handleEVChargingUBCBppUpdateAction`,
                 { data: { ExtractedOnUpdateResponseBody } }
@@ -223,23 +227,52 @@ export default class UpdateActionHandler {
         return backendUpdatePayload;
     }
 
+    public static async fetchExistingBppOnInitResponse(transactionId: string): Promise<any | null> {
+        const becknLogs = await BecknLogDbService.getByFilters({
+            where: {
+                transaction_id: transactionId,
+                action: `bpp.out.request.${BecknAction.on_init}`,
+                domain: BecknDomain.EVChargingUBC,
+            },
+            select: {
+                payload: true,
+            },
+            orderBy: {
+                created_on: Prisma.SortOrder.desc,
+            },
+            take: 1,
+        });
+
+        if (becknLogs?.records && becknLogs.records.length > 0) {
+            return becknLogs.records[0].payload;
+        }
+
+        return null;
+    }
+
     public static async sendUpdateCallToBackend(
-        payload: ExtractedUpdateRequestBody
+        payload: ExtractedUpdateRequestBody,
+        beneficiary: 'BPP' | 'BAP' = 'BPP'
     ): Promise<ExtractedOnUpdateResponsePayload> {
         const { beckn_order_id, charging_action, charge_point_connector_id } = payload.payload;
 
-        const paymentTxn = await PaymentTxnDbService.getFirstByFilter({
-            where: {
-                authorization_reference: beckn_order_id,
-            },
-        });
+        let paymentTxn = null;
+        
+        // Only check payment status if beneficiary is BPP
+        if (beneficiary === 'BPP') {
+            paymentTxn = await PaymentTxnDbService.getFirstByFilter({
+                where: {
+                    authorization_reference: beckn_order_id,
+                },
+            });
 
-        if (!paymentTxn) {
-            throw new Error('Payment txn not found');
-        }
+            if (!paymentTxn) {
+                throw new Error('Payment txn not found');
+            }
 
-        if (paymentTxn.status !== BecknPaymentStatus.COMPLETED) {
-            throw new Error('Payment txn is not completed');
+            if (paymentTxn.status !== BecknPaymentStatus.COMPLETED) {
+                throw new Error('Payment txn is not completed');
+            }
         }
         
         if (charging_action === ChargingAction.StartCharging) {
@@ -285,16 +318,23 @@ export default class UpdateActionHandler {
             let session = await SessionDbService.getByAuthorizationReference(beckn_order_id);
             if (!session) {
                 // Only create if it doesn't exist
+                // For BAP beneficiary, requested_energy_units may not be available
+                const sessionData: any = {
+                    country_code: 'IN',
+                    partner_id: evse.partner_id ?? '',
+                    location_id: location.ocpi_location_id,
+                    evse_uid: evse.uid,
+                    connector_id: parsedConnectorId.connectorId,
+                    authorization_reference: beckn_order_id,
+                };
+                
+                // Only add requested_energy_units if paymentTxn exists (BPP beneficiary)
+                if (paymentTxn?.requested_energy_units) {
+                    sessionData.requested_energy_units = paymentTxn.requested_energy_units;
+                }
+                
                 session = await SessionDbService.create({
-                    data: {
-                        country_code: 'IN',
-                        partner_id: evse.partner_id ?? '',
-                        location_id: location.ocpi_location_id,
-                        evse_uid: evse.uid,
-                        connector_id: parsedConnectorId.connectorId,
-                        authorization_reference: beckn_order_id,
-                        requested_energy_units: paymentTxn.requested_energy_units,
-                    },
+                    data: sessionData,
                 });
             }
             const response = await AdminCommandsModule.startCharging(req);
