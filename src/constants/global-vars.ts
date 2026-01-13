@@ -9,6 +9,7 @@ const GLOBAL_VARS = {
     EV_CHARGING_UBC_BPP_CLIENT_HOST: process.env.EV_CHARGING_UBC_BPP_CLIENT_HOST || 'http://host.docker.internal:7082',
     EV_CHARGING_UBC_UNIQUE_ID: process.env.EV_CHARGING_UBC_UNIQUE_ID || '76EU7ncBX74BMNTQJMcMYoTMSzU7k71owUF53fN4jdxmosxZrdjdDk',
     INTERNAL_PAYMENT_LINK_HOST: process.env.INTERNAL_PAYMENT_LINK_HOST || 'http://localhost:6001',
+    ENABLE_CATALOG_PUBLISH: process.env.ENABLE_CATALOG_PUBLISH || 'false',
 };
 
 export default GLOBAL_VARS;

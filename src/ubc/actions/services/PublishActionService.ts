@@ -361,6 +361,12 @@ export default class PublishActionService {
         becknConnectorId?: string
     ): Promise<void> {
         try {
+            if (GLOBAL_VARS.ENABLE_CATALOG_PUBLISH === 'false') {
+                logger.debug(`🟢 Skipping catalog publish for ${becknConnectorId ? `connector ${becknConnectorId}` : `location ${ocpiLocationId}`}`, {
+                    reservationTime: reservationTime,
+                });
+                return;
+            }
             const publishPayload: PostAppPublishRequestPayload = {
                 ocpi_location_ids: [ocpiLocationId],
                 reservationTime: reservationTime,
