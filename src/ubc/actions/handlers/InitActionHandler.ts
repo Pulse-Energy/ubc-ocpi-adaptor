@@ -478,7 +478,7 @@ export default class InitActionHandler {
 
         const initOrder = backendInitPayload.message.order;
         const finalBeneficiary = beneficiary ?? backendOnInitResponsePayload.payload.beneficiary ?? 'BPP';
-        const bppId = backendInitPayload.context.bpp_id;
+        const bppId = Utils.getBppId();
 
         // Build settlementAccounts array - include BAP from init request and BPP from partner config
         const initPaymentAttributes = initOrder['beckn:payment']?.['beckn:paymentAttributes'] as Record<string, unknown> | undefined;

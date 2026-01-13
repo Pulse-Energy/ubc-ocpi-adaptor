@@ -109,6 +109,10 @@ export default class Utils {
         return GLOBAL_VARS.EV_CHARGING_UBC_BPP_ID;
     }
 
+    public static getBppId(): string {
+        return GLOBAL_VARS.EV_CHARGING_UBC_BPP_ID;
+    }
+
     public static getUniqueId(domain?: BecknDomain): string {
         return GLOBAL_VARS.EV_CHARGING_UBC_UNIQUE_ID;
     }
