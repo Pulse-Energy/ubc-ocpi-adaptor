@@ -227,10 +227,10 @@ export default class ConfirmActionHandler {
         };
         
         const ubcOnConfirmPayload: UBCOnConfirmRequestPayload = {
-            context: {
+            context: Utils.getBPPContext({
                 ...backendConfirmPayload.context,
                 action: BecknAction.on_confirm,
-            },
+            }),
             message: {
                 order: {
                     '@context': confirmOrder['@context'],

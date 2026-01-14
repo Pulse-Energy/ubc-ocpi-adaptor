@@ -599,8 +599,12 @@ export default class PublishActionService {
         availabilityWindows?: Array<{ start_time: string; end_time: string }>,
         isActive?: boolean,
         reservationTime?: number,
-        connectorId?: string
+        connectorId?: string,
+        bpp_id?: string,
+        bpp_uri?: string,
     ): Promise<BecknCatalog[]> {
+        bpp_id = bpp_id || Utils.getBppId();
+        bpp_uri = bpp_uri || Utils.getBppUri();
         // Default accepted payment methods if not provided
         const paymentMethods = acceptedPaymentMethods && acceptedPaymentMethods.length > 0
             ? acceptedPaymentMethods as AcceptedPaymentMethod[]
@@ -906,7 +910,7 @@ export default class PublishActionService {
                 "beckn:id": `pulse-energy-catalog-v1`,
                 "beckn:descriptor": {
                     "@type": ObjectType.descriptor,
-                    "schema:name": `${bpp_id} Charging Network`,
+                    "schema:name": `${Utils.getBppId()} Charging Network`,
                     "beckn:shortDesc": "Comprehensive network of charging stations",
                 },
                 "beckn:bppId": Utils.getBppId(),
@@ -923,6 +927,8 @@ export default class PublishActionService {
      * Builds an empty catalog (used when connector is not found)
      */
     private static buildEmptyCatalog(bpp_id: string, bpp_uri: string): BecknCatalog[] {
+        bpp_id = bpp_id || Utils.getBppId();
+        bpp_uri = bpp_uri || Utils.getBppUri();
         return [
             {
                 "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
@@ -930,7 +936,7 @@ export default class PublishActionService {
                 "beckn:id": `pulse-energy-catalog-v1`,
                 "beckn:descriptor": {
                     "@type": ObjectType.descriptor,
-                    "schema:name": `${bpp_id} Charging Network`,
+                    "schema:name": `${Utils.getBppId()} Charging Network`,
                     "beckn:shortDesc": "Comprehensive network of charging stations",
                 },
                 "beckn:bppId": bpp_id,
