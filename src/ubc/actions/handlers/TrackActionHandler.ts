@@ -10,7 +10,6 @@ import { BecknDomain } from "../../schema/v2.0.0/enums/BecknDomain";
 import { Prisma } from "@prisma/client";
 import BecknLogDbService from "../../../db-services/BecknLogDbService";
 import PaymentTxnDbService from "../../../db-services/PaymentTxnDbService";
-import Utils from "../../../utils/Utils";
 
 /**
  * Handler for track action
@@ -135,85 +134,18 @@ export default class TrackActionHandler {
     }
 
     public static async sendOnTrackToBAPONIX(authorization_reference: string): Promise<void> {
-        const reqId = authorization_reference;
+        const paymentTransaction = await PaymentTxnDbService.getByAuthorizationReference(authorization_reference);
+        if (!paymentTransaction) {
+            logger.warn(`🟡 [${authorization_reference}] Payment transaction not found in sendOnTrackToBAPONIX`, { data: { authorization_reference } });
+            return;
+        }
         
-        try {
-            // Get payment transaction to get beckn_transaction_id
-            const paymentTxn = await PaymentTxnDbService.getFirstByFilter({
-                where: {
-                    authorization_reference: authorization_reference,
-                },
-            });
-
-            if (!paymentTxn?.beckn_transaction_id) {
-                logger.warn(`🟡 [${reqId}] Payment txn or beckn_transaction_id not found for on_track: ${authorization_reference}`);
-                return;
-            }
-
-            // Fetch existing track REQUEST to use as template (for context, seller, buyer, orderItems structure)
-            // We need the original track request, not the response, to get the correct context structure
-            const existingBppTrackRequest = await TrackActionHandler.fetchExistingBppTrackRequest(paymentTxn.beckn_transaction_id);
-            if (!existingBppTrackRequest) {
-                logger.warn(`🟡 [${reqId}] No existing BPP track request found in sendOnTrackToBAPONIX`, { 
-                    data: { 
-                        authorization_reference,
-                        beckn_transaction_id: paymentTxn.beckn_transaction_id
-                    } 
-                });
-                return;
-            }
-
-            // Get the order_id from the existing request
-            const orderId = existingBppTrackRequest.message?.order?.['beckn:id'] || authorization_reference;
-
-            logger.debug(`🟡 [${reqId}] Building on_track with latest session data`, {
-                data: { authorization_reference, orderId, transaction_id: paymentTxn.beckn_transaction_id },
-            });
-
-            // Build backend track payload with latest session data
-            const backendTrackPayload = {
-                metadata: {
-                    domain: BecknDomain.EVChargingUBC,
-                    beckn_transaction_id: paymentTxn.beckn_transaction_id,
-                },
-                payload: {
-                    order_id: orderId,
-                },
-            };
-
-            // Fetch latest session data and build backend response
-            const backendOnTrackResponsePayload = await TrackActionService.buildBackendTrackResponse(backendTrackPayload);
-
-            // Use existing track REQUEST as the template to preserve structure (seller, buyer, orderItems, context)
-            const trackRequestTemplate: UBCTrackRequestPayload = existingBppTrackRequest as UBCTrackRequestPayload;
-
-            // Translate backend response to UBC format using the original request template
-            const updatedOnTrackPayload = TrackActionService.translateBackendToUBC(
-                trackRequestTemplate,
-                backendOnTrackResponsePayload,
-            );
-
-            logger.debug(`🟡 [${reqId}] Sending updated on_track to BPP ONIX`, {
-                data: { 
-                    url: `${Utils.getBPPClientHost()}/${BecknAction.on_track}`,
-                    transaction_id: updatedOnTrackPayload.context?.transaction_id,
-                    message_id: updatedOnTrackPayload.context?.message_id,
-                },
-            });
-
-            // Send updated on_track response with latest session data
-            await TrackActionService.sendOnTrackCallToBecknONIX(updatedOnTrackPayload);
-            logger.debug(`🟢 [${reqId}] Sent updated on_track with latest session data`, {
-                data: { authorization_reference, orderId },
-            });
+        const becknTransactionId = paymentTransaction.beckn_transaction_id;
+        const existingBppTrackResponse = await TrackActionHandler.fetchExistingBppTrackResponse(becknTransactionId);
+        if (existingBppTrackResponse) {
+            TrackActionService.sendOnTrackCallToBecknONIX(existingBppTrackResponse?.payload);
         }
-        catch (e: any) {
-            logger.error(
-                `🔴 [${reqId}] Error in sendOnTrackToBAPONIX: ${e?.toString()}`,
-                e,
-                { data: { authorization_reference } },
-            );
-        }
+        logger.warn(`🟡 [${authorization_reference}] No existing BPP track response found in sendOnTrackToBAPONIX`, { data: { becknTransactionId } });
     }
 
 }
