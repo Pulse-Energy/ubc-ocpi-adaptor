@@ -549,7 +549,7 @@ export default class OCPIv221SessionsModuleIncomingRequestService {
                     data: { logData, sessionId: stored.id } 
                 });
 
-                TrackActionHandler.sendOnTrackToBAPONIX(stored?.authorization_reference ?? '');
+                // TrackActionHandler.sendOnTrackToBAPONIX(stored?.authorization_reference ?? '');
             }
 
             logger.debug(`🟡 [${reqId}] Mapping Prisma session to OCPI format in handlePatchSession`, { data: logData });
