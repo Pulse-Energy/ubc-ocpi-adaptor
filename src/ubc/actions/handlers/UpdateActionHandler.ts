@@ -360,7 +360,7 @@ export default class UpdateActionHandler {
                         setTimeout(async () => {
                             try {
                                 // send a stop charging command to the CPO
-                                const sessionNew = await SessionDbService.getByAuthorizationReference(session.authorization_reference);
+                                const sessionNew = await SessionDbService.getByAuthorizationReference(beckn_order_id);
                                 if (!sessionNew) {
                                     throw new Error('Session not found');
                                 }
