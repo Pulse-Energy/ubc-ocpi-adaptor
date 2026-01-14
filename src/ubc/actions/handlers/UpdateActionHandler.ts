@@ -358,18 +358,23 @@ export default class UpdateActionHandler {
                     if (partnerAdditionalProps?.test_mode === true) {
                         // add a delay of 10 seconds
                         setTimeout(async () => {
-                            // send a stop charging command to the CPO
-                            const sessionNew = await SessionDbService.getByAuthorizationReference(beckn_order_id);
-                            if (!sessionNew) {
-                                throw new Error('Session not found');
+                            try {
+                                // send a stop charging command to the CPO
+                                const sessionNew = await SessionDbService.getByAuthorizationReference(session.authorization_reference);
+                                if (!sessionNew) {
+                                    throw new Error('Session not found');
+                                }
+                                const req = {
+                                    body: {
+                                        partner_id: sessionNew.partner_id,
+                                        session_id: sessionNew.cpo_session_id,
+                                    },
+                                } as Request;
+                                AdminCommandsModule.stopCharging(req);
                             }
-                            const req = {
-                                body: {
-                                    partner_id: sessionNew.partner_id,
-                                    session_id: sessionNew.cpo_session_id,
-                                },
-                            } as Request;
-                            AdminCommandsModule.stopCharging(req);
+                            catch (e: any) {
+                                logger.error(`🔴 Error in UpdateActionHandler.handleEVChargingUBCBppUpdateAction: ${e?.toString()}`, e);
+                            }
                         }, 10000);
 
                         return {
