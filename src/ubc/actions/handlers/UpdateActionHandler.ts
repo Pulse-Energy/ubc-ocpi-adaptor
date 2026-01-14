@@ -370,7 +370,7 @@ export default class UpdateActionHandler {
                                         session_id: sessionNew.cpo_session_id,
                                     },
                                 } as Request;
-                                AdminCommandsModule.stopCharging(req);
+                                await AdminCommandsModule.stopCharging(req);
                             }
                             catch (e: any) {
                                 logger.error(`🔴 Error in UpdateActionHandler.handleEVChargingUBCBppUpdateAction: ${e?.toString()}`, e);
