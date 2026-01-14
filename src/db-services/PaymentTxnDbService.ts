@@ -96,4 +96,13 @@ export default class PaymentTxnDbService {
         });
         return paymentTxn;
     }
+
+    public static async getByAuthorizationReference(authorization_reference: string): Promise<PaymentTxn | null> {
+        return databaseService.prisma.paymentTxn.findFirst({
+            where: { authorization_reference: authorization_reference },
+            orderBy: {
+                created_at: 'desc',
+            },
+        });
+    }
 }

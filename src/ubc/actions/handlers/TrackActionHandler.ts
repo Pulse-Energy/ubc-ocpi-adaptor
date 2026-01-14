@@ -1,7 +1,6 @@
 import { Request } from "express";
 import { HttpResponse } from "../../../types/responses";
 import { logger } from "../../../services/logger.service";
-import UBCResponseService from "../../services/UBCResponseService";
 import { UBCTrackRequestPayload } from "../../schema/v2.0.0/actions/track/types/TrackPayload";
 import { BecknActionResponse } from "../../schema/v2.0.0/types/AckResponse";
 import OnixBppController from "../../controller/OnixBppController";
@@ -10,6 +9,7 @@ import TrackActionService from "../services/TrackActionService";
 import { BecknDomain } from "../../schema/v2.0.0/enums/BecknDomain";
 import { Prisma } from "@prisma/client";
 import BecknLogDbService from "../../../db-services/BecknLogDbService";
+import PaymentTxnDbService from "../../../db-services/PaymentTxnDbService";
 
 /**
  * Handler for track action
@@ -111,11 +111,18 @@ export default class TrackActionHandler {
     }
 
     public static async sendOnTrackToBAPONIX(authorization_reference: string): Promise<void> {
-        const existingBppTrackResponse = await TrackActionHandler.fetchExistingBppTrackResponse(authorization_reference);
+        const paymentTransaction = await PaymentTxnDbService.getByAuthorizationReference(authorization_reference);
+        if (!paymentTransaction) {
+            logger.warn(`🟡 [${authorization_reference}] Payment transaction not found in sendOnTrackToBAPONIX`, { data: { authorization_reference } });
+            return;
+        }
+        
+        const becknTransactionId = paymentTransaction.beckn_transaction_id;
+        const existingBppTrackResponse = await TrackActionHandler.fetchExistingBppTrackResponse(becknTransactionId);
         if (existingBppTrackResponse) {
             TrackActionService.sendOnTrackCallToBecknONIX(existingBppTrackResponse?.payload);
         }
-        logger.warn(`🟡 [${authorization_reference}] No existing BPP track response found in sendOnTrackToBAPONIX`, { data: { authorization_reference } });
+        logger.warn(`🟡 [${authorization_reference}] No existing BPP track response found in sendOnTrackToBAPONIX`, { data: { becknTransactionId } });
     }
 
 }
