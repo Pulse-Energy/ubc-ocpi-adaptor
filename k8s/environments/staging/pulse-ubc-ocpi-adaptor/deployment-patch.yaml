@@ -19,7 +19,7 @@ spec:
     spec:
       containers:
       - name: pulse-ubc-ocpi-adaptor-container
-        image: asia-south1-docker.pkg.dev/pulse-energy-stg/pulse-ubc-ocpi-adaptor/pulse-ubc-ocpi-adaptor:d572c9b 
+        image: asia-south1-docker.pkg.dev/pulse-energy-stg/pulse-ubc-ocpi-adaptor/pulse-ubc-ocpi-adaptor:5e0f59c 
         ports:
           - containerPort: 6001
         resources:
