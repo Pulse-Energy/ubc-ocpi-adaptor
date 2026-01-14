@@ -10,7 +10,6 @@ import { BecknDomain } from "../../schema/v2.0.0/enums/BecknDomain";
 import { Prisma } from "@prisma/client";
 import BecknLogDbService from "../../../db-services/BecknLogDbService";
 import PaymentTxnDbService from "../../../db-services/PaymentTxnDbService";
-import Utils from "../../../utils/Utils";
 
 /**
  * Handler for track action
