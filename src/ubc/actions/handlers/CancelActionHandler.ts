@@ -280,7 +280,7 @@ export default class CancelActionHandler {
             return onCancelResponse;
         } 
         catch (error) {
-            logger.error(`❌ Failed to process cancel action`, error);
+            logger.error(`❌ Failed to process cancel action`, error instanceof Error ? error : undefined);
             throw error;
         }
     }

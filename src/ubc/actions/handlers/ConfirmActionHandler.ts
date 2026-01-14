@@ -18,6 +18,7 @@ import { PaymentTxnAdditionalProps } from '../../../types/PaymentTxn';
 import { EvseDbService } from '../../../db-services/EvseDbService';
 import { SessionDbService } from '../../../db-services/SessionDbService';
 import { LocationDbService } from '../../../db-services/LocationDbService';
+import { ChargingSessionStatus } from '../../schema/v2.0.0/enums/ChargingSessionStatus';
 
 /**
  * Handler for confirm action
@@ -217,19 +218,13 @@ export default class ConfirmActionHandler {
         
         // v0.9: OnConfirm response - added fulfillment with deliveryAttributes (sessionStatus, connectorType, maxPowerKW)
         // v0.9: Removed orderNumber, orderAttributes
-        const deliveryAttributes: Record<string, unknown> = {
+        const deliveryAttributes = {
             '@context': 'https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/EvChargingSession/v1/context.jsonld',
-            '@type': 'ChargingSession',
-            sessionStatus: 'PENDING' as any, // Initial status, will change to ACTIVE when charging starts
+            '@type': 'ChargingSession' as const,
+            sessionStatus: ChargingSessionStatus.PENDING, // Initial status, will change to ACTIVE when charging starts
+            ...(connectorType && { connectorType }),
+            ...(maxPowerKW !== undefined && { maxPowerKW }),
         };
-        
-        // Add connectorType and maxPowerKW if available
-        if (connectorType) {
-            deliveryAttributes.connectorType = connectorType;
-        }
-        if (maxPowerKW !== undefined) {
-            deliveryAttributes.maxPowerKW = maxPowerKW;
-        }
         
         const ubcOnConfirmPayload: UBCOnConfirmRequestPayload = {
             context: {
