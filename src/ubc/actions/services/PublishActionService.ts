@@ -353,7 +353,7 @@ export default class PublishActionService {
      * Used to mark charger as unavailable during charging sessions
      * @param ocpiLocationId - OCPI location ID
      * @param reservationTime - Optional reservation time in seconds
-     * @param becknConnectorId - Optional Beckn connector ID (format: IND*TP*{ocpi_location_id}*{evse_uid}*{connector_id}). If provided, only this connector will be published.
+     * @param becknConnectorId - Optional Beckn connector ID (format: IND*TPC*{ocpi_location_id}*{evse_uid}*{connector_id}). If provided, only this connector will be published.
      */
     public static async publishWithReservation(
         ocpiLocationId: string,
@@ -439,10 +439,6 @@ export default class PublishActionService {
             throw new Error('ocpi_location_ids array is required in payload and must not be empty');
         }
 
-        // Get BPP ID and URI from config
-        const bpp_id = GLOBAL_VARS.EV_CHARGING_UBC_BPP_ID;
-        // Get BPP URI using Utils function and remove /bpp/caller suffix to get base URI
-        const bpp_uri = Utils.getBPPClientHost().replace('/bpp/caller', '');
         const transaction_id = Utils.generateUUID();
 
         // Fetch all locations from database (with partner relation)
@@ -495,8 +491,6 @@ export default class PublishActionService {
             version: UBCVersion.v2_0_0,
             domain: BecknDomain.EVChargingUBC,
             timestamp: new Date().toISOString(),
-            bpp_id: bpp_id,
-            bpp_uri: bpp_uri,
             transaction_id: transaction_id,
             message_id: Utils.generateUUID(),
         });
@@ -505,8 +499,6 @@ export default class PublishActionService {
         const catalogs = await this.getCatalogsFromLocations(
             locations,
             partner,
-            bpp_id,
-            bpp_uri,
             payload.accepted_payment_methods,
             payload.validity,
             payload.availability_windows,
@@ -602,15 +594,17 @@ export default class PublishActionService {
     private static async getCatalogsFromLocations(
         locations: Array<Location & { evses: (EVSE & { evse_connectors: EVSEConnector[] })[]; partner: OCPIPartner | null }>,
         partner: OCPIPartner,
-        bpp_id: string,
-        bpp_uri: string,
         acceptedPaymentMethods?: string[],
         validity?: { start_date: string; end_date: string },
         availabilityWindows?: Array<{ start_time: string; end_time: string }>,
         isActive?: boolean,
         reservationTime?: number,
-        connectorId?: string
+        connectorId?: string,
+        bpp_id?: string,
+        bpp_uri?: string,
     ): Promise<BecknCatalog[]> {
+        bpp_id = bpp_id || Utils.getBppId();
+        bpp_uri = bpp_uri || Utils.getBppUri();
         // Default accepted payment methods if not provided
         const paymentMethods = acceptedPaymentMethods && acceptedPaymentMethods.length > 0
             ? acceptedPaymentMethods as AcceptedPaymentMethod[]
@@ -757,8 +751,8 @@ export default class PublishActionService {
 
             for (const [, evse] of location.evses.entries()) {
                 for (const connector of evse.connectors) {
-                    // Build Beckn connector ID (format: IND*TP*{ocpi_location_id}*{evse_uid}*{connector_id})
-                    const builtConnectorId = `IND*TP*${location.ocpi_location_id}*${evse.uid}*${connector.connector_id}`;
+                    // Build Beckn connector ID (format: IND*TPC*{ocpi_location_id}*{evse_uid}*{connector_id})
+                    const builtConnectorId = `IND*TPC*${location.ocpi_location_id}*${evse.uid}*${connector.connector_id}`;
                     
                     // Collect tariff IDs from connector
                     if (connector.tariff_ids && connector.tariff_ids.length > 0) {
@@ -916,11 +910,11 @@ export default class PublishActionService {
                 "beckn:id": `pulse-energy-catalog-v1`,
                 "beckn:descriptor": {
                     "@type": ObjectType.descriptor,
-                    "schema:name": `${bpp_id} Charging Network`,
+                    "schema:name": `${Utils.getBppId()} Charging Network`,
                     "beckn:shortDesc": "Comprehensive network of charging stations",
                 },
-                "beckn:bppId": bpp_id,
-                "beckn:bppUri": bpp_uri,
+                "beckn:bppId": Utils.getBppId(),
+                "beckn:bppUri": Utils.getBppUri(),
                 "beckn:items": items,
                 "beckn:offers": offers,
             },
@@ -933,6 +927,8 @@ export default class PublishActionService {
      * Builds an empty catalog (used when connector is not found)
      */
     private static buildEmptyCatalog(bpp_id: string, bpp_uri: string): BecknCatalog[] {
+        bpp_id = bpp_id || Utils.getBppId();
+        bpp_uri = bpp_uri || Utils.getBppUri();
         return [
             {
                 "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
@@ -940,7 +936,7 @@ export default class PublishActionService {
                 "beckn:id": `pulse-energy-catalog-v1`,
                 "beckn:descriptor": {
                     "@type": ObjectType.descriptor,
-                    "schema:name": `${bpp_id} Charging Network`,
+                    "schema:name": `${Utils.getBppId()} Charging Network`,
                     "beckn:shortDesc": "Comprehensive network of charging stations",
                 },
                 "beckn:bppId": bpp_id,

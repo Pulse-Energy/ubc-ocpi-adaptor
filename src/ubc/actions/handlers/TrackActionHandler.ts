@@ -10,6 +10,7 @@ import { BecknDomain } from "../../schema/v2.0.0/enums/BecknDomain";
 import { Prisma } from "@prisma/client";
 import BecknLogDbService from "../../../db-services/BecknLogDbService";
 import PaymentTxnDbService from "../../../db-services/PaymentTxnDbService";
+import Utils from "../../../utils/Utils";
 
 /**
  * Handler for track action
@@ -88,6 +89,29 @@ export default class TrackActionHandler {
     }
 
     public static async fetchExistingBppTrackResponse(transactionId: string): Promise<any | null> {
+        const becknLogs = await BecknLogDbService.getByFilters({
+            where: {
+                transaction_id: transactionId,
+                action: `bpp.out.request.${BecknAction.on_track}`,
+                domain: BecknDomain.EVChargingUBC,
+            },
+            select: {
+                payload: true,
+            },
+            orderBy: {
+                created_on: Prisma.SortOrder.desc,
+            },
+            take: 1,
+        });
+
+        if (becknLogs?.records && becknLogs.records.length > 0) {
+            return becknLogs.records[0].payload;
+        }
+
+        return null;
+    }
+
+    public static async fetchExistingBppTrackRequest(transactionId: string): Promise<any | null> {
         const becknLogs = await BecknLogDbService.getByFilters({
             where: {
                 transaction_id: transactionId,

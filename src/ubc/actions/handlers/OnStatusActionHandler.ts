@@ -18,9 +18,8 @@ import { BecknPayment } from "../../schema/v2.0.0/types/Payment";
 import PaymentTxnDbService from "../../../db-services/PaymentTxnDbService";
 import BecknLogDbService from "../../../db-services/BecknLogDbService";
 import { Prisma } from "@prisma/client";
-import { LocationDbService } from "../../../db-services/LocationDbService";
-import { OCPIStatusMapper } from "../../utils/OCPIStatusMapper";
 import { GenericPaymentTxnStatus } from "../../../types/BillDesk";
+import { BecknPaymentStatus } from "../../schema/v2.0.0/enums/PaymentStatus";
 
 /**
  * Handler for status action
@@ -68,6 +67,63 @@ export default class OnStatusActionHandler {
     }
 
     /**
+     * Reusable function to send on_status with COMPLETED payment status
+     * Updates payment transaction status to COMPLETED and forwards on_status to BPP ONIX
+     * @param authorization_reference - Payment transaction authorization reference
+     * @param oldPaymentStatus - Optional old payment status (defaults to PENDING)
+     */
+    public static async sendOnStatusWithCompletedPayment(
+        authorization_reference: string,
+        oldPaymentStatus?: GenericPaymentTxnStatus
+    ): Promise<void> {
+        try {
+            logger.info('Sending on_status with COMPLETED payment status', {
+                authorization_reference,
+                oldPaymentStatus,
+            });
+
+            // Update payment status to COMPLETED
+            const paymentTxn = await PaymentTxnDbService.getFirstByFilter({
+                where: {
+                    authorization_reference: authorization_reference,
+                },
+            });
+
+            if (!paymentTxn) {
+                throw new Error(`Payment transaction not found for authorization_reference: ${authorization_reference}`);
+            }
+
+            // Update payment status to COMPLETED
+            await PaymentTxnDbService.update(paymentTxn.id, {
+                status: BecknPaymentStatus.COMPLETED,
+            });
+
+            logger.info('Updated payment status to COMPLETED', {
+                paymentTxnId: paymentTxn.id,
+                authorization_reference,
+            });
+
+            // Send on_status with COMPLETED payment status
+            await OnStatusActionHandler.handleEVChargingUBCBppOnStatusAction({
+                authorization_reference: authorization_reference,
+                payment_status: BecknPaymentStatus.COMPLETED,
+                oldPaymentStatus: oldPaymentStatus || GenericPaymentTxnStatus.Pending,
+            });
+
+            logger.info('Successfully sent on_status with COMPLETED payment status', {
+                authorization_reference,
+            });
+        }
+        catch (error: unknown) {
+            // Log error but don't fail - status update was already done
+            const err = error instanceof Error ? error : new Error(String(error));
+            logger.error('Failed to send on_status with COMPLETED payment status', err, {
+                authorization_reference,
+            });
+        }
+    }
+
+    /**
      * Translates backend async on_status payload to UBC format
      * This is for UNSOLICITED on_status sent by BPP (without preceding status request)
      * According to schema: formulate using data from on_select and on_init
@@ -102,91 +158,71 @@ export default class OnStatusActionHandler {
             bpp_uri: existingOnInitResponse.context.bpp_uri,
         });
 
-        // Build simplified orderItems (only orderedItem for async on_status per schema)
-        // Per schema line 5643-5646: async on_status orderItems should only have beckn:orderedItem
+        // Build orderItems with full details (orderedItem, quantity, price) per example schema
         const selectOrderItems = selectOrder['beckn:orderItems'] as Record<string, unknown>[];
         const orderItems = selectOrderItems.map(item => ({
             "beckn:orderedItem": item['beckn:orderedItem'] as string,
+            "beckn:quantity": item['beckn:quantity'] as Record<string, unknown>,
+            "beckn:price": item['beckn:price'] as Record<string, unknown>,
         }));
 
-        // Build payment object with only necessary fields per schema
+        // Build payment object with all fields per example schema
         const initPaymentData = initPayment as Record<string, unknown>;
+        const beneficiary = (initPaymentData['beckn:beneficiary'] as string) || 'BPP';
         const paymentObject: Partial<BecknPayment> = {
             "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
             "@type": ObjectType.payment,
             "beckn:id": initPaymentData['beckn:id'] as string,
             "beckn:amount": initPaymentData['beckn:amount'] as BecknPayment['beckn:amount'],
-            "beckn:paymentURL": initPaymentData['beckn:paymentURL'] as string,
-            "beckn:txnRef": initPaymentData['beckn:txnRef'] as string,
-            "beckn:beneficiary": initPaymentData['beckn:beneficiary'] as string,
+            "beckn:beneficiary": beneficiary,
             "beckn:paymentStatus": backendOnStatusRequestPayload.payment_status,
         };
 
-        // Add paidAt only if present (conditional for BAP beneficiary)
-        if (initPaymentData['beckn:paidAt']) {
+        // Only include paymentURL and txnRef for BPP beneficiary (per init logic)
+        if (beneficiary === 'BPP') {
+            if (initPaymentData['beckn:paymentURL']) {
+                paymentObject['beckn:paymentURL'] = initPaymentData['beckn:paymentURL'] as string;
+            }
+            if (initPaymentData['beckn:txnRef']) {
+                paymentObject['beckn:txnRef'] = initPaymentData['beckn:txnRef'] as string;
+            }
+        }
+
+        // Add paidAt when paymentStatus is COMPLETED (per example schema)
+        if (backendOnStatusRequestPayload.payment_status === BecknPaymentStatus.COMPLETED) {
+            paymentObject['beckn:paidAt'] = new Date().toISOString();
+        }
+        else if (initPaymentData['beckn:paidAt']) {
+            // Use existing paidAt if present
             paymentObject['beckn:paidAt'] = initPaymentData['beckn:paidAt'] as string;
         }
 
-        // Fetch connectorStatus from EVSE table
-        let connectorStatus: string | undefined;
-        const orderedItem = orderItems[0]?.['beckn:orderedItem'] as string;
-        if (orderedItem) {
-            try {
-                // Find the EVSE directly from the Beckn connector ID
-                const evse = await LocationDbService.findEVSEByBecknConnectorId(orderedItem);
-                if (evse) {
-                    // Map OCPI EVSE status to UBC connectorStatus
-                    connectorStatus = OCPIStatusMapper.mapOCPIStatusToUBCConnectorStatus(evse.status);
-                    logger.debug(`🟢 Fetched connector status from EVSE for async on_status`, { 
-                        data: { 
-                            ocpiStatus: evse.status,
-                            ubcConnectorStatus: connectorStatus,
-                            orderedItem,
-                        } 
-                    });
-                }
+        // Include paymentAttributes if present (per example schema)
+        // Only include upiTransactionId, exclude settlementAccounts (not in example schema for on_status)
+        const initPaymentAttributes = initPaymentData['beckn:paymentAttributes'] as Record<string, unknown> | undefined;
+        if (initPaymentAttributes) {
+            const paymentAttributes: Record<string, unknown> = {
+                "@context": initPaymentAttributes['@context'] || "https://raw.githubusercontent.com/bhim/ubc-tsd/main/beckn-schemas/UBCExtensions/v1/context.jsonld",
+                "@type": initPaymentAttributes['@type'] || "UBCPaymentAttributes",
+            };
+            
+            // Only include upiTransactionId if present (per example schema)
+            if (initPaymentAttributes['upiTransactionId']) {
+                paymentAttributes['upiTransactionId'] = initPaymentAttributes['upiTransactionId'];
             }
-            catch (e: any) {
-                logger.warn(`🟡 Could not fetch connector status from EVSE for async on_status: ${e?.toString()}`, { 
-                    data: { orderedItem, error: e } 
-                });
-                // Continue without connectorStatus if EVSE lookup fails
+            
+            // Only include paymentAttributes if it has upiTransactionId
+            if (paymentAttributes['upiTransactionId']) {
+                paymentObject['beckn:paymentAttributes'] = paymentAttributes as BecknPayment['beckn:paymentAttributes'];
             }
         }
 
-        // Build fulfillment with deliveryAttributes including connectorStatus and sessionStatus
-        // Per schema line 5690-5699: fulfillment should always be included in async on_status
-        // Cast initOrder to any to access fulfillment (may not be in type definition)
-        const initOrderRecord = initOrder as any;
-        const initFulfillment = initOrderRecord['beckn:fulfillment'] as Record<string, unknown> | undefined;
-        const deliveryAttributes = (initFulfillment?.['beckn:deliveryAttributes'] || {}) as Record<string, unknown>;
-        
-        // Update deliveryAttributes with connectorStatus from EVSE and ensure sessionStatus is present
-        const updatedDeliveryAttributes = {
-            "@context": deliveryAttributes['@context'] || "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/EvChargingSession/v1/context.jsonld",
-            "@type": deliveryAttributes['@type'] || "ChargingSession",
-            ...deliveryAttributes,
-            ...(connectorStatus ? { connectorStatus } : {}),
-            // Ensure sessionStatus is present (from init fulfillment or default to PENDING)
-            sessionStatus: deliveryAttributes['sessionStatus'] || 'PENDING',
-        };
-
-        // Always include fulfillment per schema
-        const fulfillment = {
-            "@context": initFulfillment?.['@context'] || "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
-            "@type": initFulfillment?.['@type'] || "beckn:Fulfillment",
-            "beckn:id": initFulfillment?.['beckn:id'] || `fulfillment-${initOrder['beckn:id']}`,
-            "beckn:mode": initFulfillment?.['beckn:mode'] || "RESERVATION",
-            ...(initFulfillment || {}),
-            'beckn:deliveryAttributes': updatedDeliveryAttributes,
-        };
-
-        // Per schema line 5638-5641: buyer should only have beckn:id for async on_status
+        // Include full buyer details per example schema (not just id)
+        // Ensure buyer @context is main (per schema specification)
         const selectBuyer = selectOrder['beckn:buyer'] as Record<string, unknown> | undefined;
-        const simplifiedBuyer = selectBuyer ? {
-            "@context": selectBuyer['@context'] as string || "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
-            "@type": selectBuyer['@type'] as string || "beckn:Buyer",
-            "beckn:id": selectBuyer['beckn:id'] as string,
+        const fullBuyer = selectBuyer ? {
+            ...selectBuyer,
+            "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
         } : {
             "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
             "@type": "beckn:Buyer",
@@ -202,10 +238,10 @@ export default class OnStatusActionHandler {
                     "beckn:id": initOrder['beckn:id'], // from on_init
                     "beckn:orderStatus": OrderStatus.PENDING, // Can be PENDING or INPROGRESS per schema
                     "beckn:seller": selectOrder['beckn:seller'], // from on_select
-                    "beckn:buyer": simplifiedBuyer as any, // Simplified buyer (only id) per schema line 5638-5641
-                    "beckn:orderItems": orderItems as any, // Only orderedItem per schema (line 5643-5646)
+                    "beckn:buyer": fullBuyer as any, // Full buyer details per example schema
+                    "beckn:orderItems": orderItems as any, // Full orderItems (orderedItem, quantity, price) per example schema
                     "beckn:orderValue": selectOrder['beckn:orderValue'], // from on_select
-                    "beckn:fulfillment": fulfillment as any, // Always include fulfillment per schema (line 5690-5699)
+                    // Note: fulfillment is NOT included in on_status per example schema (06_on_status_1)
                     "beckn:payment": paymentObject as BecknPayment, // from on_init with updated paymentStatus
                 },
             },

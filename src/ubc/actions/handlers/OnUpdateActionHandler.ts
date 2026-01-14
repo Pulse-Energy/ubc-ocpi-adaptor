@@ -96,10 +96,10 @@ export default class OnUpdateActionHandler {
         // Per schema (lines 2556-2630): on_update should NOT include orderAttributes
         // Build order object explicitly, excluding orderAttributes
         const ubcOnUpdatePayload: UBCOnUpdateRequestPayload = {
-            context: {
+            context: Utils.getBPPContext({
                 ...existingBppOnUpdateResponse.context,
                 action: BecknAction.on_update,
-            },
+            }),
             message: {
                 order: {
                     "@context": order['@context'],

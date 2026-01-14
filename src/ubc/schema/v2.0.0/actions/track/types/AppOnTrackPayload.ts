@@ -1,4 +1,5 @@
 import { OrderStatus } from "../../../enums/OrderStatus";
+import { ChargingSessionStatus } from "../../../enums/ChargingSessionStatus";
 
 export enum ChargingMetricsName {
     soc = 'STATE_OF_CHARGE',
@@ -26,6 +27,7 @@ export type UBCAppOnTrackResponsePayload = {
     charge_point_connector_id: string;
     track_url?: string;
     telemetry_data: ChargingTelemetry;
+    session_status?: ChargingSessionStatus;
 };
 
 

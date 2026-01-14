@@ -198,11 +198,20 @@ export default class BillDeskPaymentService {
                             paymentStatus: becknPaymentStatus,
                         });
 
-                        await OnStatusActionHandler.handleEVChargingUBCBppOnStatusAction({
-                            authorization_reference: paymentTxn.authorization_reference,
-                            payment_status: becknPaymentStatus,
-                            oldPaymentStatus: oldPaymentStatus as GenericPaymentTxnStatus,
-                        });
+                        // Use reusable function for COMPLETED status, otherwise use direct handler
+                        if (becknPaymentStatus === BecknPaymentStatus.COMPLETED) {
+                            await OnStatusActionHandler.sendOnStatusWithCompletedPayment(
+                                paymentTxn.authorization_reference,
+                                oldPaymentStatus as GenericPaymentTxnStatus
+                            );
+                        }
+                        else {
+                            await OnStatusActionHandler.handleEVChargingUBCBppOnStatusAction({
+                                authorization_reference: paymentTxn.authorization_reference,
+                                payment_status: becknPaymentStatus,
+                                oldPaymentStatus: oldPaymentStatus as GenericPaymentTxnStatus,
+                            });
+                        }
 
                         logger.info('BillDesk Callback: Status forwarded to BPP ONIX successfully', {
                             paymentTxnId: paymentTxn.id,

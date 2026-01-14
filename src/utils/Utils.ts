@@ -109,8 +109,16 @@ export default class Utils {
         return GLOBAL_VARS.EV_CHARGING_UBC_BPP_ID;
     }
 
+    public static getBppId(): string {
+        return GLOBAL_VARS.EV_CHARGING_UBC_BPP_ID;
+    }
+
     public static getUniqueId(domain?: BecknDomain): string {
         return GLOBAL_VARS.EV_CHARGING_UBC_UNIQUE_ID;
+    }
+
+    public static getBppUri(): string {
+        return `${GLOBAL_VARS.EV_CHARGING_UBC_BPP_CLIENT_HOST}/bpp/receiver`;
     }
 
 
@@ -120,8 +128,8 @@ export default class Utils {
         domain: BecknDomain,
         bap_id?: string,
         bap_uri?: string,
-        bpp_id: string,
-        bpp_uri: string,
+        bpp_id?: string,
+        bpp_uri?: string,
         transaction_id: string,
         message_id: string,
         timestamp?: string,
@@ -132,8 +140,8 @@ export default class Utils {
             domain: domain,
             action: action,
             version: version,
-            bpp_id: bpp_id,
-            bpp_uri: bpp_uri,
+            bpp_id: this.getBppId(),
+            bpp_uri: this.getBppUri(),
             transaction_id: transaction_id,
             message_id: message_id,
             timestamp: timestamp ?? new Date().toISOString(),

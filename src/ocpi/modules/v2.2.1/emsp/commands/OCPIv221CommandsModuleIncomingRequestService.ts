@@ -268,7 +268,7 @@ export default class OCPIv221CommandsModuleIncomingRequestService {
             return;
         }
 
-        const becknConnectorId = `IND*TP*${session.location_id}*${session.evse_uid}*${session.connector_id}`;
+        const becknConnectorId = `IND*TPC*${session.location_id}*${session.evse_uid}*${session.connector_id}`;
 
         // Find EVSE and connector to get power rating and tariff
         const evse = await LocationDbService.findEVSEByBecknConnectorId(becknConnectorId);
@@ -331,8 +331,8 @@ export default class OCPIv221CommandsModuleIncomingRequestService {
         }
 
 
-        // Reconstruct Beckn connector ID: IND*TP*{location_id}*{evse_uid}*{connector_id}
-        const becknConnectorId = `IND*TP*${session.location_id}*${session.evse_uid}*${session.connector_id}`;
+        // Reconstruct Beckn connector ID: IND*TPC*{location_id}*{evse_uid}*{connector_id}
+        const becknConnectorId = `IND*TPC*${session.location_id}*${session.evse_uid}*${session.connector_id}`;
 
         
         // Publish with no reservation (undefined) to restore normal availability

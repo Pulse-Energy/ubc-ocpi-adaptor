@@ -269,6 +269,13 @@ export default class SelectActionHandler {
         // Get buyer from select order (it's in the request but not in the type definition)
         // Per schema example (lines 1122-1232): on_select should NOT include beckn:id or beckn:fulfillment
         // Field order per schema: @context, @type, orderStatus, seller, buyer (REQUIRED), orderItems, orderValue, orderAttributes
+        // Ensure buyer @context is main (per schema specification)
+        const selectBuyer = selectOrder["beckn:buyer"] as Record<string, unknown> | undefined;
+        const buyerWithMainContext = selectBuyer ? {
+            ...selectBuyer,
+            "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
+        } : undefined;
+        
         const ubcOnSelectPayload: UBCOnSelectRequestPayload = {
             context: context,
             message: {
@@ -277,7 +284,7 @@ export default class SelectActionHandler {
                     "@type": selectOrder["@type"],
                     "beckn:orderStatus": OrderStatus.CREATED,
                     "beckn:seller": selectOrder["beckn:seller"],
-                    "beckn:buyer": selectOrder["beckn:buyer"] as any, // Required per schema (lines 1127-1136)
+                    "beckn:buyer": buyerWithMainContext as any, // Required per schema (lines 1127-1136), @context set to main
                     "beckn:orderItems": [orderItemResponse as any], // Cast to any since schema doesn't require lineId
                     "beckn:orderValue": orderValue,
                     "beckn:orderAttributes": selectOrder["beckn:orderAttributes"],
