@@ -375,8 +375,6 @@ export default class UpdateActionHandler {
                         return {
                             session_status: ChargingSessionStatus.COMPLETED,
                         };
-
-                        
                     }
                 }
             } 
