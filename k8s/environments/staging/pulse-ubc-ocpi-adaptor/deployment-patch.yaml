@@ -40,9 +40,9 @@ spec:
             value: "stg"
           - name: INSTANCE_NAME
             value: "stg-pulse-ubc-ocpi-adaptor"
+          - name: TEST_KEY
+            value: "stg-pulse-ubc-ocpi-adaptor"
         envFrom:
-          - secretRef:
-              name: stg-pulse-ubc-ocpi-adaptor-secret
           - secretRef:
               name: stg-pulse-ubc-ocpi-adaptor-secret
 ---
