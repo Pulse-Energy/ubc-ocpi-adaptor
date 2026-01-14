@@ -567,6 +567,11 @@ export default class InitActionHandler {
         // v0.9: OnInit response - removed orderNumber, orderAttributes, fulfillment
         // v0.9: Added beckn:id (order id), full payment with paymentURL, txnRef, acceptedPaymentMethod
         // Build payment object - conditionally include paymentURL, txnRef, acceptedPaymentMethod only for BPP
+        // Always use payment amount from init order to ensure consistency
+        const initPayment = initOrder['beckn:payment'] as Record<string, unknown> | undefined;
+        const initPaymentAmount = initPayment?.['beckn:amount'] as { currency?: string; value?: number } | undefined;
+        const paymentAmount = initPaymentAmount?.value ?? (initOrder['beckn:orderValue']?.['value'] as number | undefined);
+        
         const paymentObject: any = {
             '@context':
                 'https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld',
@@ -574,7 +579,7 @@ export default class InitActionHandler {
             'beckn:id': backendOnInitResponsePayload.payload.becknPaymentId || Utils.generateUUID(),
             'beckn:amount': {
                 currency: 'INR',
-                value: backendOnInitResponsePayload.payload.amount,
+                value: paymentAmount,
             },
             'beckn:beneficiary': finalBeneficiary,
             'beckn:paymentStatus': backendOnInitResponsePayload.payload.paymentStatus,
