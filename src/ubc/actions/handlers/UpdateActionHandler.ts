@@ -24,6 +24,8 @@ import { OCPICommandResponseType } from '../../../ocpi/schema/modules/commands/e
 import PaymentTxnDbService from '../../../db-services/PaymentTxnDbService';
 import { BecknPaymentStatus } from '../../schema/v2.0.0/enums/PaymentStatus';
 import { databaseService } from '../../../services/database.service';
+import OCPIPartnerDbService from '../../../db-services/OCPIPartnerDbService';
+import { OCPIPartnerAdditionalProps } from '../../../types/OCPIPartner';
 
 /**
  * Handler for update action
@@ -349,6 +351,38 @@ export default class UpdateActionHandler {
             if (!session) {
                 throw new Error('Session not found');
             }
+            if (!session.cpo_session_id && session.partner_id) {
+                const partner = await OCPIPartnerDbService.getById(session.partner_id);
+                if (partner) {
+                    const partnerAdditionalProps = partner.additional_props as OCPIPartnerAdditionalProps;
+                    if (partnerAdditionalProps?.test_mode === true) {
+                        // add a delay of 10 seconds
+                        setTimeout(async () => {
+                            try {
+                                // send a stop charging command to the CPO
+                                const sessionNew = await SessionDbService.getByAuthorizationReference(beckn_order_id);
+                                if (!sessionNew) {
+                                    throw new Error('Session not found');
+                                }
+                                const req = {
+                                    body: {
+                                        partner_id: sessionNew.partner_id,
+                                        session_id: sessionNew.cpo_session_id,
+                                    },
+                                } as Request;
+                                await AdminCommandsModule.stopCharging(req);
+                            }
+                            catch (e: any) {
+                                logger.error(`🔴 Error in UpdateActionHandler.handleEVChargingUBCBppUpdateAction: ${e?.toString()}`, e);
+                            }
+                        }, 10000);
+
+                        return {
+                            session_status: ChargingSessionStatus.COMPLETED,
+                        };
+                    }
+                }
+            } 
             const req = {
                 body: {
                     partner_id: session.partner_id,
