@@ -499,8 +499,6 @@ export default class PublishActionService {
         const catalogs = await this.getCatalogsFromLocations(
             locations,
             partner,
-            bpp_id,
-            bpp_uri,
             payload.accepted_payment_methods,
             payload.validity,
             payload.availability_windows,
@@ -596,8 +594,6 @@ export default class PublishActionService {
     private static async getCatalogsFromLocations(
         locations: Array<Location & { evses: (EVSE & { evse_connectors: EVSEConnector[] })[]; partner: OCPIPartner | null }>,
         partner: OCPIPartner,
-        bpp_id: string,
-        bpp_uri: string,
         acceptedPaymentMethods?: string[],
         validity?: { start_date: string; end_date: string },
         availabilityWindows?: Array<{ start_time: string; end_time: string }>,
@@ -913,8 +909,8 @@ export default class PublishActionService {
                     "schema:name": `${bpp_id} Charging Network`,
                     "beckn:shortDesc": "Comprehensive network of charging stations",
                 },
-                "beckn:bppId": bpp_id,
-                "beckn:bppUri": bpp_uri,
+                "beckn:bppId": Utils.getBppId(),
+                "beckn:bppUri": Utils.getBppUri(),
                 "beckn:items": items,
                 "beckn:offers": offers,
             },
