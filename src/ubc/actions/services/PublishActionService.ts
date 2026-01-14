@@ -439,10 +439,6 @@ export default class PublishActionService {
             throw new Error('ocpi_location_ids array is required in payload and must not be empty');
         }
 
-        // Get BPP ID and URI from config
-        const bpp_id = GLOBAL_VARS.EV_CHARGING_UBC_BPP_ID;
-        // Get BPP URI using Utils function and remove /bpp/caller suffix to get base URI
-        const bpp_uri = Utils.getBPPClientHost().replace('/bpp/caller', '');
         const transaction_id = Utils.generateUUID();
 
         // Fetch all locations from database (with partner relation)
@@ -495,8 +491,6 @@ export default class PublishActionService {
             version: UBCVersion.v2_0_0,
             domain: BecknDomain.EVChargingUBC,
             timestamp: new Date().toISOString(),
-            bpp_id: bpp_id,
-            bpp_uri: bpp_uri,
             transaction_id: transaction_id,
             message_id: Utils.generateUUID(),
         });
