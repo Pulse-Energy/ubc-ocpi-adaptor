@@ -65,4 +65,5 @@ export type OCPIPartnerAdditionalProps = {
     settlement_account?: SettlementAccount; // BPP settlement account for paymentAttributes
     mock_rating_request?: boolean; // If true, mock the rating response instead of calling backend,
     test_mode?: boolean; // If true, the partner is in test mode
+    stop_charging_delay?: number; // If true, the partner is in test mode
 };

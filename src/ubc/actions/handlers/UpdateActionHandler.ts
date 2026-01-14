@@ -355,7 +355,8 @@ export default class UpdateActionHandler {
                 const partner = await OCPIPartnerDbService.getById(session.partner_id);
                 if (partner) {
                     const partnerAdditionalProps = partner.additional_props as OCPIPartnerAdditionalProps;
-                    if (partnerAdditionalProps?.test_mode === true) {
+                    if (partnerAdditionalProps?.test_mode === true ) {
+                        const stopChargingDelay = partnerAdditionalProps?.stop_charging_delay ?? 10;
                         // add a delay of 10 seconds
                         setTimeout(async () => {
                             try {
@@ -375,7 +376,7 @@ export default class UpdateActionHandler {
                             catch (e: any) {
                                 logger.error(`🔴 Error in UpdateActionHandler.handleEVChargingUBCBppUpdateAction: ${e?.toString()}`, e);
                             }
-                        }, 10000);
+                        }, 1000 * stopChargingDelay);
 
                         return {
                             session_status: ChargingSessionStatus.COMPLETED,
