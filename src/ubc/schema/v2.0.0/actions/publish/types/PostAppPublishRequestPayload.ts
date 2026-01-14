@@ -27,7 +27,7 @@ export type PostAppPublishRequestPayload = {
     isActive?: boolean;
     /** Optional: Reservation time in seconds. If provided, excludes the period from now to now + reservationTime from availability windows */
     reservationTime?: number;
-    /** Optional: Beckn connector ID (format: IND*TP*{ocpi_location_id}*{evse_uid}*{connector_id}). If provided, only this connector will be published. */
+    /** Optional: Beckn connector ID (format: IND*TPC*{ocpi_location_id}*{evse_uid}*{connector_id}). If provided, only this connector will be published. */
     connector_id?: string;
 };
 
