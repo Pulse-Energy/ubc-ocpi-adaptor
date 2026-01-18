@@ -118,9 +118,9 @@ export interface RazorpayCreateUPIPaymentRequest {
     /** Razorpay Order ID */
     order_id: string;
     /** Customer email */
-    email: string;
+    email?: string;
     /** Customer phone number */
-    contact: string;
+    contact?: string;
     /** Payment method - "upi" */
     method: 'upi';
     /** Customer ID (required for saving VPA) */
@@ -148,6 +148,8 @@ export interface RazorpayCreateUPIPaymentRequest {
     };
     /** Callback URL for payment status */
     callback_url?: string;
+    /** Fee amount in paise (for Customer Fee Bearer - CFB) */
+    fee?: number;
 }
 
 export interface RazorpayCreateUPIPaymentResponse {

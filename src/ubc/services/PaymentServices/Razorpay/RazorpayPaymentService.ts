@@ -817,9 +817,10 @@ export default class RazorpayPaymentService {
                 };
             }
 
+            const feeAmount = Math.ceil(0.2 * amountInPaise / 100) + 2 * Math.round(9 * Math.ceil(0.2 * amountInPaise / 100) / 100);
             const createPaymentResponse = await RazorpayPaymentGatewayService.createUPIPayment(
                 {
-                    amount: amountInPaise,
+                    amount: amountInPaise + feeAmount,
                     currency: 'INR',
                     order_id: orderId,
                     email: customerInfo.email,
@@ -832,12 +833,13 @@ export default class RazorpayPaymentService {
                     },
                     ip: deviceInfo?.ip,
                     user_agent: deviceInfo?.user_agent,
-                    referer: deviceInfo?.referer,
+                    referer: deviceInfo?.referer ?? 'https://pulseenergy.io/',
                     description: `Payment for ${paymentTxn.authorization_reference || paymentTxn.id}`,
                     notes: {
                         payment_txn_id: paymentTxn.id,
                         authorization_reference: paymentTxn.authorization_reference || '',
                     },
+                    fee: feeAmount, // Pass calculated fee for CFB
                 },
                 partnerId
             );

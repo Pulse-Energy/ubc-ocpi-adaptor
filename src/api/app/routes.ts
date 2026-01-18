@@ -1163,7 +1163,7 @@ router.post('/webhook/razorpay', async (req: Request, res: Response) => {
  * Razorpay Callback Endpoint (POST)
  * Handles customer redirect after payment completion
  */
-router.post('/callback/razorpay', async (req: Request, res: Response) => {
+router.post('/external/payment/validation', async (req: Request, res: Response) => {
     try {
         const callbackPayload = req.body as RazorpayCallbackPayload;
         
