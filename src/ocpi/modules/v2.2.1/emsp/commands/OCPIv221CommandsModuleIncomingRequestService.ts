@@ -185,23 +185,6 @@ export default class OCPIv221CommandsModuleIncomingRequestService {
                     });
                 }
             }
-            else if (command_type === OCPICommandType.STOP_SESSION) {
-                if (result?.result === OCPICommandResultType.ACCEPTED) {
-                    // Accepted: publish without reservation and send on_update async with COMPLETED status
-                    Utils.executeAsync(async () => {
-                        try {
-                            await OCPIv221CommandsModuleIncomingRequestService.handleStopChargingAccepted(
-                                session,
-                                reqId
-                            );
-                        }
-                        catch (e: any) {
-                            logger.error(`🔴 [${reqId}] Error handling stop charging accepted: ${e?.toString()}`, e);
-                        }
-                    });
-                }
-                // If rejected, do nothing
-            }
 
             const response = {
                 httpStatus: 200,
@@ -310,12 +293,20 @@ export default class OCPIv221CommandsModuleIncomingRequestService {
             tariffRate,
         });
 
+        // Send on_update with ACTIVE status
+        await OCPIv221CommandsModuleIncomingRequestService.sendOnUpdateWithStatus(
+            session,
+            ChargingSessionStatus.ACTIVE,
+            reqId,
+        );
+
         // Publish catalog with reservation
         await PublishActionService.publishWithReservation(
             session.location_id,
             reservationTime,
             becknConnectorId
         );
+        
     }
 
     /**
@@ -354,7 +345,7 @@ export default class OCPIv221CommandsModuleIncomingRequestService {
      * Sends on_update async with the specified session status
      */
     private static async sendOnUpdateWithStatus(
-        session: any,
+        session: Session,
         sessionStatus: ChargingSessionStatus,
         reqId: string
     ): Promise<void> {
