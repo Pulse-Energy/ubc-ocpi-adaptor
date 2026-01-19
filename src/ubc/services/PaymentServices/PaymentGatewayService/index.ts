@@ -253,7 +253,6 @@ export default class PaymentGatewayService {
                 const refundResult = await RazorpayPaymentService.processRefund(
                     paymentId,
                     refundAmountInPaise,
-                    partnerId
                 );
 
                 if (refundResult.success) {
