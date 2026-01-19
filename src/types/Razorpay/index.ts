@@ -43,6 +43,18 @@ export enum RazorpayPaymentMethod {
     EMI = 'emi',
 }
 
+// ============ Webhook Event Types ============
+
+export enum RazorpayWebhookEvent {
+    OrderPaid = 'order.paid',
+    PaymentAuthorized = 'payment.authorized',
+    PaymentCaptured = 'payment.captured',
+    PaymentFailed = 'payment.failed',
+    RefundCreated = 'refund.created',
+    RefundProcessed = 'refund.processed',
+    RefundFailed = 'refund.failed',
+}
+
 // ============ Credentials ============
 
 export interface RazorpayCredentials {
@@ -284,6 +296,12 @@ export interface RazorpayPaymentResponse {
     method: string;
     /** Amount refunded */
     amount_refunded: number;
+    /** Amount captured */
+    amount_captured: number | null;
+    /** Amount transferred */
+    amount_transferred: number;
+    /** Base amount */
+    base_amount: number;
     /** Refund status */
     refund_status: string | null;
     /** Whether payment was captured */
@@ -330,9 +348,14 @@ export interface RazorpayPaymentResponse {
     created_at: number;
     /** UPI details */
     upi?: {
+        flow?: string;
         vpa?: string;
         payer_account_type?: string;
     };
+    /** Payment provider */
+    provider: string | null;
+    /** Reward */
+    reward: string | null;
 }
 
 // ============ Fetch Order Payments ============
