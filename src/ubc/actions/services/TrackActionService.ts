@@ -76,11 +76,14 @@ export default class TrackActionService {
         // Map OCPI session status string → Beckn OrderStatus (very rough mapping)
         const rawStatus = (session.status || "").toUpperCase();
         let orderStatus: OrderStatus = OrderStatus.INPROGRESS;
+        let sessionStatus: ChargingSessionStatus = ChargingSessionStatus.ACTIVE;
         if (rawStatus === "COMPLETED" || rawStatus === "FINISHED") {
             orderStatus = OrderStatus.COMPLETED;
+            sessionStatus = ChargingSessionStatus.COMPLETED;
         }
         else if (rawStatus === "INVALID" || rawStatus === "CANCELLED") {
             orderStatus = OrderStatus.CANCELLED;
+            sessionStatus = ChargingSessionStatus.INTERRUPTED;
         }
 
         const kwh = session.kwh ? Number(session.kwh as unknown as Prisma.Decimal) : 0;
@@ -151,11 +154,7 @@ export default class TrackActionService {
             order_status: orderStatus,
             charge_point_connector_id: "", // Will be set from request in translateBackendToUBC
             telemetry_data: telemetry,
-            session_status: orderStatus === OrderStatus.INPROGRESS 
-                ? ChargingSessionStatus.ACTIVE 
-                : orderStatus === OrderStatus.COMPLETED
-                ? ChargingSessionStatus.COMPLETED
-                : ChargingSessionStatus.PENDING,
+            session_status: sessionStatus,
         };
     }
 

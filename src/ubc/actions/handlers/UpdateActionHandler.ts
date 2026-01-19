@@ -81,34 +81,34 @@ export default class UpdateActionHandler {
             );
 
             // Fetch existing status response to reuse payment (same as status)
-            const existingOnStatusResponse = await UpdateActionHandler.fetchExistingBppOnStatusResponse(reqPayload.context.transaction_id);
+            // const existingOnStatusResponse = await UpdateActionHandler.fetchExistingBppOnStatusResponse(reqPayload.context.transaction_id);
 
             // translate CPO's BE Server response to UBC Schema
-            logger.debug(
-                `🟡 [${reqId}] Translating Backend to UBC payload in handleEVChargingUBCBppUpdateAction`,
-                { data: { reqPayload, ExtractedOnUpdateResponseBody } }
-            );
-            const ubcOnUpdatePayload: UBCOnUpdateRequestPayload =
-                UpdateActionHandler.translateBackendToUBC(
-                    reqPayload,
-                    ExtractedOnUpdateResponseBody,
-                    existingOnStatusResponse
-                );
+            // logger.debug(
+            //     `🟡 [${reqId}] Translating Backend to UBC payload in handleEVChargingUBCBppUpdateAction`,
+            //     { data: { reqPayload, ExtractedOnUpdateResponseBody } }
+            // );
+            // const ubcOnUpdatePayload: UBCOnUpdateRequestPayload =
+            //     UpdateActionHandler.translateBackendToUBC(
+            //         reqPayload,
+            //         ExtractedOnUpdateResponseBody,
+            //         existingOnStatusResponse
+            //     );
 
             // Call BAP on_select
-            logger.debug(
-                `🟡 [${reqId}] Sending on_update call to Beckn ONIX in handleEVChargingUBCBppUpdateAction`,
-                { data: { ubcOnUpdatePayload } }
-            );
-            const response =
-                await UpdateActionHandler.sendOnUpdateCallToBecknONIX(ubcOnUpdatePayload);
-            logger.debug(
-                `🟢 [${reqId}] Sent on_update call to Beckn ONIX in handleEVChargingUBCBppUpdateAction`,
-                { data: { response } }
-            );
+            // logger.debug(
+            //     `🟡 [${reqId}] Sending on_update call to Beckn ONIX in handleEVChargingUBCBppUpdateAction`,
+            //     { data: { ubcOnUpdatePayload } }
+            // );
+            // const response =
+            //     await UpdateActionHandler.sendOnUpdateCallToBecknONIX(ubcOnUpdatePayload);
+            // logger.debug(
+            //     `🟢 [${reqId}] Sent on_update call to Beckn ONIX in handleEVChargingUBCBppUpdateAction`,
+            //     { data: { response } }
+            // );
 
             // return the response
-            return ubcOnUpdatePayload;
+            return ExtractedOnUpdateResponseBody as any;
         } 
         catch (e: any) {
             logger.error(
@@ -351,39 +351,39 @@ export default class UpdateActionHandler {
             if (!session) {
                 throw new Error('Session not found');
             }
-            if (!session.cpo_session_id && session.partner_id) {
-                const partner = await OCPIPartnerDbService.getById(session.partner_id);
-                if (partner) {
-                    const partnerAdditionalProps = partner.additional_props as OCPIPartnerAdditionalProps;
-                    if (partnerAdditionalProps?.test_mode === true ) {
-                        const stopChargingDelay = partnerAdditionalProps?.stop_charging_delay ?? 10;
-                        // add a delay of 10 seconds
-                        setTimeout(async () => {
-                            try {
-                                // send a stop charging command to the CPO
-                                const sessionNew = await SessionDbService.getByAuthorizationReference(beckn_order_id);
-                                if (!sessionNew) {
-                                    throw new Error('Session not found');
-                                }
-                                const req = {
-                                    body: {
-                                        partner_id: sessionNew.partner_id,
-                                        session_id: sessionNew.cpo_session_id,
-                                    },
-                                } as Request;
-                                await AdminCommandsModule.stopCharging(req);
-                            }
-                            catch (e: any) {
-                                logger.error(`🔴 Error in UpdateActionHandler.handleEVChargingUBCBppUpdateAction: ${e?.toString()}`, e);
-                            }
-                        }, 1000 * stopChargingDelay);
+            // if (!session.cpo_session_id && session.partner_id) {
+            //     const partner = await OCPIPartnerDbService.getById(session.partner_id);
+            //     if (partner) {
+            //         const partnerAdditionalProps = partner.additional_props as OCPIPartnerAdditionalProps;
+            //         if (partnerAdditionalProps?.test_mode === true ) {
+            //             const stopChargingDelay = partnerAdditionalProps?.stop_charging_delay ?? 10;
+            //             // add a delay of 10 seconds
+            //             setTimeout(async () => {
+            //                 try {
+            //                     // send a stop charging command to the CPO
+            //                     const sessionNew = await SessionDbService.getByAuthorizationReference(beckn_order_id);
+            //                     if (!sessionNew) {
+            //                         throw new Error('Session not found');
+            //                     }
+            //                     const req = {
+            //                         body: {
+            //                             partner_id: sessionNew.partner_id,
+            //                             session_id: sessionNew.cpo_session_id,
+            //                         },
+            //                     } as Request;
+            //                     await AdminCommandsModule.stopCharging(req);
+            //                 }
+            //                 catch (e: any) {
+            //                     logger.error(`🔴 Error in UpdateActionHandler.handleEVChargingUBCBppUpdateAction: ${e?.toString()}`, e);
+            //                 }
+            //             }, 1000 * stopChargingDelay);
 
-                        return {
-                            session_status: ChargingSessionStatus.COMPLETED,
-                        };
-                    }
-                }
-            } 
+            //             return {
+            //                 session_status: ChargingSessionStatus.COMPLETED,
+            //             };
+            //         }
+            //     }
+            // } 
             const req = {
                 body: {
                     partner_id: session.partner_id,

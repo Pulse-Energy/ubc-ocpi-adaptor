@@ -97,31 +97,16 @@ export default class InitActionHandler {
                 InitActionHandler.translateUBCToBackendPayload(reqPayload);
 
             // Create payment txn for both BPP and BAP (BAP gets 0 rupees for consistency)
-            let backendOnInitResponsePayload: ExtractedOnInitResponseBody;
-            if (finalBeneficiary === 'BPP') {
-                // make a request to CPO BE server
-                logger.debug(
-                    `🟡 [${reqId}] Sending init call to backend in handleEVChargingUBCBppInitAction`,
-                    { data: { backendInitPayload } }
-                );
-                backendOnInitResponsePayload =
-                    await InitActionHandler.createPaymentTxnDetails(backendInitPayload);
-                logger.debug(
-                    `🟢 [${reqId}] Received init response from backend in handleEVChargingUBCBppInitAction`,
-                    { data: { backendOnInitResponsePayload } }
-                );
-            }
-            else {
-                // For BAP beneficiary, create payment txn with 0 rupees for consistency (not used for payment)
-                logger.debug(
-                    `🟡 [${reqId}] Creating payment txn with 0 rupees for BAP beneficiary`,
-                    { data: { finalBeneficiary } }
-                );
-                backendOnInitResponsePayload = await InitActionHandler.createMinimalOnInitResponseForBAP(
-                    backendInitPayload,
-                    finalBeneficiary
-                );
-            }
+            logger.debug(
+                `🟡 [${reqId}] Sending init call to backend in handleEVChargingUBCBppInitAction`,
+                { data: { backendInitPayload } }
+            );
+            const backendOnInitResponsePayload: ExtractedOnInitResponseBody =
+                await InitActionHandler.createPaymentTxnDetails(backendInitPayload, finalBeneficiary);
+            logger.debug(
+                `🟢 [${reqId}] Received init response from backend in handleEVChargingUBCBppInitAction`,
+                { data: { backendOnInitResponsePayload } }
+            );
 
             // translate CPO's BE Server response to UBC Schema
             logger.debug(
@@ -195,18 +180,18 @@ export default class InitActionHandler {
                                         callback_time: callbackConfig.callback_time,
                                     });
 
-                                    setTimeout(() => {
-                                        logger.debug(`🟡 [${reqId}] Sending on_status call with COMPLETED payment status`, {
-                                            authorization_reference: authorizationReference,
-                                        });
-                                        OnStatusActionHandler.sendOnStatusWithCompletedPayment(authorizationReference)
-                                            .then(() => {
-                                                logger.debug(`🟢 [${reqId}] Successfully sent on_status call with COMPLETED payment status`);
-                                            })
-                                            .catch((e: any) => {
-                                                logger.error(`🔴 [${reqId}] Error sending on_status call: ${e?.toString()}`, e);
-                                            });
-                                    }, callbackTimeMs);
+                                    // setTimeout(() => {
+                                    //     logger.debug(`🟡 [${reqId}] Sending on_status call with COMPLETED payment status`, {
+                                    //         authorization_reference: authorizationReference,
+                                    //     });
+                                    //     OnStatusActionHandler.sendOnStatusWithCompletedPayment(authorizationReference)
+                                    //         .then(() => {
+                                    //             logger.debug(`🟢 [${reqId}] Successfully sent on_status call with COMPLETED payment status`);
+                                    //         })
+                                    //         .catch((e: any) => {
+                                    //             logger.error(`🔴 [${reqId}] Error sending on_status call: ${e?.toString()}`, e);
+                                    //         });
+                                    // }, callbackTimeMs);
                                 }
                             }
                         }
@@ -304,7 +289,8 @@ export default class InitActionHandler {
     }
 
     public static async createPaymentTxnDetails(
-        payload: ExtractedInitRequestBody
+        payload: ExtractedInitRequestBody,
+        beneficiary: 'BPP' | 'BAP'
     ): Promise<ExtractedOnInitResponseBody> {
         const finalAmount = payload.payload.amount;
         
@@ -354,7 +340,10 @@ export default class InitActionHandler {
         const paymentTxn = await PaymentTxnDbService.create({
             data: paymentTxnData,
         });
-        const generatePaymentLinkResponse =
+
+        let paymentLink = '';
+        if (beneficiary === 'BPP') {
+            const generatePaymentLinkResponse =
             await InitActionHandler.generatePaymentLink(
                 {
                     amount: finalAmount,
@@ -362,10 +351,14 @@ export default class InitActionHandler {
                 },
                 paymentTxn
             );
-        PaymentTxnDbService.update(paymentTxn.id, {
-            payment_link: generatePaymentLinkResponse.payment_link,
-            authorization_reference: generatePaymentLinkResponse.authorization_reference,
-        });
+
+            PaymentTxnDbService.update(paymentTxn.id, {
+                payment_link: generatePaymentLinkResponse.payment_link,
+                authorization_reference: generatePaymentLinkResponse.authorization_reference,
+            });
+
+            paymentLink = generatePaymentLinkResponse.payment_link;
+        }
 
         const extractedOnInitResponseBody: ExtractedOnInitResponseBody = {
             metadata: {
@@ -373,79 +366,10 @@ export default class InitActionHandler {
             },
             payload: {
                 becknPaymentId: paymentTxn.id,
-                paymentLink: generatePaymentLinkResponse.payment_link,
+                paymentLink: paymentLink,
                 chargeTxnRef: paymentTxn.authorization_reference,
                 beneficiary: 'BPP', // Payment txn is only created for BPP beneficiary
                 paymentStatus: paymentStatus,
-                becknOrderId: paymentTxn.authorization_reference,
-                amount: finalAmount,
-            },
-        };
-        return extractedOnInitResponseBody;
-    }
-
-    /**
-     * Creates minimal on_init response for BAP beneficiary
-     * Creates payment txn with 0 rupees for consistency (not used for actual payment)
-     * Payment will be handled in confirm action
-     */
-    public static async createMinimalOnInitResponseForBAP(
-        payload: ExtractedInitRequestBody,
-        beneficiary: 'BAP' | 'BPP'
-    ): Promise<ExtractedOnInitResponseBody> {
-        const finalAmount = 0; // Set to 0 for BAP beneficiary
-        const authorizationReference = Utils.generateUUID(); // Generate order ID for BAP beneficiary
-        
-        // Find EVSE to get partner_id
-        const evse = await LocationDbService.findEVSEByBecknConnectorId(payload.payload.charge_point_connector_id);
-        
-        if (!evse) {
-            throw new Error(`EVSE not found for ID: ${payload.payload.charge_point_connector_id}`);
-        }
-
-        // Get connector from EVSE
-        const parsedConnectorId = LocationDbService.parseBecknConnectorId(payload.payload.charge_point_connector_id);
-        const evseConnector = evse.evse_connectors.find(
-            connector => connector.connector_id === parsedConnectorId.connectorId && !connector.deleted
-        );
-        
-        if (!evseConnector) {
-            throw new Error(`Connector not found for ID: ${payload.payload.charge_point_connector_id}`);
-        }
-
-        if (!evseConnector.partner_id) {
-            throw new Error(`Connector ${payload.payload.charge_point_connector_id} does not have a partner_id`);
-        }
-
-        // Create payment txn with 0 rupees for consistency (not used for payment when beneficiary is BAP)
-        const paymentTxnData: Prisma.PaymentTxnUncheckedCreateInput = {
-            authorization_reference: authorizationReference,
-            amount: finalAmount,
-            payment_link: '',
-            payment_breakdown: {
-                total: finalAmount,
-                breakdown: [],
-            },
-            status: BecknPaymentStatus.INITIATED,
-            requested_energy_units: payload.payload.charging_option_unit || 0,
-            partner_id: evseConnector.partner_id,
-            beckn_transaction_id: payload.metadata.beckn_transaction_id,
-        };
-        
-        const paymentTxn = await PaymentTxnDbService.create({
-            data: paymentTxnData,
-        });
-        
-        const extractedOnInitResponseBody: ExtractedOnInitResponseBody = {
-            metadata: {
-                domain: BecknDomain.EVChargingUBC,
-            },
-            payload: {
-                becknPaymentId: paymentTxn.id,
-                paymentLink: '', // No payment link for BAP beneficiary
-                chargeTxnRef: paymentTxn.authorization_reference,
-                beneficiary: beneficiary,
-                paymentStatus: BecknPaymentStatus.INITIATED, // Initial status for BAP
                 becknOrderId: paymentTxn.authorization_reference,
                 amount: finalAmount,
             },
