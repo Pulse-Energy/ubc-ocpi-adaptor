@@ -501,6 +501,7 @@ model PaymentTxn {
   updated_at                      DateTime    @updatedAt
   deleted                         Boolean     @default(false)
   deleted_at                      DateTime?
+  service_charge                  Json       @default("{}") @db.Json // {"buyer_finder_fee": 0.9, "network_fee": 0.3} // in percentage
 
   @@index([authorization_reference])
   @@index([partner_id])
