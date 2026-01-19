@@ -1717,15 +1717,15 @@ router.get('/razorpay/order/:orderId/payments/:partnerId', async (req: Request, 
  *   "notes": { "key": "value" } (optional)
  * }
  */
-router.post('/razorpay/refund/:paymentId/:partnerId', async (req: Request, res: Response) => {
+router.post('/razorpay/refund/:paymentId', async (req: Request, res: Response) => {
     try {
-        const { paymentId, partnerId } = req.params;
+        const { paymentId } = req.params;
         const { amount, speed, receipt, notes } = req.body;
 
-        if (!paymentId || !partnerId) {
+        if (!paymentId ) {
             res.status(400).json({
                 success: false,
-                message: 'Missing required parameters: paymentId and partnerId',
+                message: 'Missing required parameters: paymentId',
                 timestamp: new Date().toISOString(),
             });
             return;
