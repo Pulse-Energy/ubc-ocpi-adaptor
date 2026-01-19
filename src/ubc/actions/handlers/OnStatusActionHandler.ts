@@ -20,6 +20,7 @@ import BecknLogDbService from "../../../db-services/BecknLogDbService";
 import { Prisma } from "@prisma/client";
 import { GenericPaymentTxnStatus } from "../../../types/BillDesk";
 import { BecknPaymentStatus } from "../../schema/v2.0.0/enums/PaymentStatus";
+import { mapGenericToBecknStatus } from "../../services/PaymentServices/Razorpay/RazorpayPaymentService";
 
 /**
  * Handler for status action
@@ -295,13 +296,22 @@ export default class OnStatusActionHandler {
         PaymentTxnDbService.update(paymentTxn.id, {
             status: payment_status,
         });
-        
+
+
+        const becknPaymentStatus = mapGenericToBecknStatus(payment_status);
+        if (!becknPaymentStatus) {
+            throw new Error('Invalid payment status');
+        }
+
        // v0.9: Use type assertion since on_init structure changed but we still need to build on_status from it
         // Convert backend payload to UBC format (no status request needed for async on_status)
         const ubcOnStatusPayload = await this.translateBackendToUBC(
             existingBppOnSelectResponse,
             existingBppOnInitResponse,
-            payload,
+            {
+                ...payload,
+                payment_status: becknPaymentStatus,
+            },
             becknTransactionId
         );
 
