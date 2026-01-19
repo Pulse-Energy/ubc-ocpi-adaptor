@@ -33,6 +33,7 @@ import {
     RazorpayTokensResponse,
     RazorpayErrorResponse,
 } from '../../../../types/Razorpay';
+import PaymentTxnDbService from '../../../../db-services/PaymentTxnDbService';
 
 // Helper function to extract error message from unknown error
 const getErrorMessage = (error: unknown): string => {
@@ -468,12 +469,10 @@ export default class RazorpayPaymentGatewayService {
      * Reference: https://razorpay.com/docs/api/refunds/
      * @param paymentId - Razorpay Payment ID to refund
      * @param request - Refund request payload
-     * @param partnerId - Partner ID for credentials
      */
     public static async createRefund(
         paymentId: string,
         request: RazorpayCreateRefundRequest,
-        partnerId: string,
     ): Promise<{
         success: boolean;
         refund?: RazorpayRefundResponse;
@@ -481,7 +480,16 @@ export default class RazorpayPaymentGatewayService {
         error_details?: any;
     }> {
         try {
-            const razorpayCredentials = await this.getCredentials(partnerId);
+            const paymentTxn = await PaymentTxnDbService.getById(paymentId);
+            if (!paymentTxn) {
+                logger.error('Razorpay: Failed to create refund - Payment transaction not found', undefined, {
+                    paymentId,
+                    request,
+                });
+                return { success: false, error: 'Payment transaction not found' };
+            }
+            const partnerId = paymentTxn.partner_id;
+            const razorpayCredentials = await this.getCredentials(partnerId);            
             if (!razorpayCredentials || !razorpayCredentials.credentials) {
                 logger.error('Razorpay: Failed to create refund - External Integration not found', undefined, {
                     paymentId,
@@ -505,7 +513,7 @@ export default class RazorpayPaymentGatewayService {
 
             const response = await this.makeRequest<RazorpayRefundResponse>(
                 'POST',
-                `${apiUrl}/payments/${paymentId}/refund`,
+                `${apiUrl}/payments/${paymentTxn?.payment_gateway_payment_id}/refund`,
                 keyId,
                 keySecret,
                 request
@@ -530,7 +538,6 @@ export default class RazorpayPaymentGatewayService {
             logger.error(`Razorpay: Failed to create refund - ${errorMessage}`, err, {
                 paymentId,
                 request,
-                partnerId,
                 response_data: errorData,
             });
 

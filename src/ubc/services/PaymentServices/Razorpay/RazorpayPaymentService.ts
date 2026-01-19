@@ -42,7 +42,7 @@ const getErrorMessage = (error: unknown): string => {
 };
 
 // Helper function to map GenericPaymentTxnStatus to BecknPaymentStatus
-const mapGenericToBecknStatus = (status: string): BecknPaymentStatus | null => {
+export const mapGenericToBecknStatus = (status: string): BecknPaymentStatus | null => {
     switch (status) {
         case GenericPaymentTxnStatus.Success:
             return BecknPaymentStatus.COMPLETED;
@@ -898,7 +898,6 @@ export default class RazorpayPaymentService {
     public static async processRefund(
         paymentId: string,
         refundAmount: number | undefined,
-        partnerId: string,
     ): Promise<{
         success: boolean;
         refundId?: string;
@@ -909,7 +908,6 @@ export default class RazorpayPaymentService {
             const result = await RazorpayPaymentGatewayService.createRefund(
                 paymentId,
                 { amount: refundAmount },
-                partnerId,
             );
 
             if (!result.success || !result.refund) {
@@ -931,7 +929,6 @@ export default class RazorpayPaymentService {
             logger.error(`Razorpay: Failed to process refund - ${errorMessage}`, err, {
                 paymentId,
                 refundAmount,
-                partnerId,
             });
 
             return {
