@@ -12,6 +12,7 @@ import RazorpayPaymentGatewayService from "./index";
 import {
     RazorpayCallbackPayload,
     RazorpayWebhookPayload,
+    RazorpayWebhookEvent,
     RazorpayPaymentResponse,
     RazorpayCreateOrderResponse,
     RazorpayObject,
@@ -294,6 +295,437 @@ export default class RazorpayPaymentService {
                 message: 'success',
                 data: {}
             });
+        }
+    }
+
+    // In-memory cache to track recently processed webhook events (prevents rapid duplicate processing)
+    private static processedWebhookEvents: Map<string, number> = new Map();
+    private static readonly WEBHOOK_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+    private static readonly WEBHOOK_CACHE_CLEANUP_INTERVAL_MS = 60 * 1000; // 1 minute
+    private static webhookCacheCleanupInitialized = false;
+
+    // In-memory locks for order processing (prevents concurrent processing of same order)
+    private static orderProcessingLocks: Map<string, Promise<void>> = new Map();
+
+    /**
+     * Initialize webhook cache cleanup interval
+     */
+    private static initializeWebhookCacheCleanup(): void {
+        if (this.webhookCacheCleanupInitialized) return;
+        this.webhookCacheCleanupInitialized = true;
+
+        setInterval(() => {
+            const now = Date.now();
+            for (const [key, timestamp] of this.processedWebhookEvents.entries()) {
+                if (now - timestamp > this.WEBHOOK_CACHE_TTL_MS) {
+                    this.processedWebhookEvents.delete(key);
+                }
+            }
+        }, this.WEBHOOK_CACHE_CLEANUP_INTERVAL_MS);
+    }
+
+    /**
+     * Generate unique key for webhook event deduplication
+     */
+    private static getWebhookEventKey(event: string, orderId: string, paymentId?: string): string {
+        return `${event}:${orderId}:${paymentId || 'no-payment'}`;
+    }
+
+    /**
+     * Check if a webhook event has already been processed
+     */
+    private static isWebhookEventProcessed(eventKey: string): boolean {
+        const timestamp = this.processedWebhookEvents.get(eventKey);
+        if (!timestamp) return false;
+        
+        // Check if the cached entry is still valid
+        if (Date.now() - timestamp > this.WEBHOOK_CACHE_TTL_MS) {
+            this.processedWebhookEvents.delete(eventKey);
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Mark a webhook event as processed
+     */
+    private static markWebhookEventProcessed(eventKey: string): void {
+        this.processedWebhookEvents.set(eventKey, Date.now());
+    }
+
+    /**
+     * Check if status transition is valid
+     * Terminal states (Success, Failed, Refunded) should not transition to non-terminal states
+     */
+    private static isValidStatusTransition(currentStatus: string, newStatus: GenericPaymentTxnStatus): boolean {
+        const terminalStates = [
+            GenericPaymentTxnStatus.Success,
+            GenericPaymentTxnStatus.Failed,
+            GenericPaymentTxnStatus.Refunded,
+        ];
+
+        // If current status is Success, only allow transition to Refunded
+        if (currentStatus === GenericPaymentTxnStatus.Success) {
+            return newStatus === GenericPaymentTxnStatus.Refunded || newStatus === GenericPaymentTxnStatus.Success;
+        }
+
+        // If current status is Refunded, don't allow any transition (final state)
+        if (currentStatus === GenericPaymentTxnStatus.Refunded) {
+            return newStatus === GenericPaymentTxnStatus.Refunded;
+        }
+
+        // If current status is Failed, allow transition to Success (retry scenario) or stay Failed
+        if (currentStatus === GenericPaymentTxnStatus.Failed) {
+            return newStatus === GenericPaymentTxnStatus.Success || newStatus === GenericPaymentTxnStatus.Failed;
+        }
+
+        // For pending status, allow transition to any status
+        return true;
+    }
+
+    /**
+     * Acquire lock for order processing to prevent concurrent updates
+     */
+    private static async acquireOrderLock(orderId: string): Promise<() => void> {
+        // Wait for any existing lock on this order
+        const existingLock = this.orderProcessingLocks.get(orderId);
+        if (existingLock) {
+            await existingLock;
+        }
+
+        // Create a new lock
+        let releaseLock: () => void;
+        const lockPromise = new Promise<void>((resolve) => {
+            releaseLock = resolve;
+        });
+
+        this.orderProcessingLocks.set(orderId, lockPromise);
+
+        // Return release function
+        return () => {
+            this.orderProcessingLocks.delete(orderId);
+            releaseLock!();
+        };
+    }
+
+    /**
+     * Handle Razorpay webhook events
+     * This method processes webhook notifications from Razorpay for events like order.paid, payment.captured, etc.
+     * 
+     * Features:
+     * - Idempotency: Prevents duplicate processing of the same webhook event
+     * - Race condition handling: Uses in-memory locks to prevent concurrent processing of the same order
+     * - Status transition validation: Ensures only valid status transitions are allowed
+     * 
+     * @param webhookPayload - The webhook event payload from Razorpay
+     * @returns Response indicating success/failure
+     */
+    public static async razorpayWebhookEvent(webhookPayload: RazorpayWebhookPayload): Promise<HttpResponse<any>> {
+        // Initialize cache cleanup on first call
+        this.initializeWebhookCacheCleanup();
+
+        const { event, account_id, contains, payload, created_at } = webhookPayload;
+
+        // Extract order and payment data from payload
+        const orderEntity = payload?.order?.entity;
+        const paymentEntity = payload?.payment?.entity;
+        const refundEntity = payload?.refund?.entity;
+
+        // Get order_id from order entity or payment entity
+        const orderId = orderEntity?.id || paymentEntity?.order_id;
+
+        if (!orderId) {
+            logger.warn('Razorpay Webhook Event: No order ID found in payload', { event });
+            return ResponsesService.success({
+                success: true,
+                message: 'success',
+                data: {}
+            });
+        }
+
+        // Generate unique event key for deduplication
+        const eventKey = this.getWebhookEventKey(event, orderId, paymentEntity?.id);
+
+        // Check for duplicate webhook
+        if (this.isWebhookEventProcessed(eventKey)) {
+            logger.info('Razorpay Webhook Event: Duplicate event detected, skipping', {
+                event,
+                orderId,
+                paymentId: paymentEntity?.id,
+                eventKey,
+            });
+            return ResponsesService.success({
+                success: true,
+                message: 'success',
+                data: { duplicate: true }
+            });
+        }
+
+        // Acquire lock for this order to prevent race conditions
+        const releaseLock = await this.acquireOrderLock(orderId);
+
+        try {
+            logger.info('Razorpay Webhook Event Processing', {
+                event,
+                accountId: account_id,
+                contains,
+                createdAt: created_at,
+                orderId,
+                eventKey,
+            });
+
+            // Find payment txn by order ID (fetch fresh to get latest status)
+            const paymentTxn = await PaymentTxnDbService.getByOrderId(orderId);
+
+            if (!paymentTxn) {
+                logger.error('Razorpay Webhook Event: PaymentTxn not found', undefined, { orderId, event });
+                return ResponsesService.success({
+                    success: true,
+                    message: 'success',
+                    data: {}
+                });
+            }
+
+            logger.info('Razorpay Webhook Event: PaymentTxn found', {
+                paymentTxnId: paymentTxn.id,
+                paymentTxnStatus: paymentTxn.status,
+                event,
+                orderId,
+            });
+
+            const oldPaymentStatus = paymentTxn.status;
+            let newStatus: GenericPaymentTxnStatus = oldPaymentStatus as GenericPaymentTxnStatus;
+            let updateData: Record<string, any> = {};
+
+            // Process based on event type
+            switch (event) {
+                case RazorpayWebhookEvent.OrderPaid:
+                    // Order is fully paid
+                    newStatus = GenericPaymentTxnStatus.Success;
+                    if (paymentEntity) {
+                        updateData = {
+                            status: newStatus,
+                            payment_gateway_payment_id: paymentEntity.id,
+                            details: JSON.parse(JSON.stringify({
+                                order_status: orderEntity?.status,
+                                payment_status: paymentEntity.status,
+                                payment_method: paymentEntity.method,
+                                vpa: paymentEntity.vpa,
+                                upi_details: paymentEntity.upi,
+                                acquirer_data: paymentEntity.acquirer_data,
+                                fee: paymentEntity.fee,
+                                tax: paymentEntity.tax,
+                                amount: paymentEntity.amount,
+                                amount_captured: paymentEntity.amount_captured,
+                                captured: paymentEntity.captured,
+                            })),
+                        };
+                    }
+                    else {
+                        updateData = {
+                            status: newStatus,
+                            details: JSON.parse(JSON.stringify({
+                                order_status: orderEntity?.status,
+                            })),
+                        };
+                    }
+                    break;
+
+                case RazorpayWebhookEvent.PaymentCaptured:
+                    newStatus = GenericPaymentTxnStatus.Success;
+                    if (paymentEntity) {
+                        updateData = {
+                            status: newStatus,
+                            payment_gateway_payment_id: paymentEntity.id,
+                            details: JSON.parse(JSON.stringify({
+                                payment_status: paymentEntity.status,
+                                payment_method: paymentEntity.method,
+                                vpa: paymentEntity.vpa,
+                                upi_details: paymentEntity.upi,
+                                acquirer_data: paymentEntity.acquirer_data,
+                                fee: paymentEntity.fee,
+                                tax: paymentEntity.tax,
+                                amount: paymentEntity.amount,
+                                captured: paymentEntity.captured,
+                            })),
+                        };
+                    }
+                    break;
+
+                case RazorpayWebhookEvent.PaymentAuthorized:
+                    // Payment authorized but not captured yet - keep as pending
+                    newStatus = GenericPaymentTxnStatus.Pending;
+                    if (paymentEntity) {
+                        updateData = {
+                            payment_gateway_payment_id: paymentEntity.id,
+                            details: JSON.parse(JSON.stringify({
+                                payment_status: paymentEntity.status,
+                                payment_method: paymentEntity.method,
+                                vpa: paymentEntity.vpa,
+                            })),
+                        };
+                    }
+                    break;
+
+                case RazorpayWebhookEvent.PaymentFailed:
+                    newStatus = GenericPaymentTxnStatus.Failed;
+                    if (paymentEntity) {
+                        updateData = {
+                            status: newStatus,
+                            payment_gateway_payment_id: paymentEntity.id,
+                            details: JSON.parse(JSON.stringify({
+                                payment_status: paymentEntity.status,
+                                error_code: paymentEntity.error_code,
+                                error_description: paymentEntity.error_description,
+                                error_source: paymentEntity.error_source,
+                                error_step: paymentEntity.error_step,
+                                error_reason: paymentEntity.error_reason,
+                            })),
+                        };
+                    }
+                    break;
+
+                case RazorpayWebhookEvent.RefundCreated:
+                case RazorpayWebhookEvent.RefundProcessed:
+                    if (refundEntity) {
+                        newStatus = GenericPaymentTxnStatus.Refunded;
+                        updateData = {
+                            status: newStatus,
+                            details: JSON.parse(JSON.stringify({
+                                refund_id: refundEntity.id,
+                                refund_status: refundEntity.status,
+                                refund_amount: refundEntity.amount,
+                            })),
+                        };
+                    }
+                    break;
+
+                case RazorpayWebhookEvent.RefundFailed:
+                    logger.warn('Razorpay Webhook Event: Refund failed', {
+                        paymentTxnId: paymentTxn.id,
+                        refundEntity,
+                    });
+                    // Don't change payment status for failed refund
+                    break;
+
+                default:
+                    logger.info(`Razorpay Webhook Event: Unhandled event type: ${event}`);
+                    // Mark as processed to avoid re-processing
+                    this.markWebhookEventProcessed(eventKey);
+                    return ResponsesService.success({
+                        success: true,
+                        message: 'success',
+                        data: {}
+                    });
+            }
+
+            // Validate status transition
+            if (!this.isValidStatusTransition(oldPaymentStatus, newStatus)) {
+                logger.warn('Razorpay Webhook Event: Invalid status transition, skipping update', {
+                    paymentTxnId: paymentTxn.id,
+                    oldStatus: oldPaymentStatus,
+                    newStatus,
+                    event,
+                });
+                // Mark as processed to avoid re-processing
+                this.markWebhookEventProcessed(eventKey);
+                return ResponsesService.success({
+                    success: true,
+                    message: 'success',
+                    data: { skipped: true, reason: 'invalid_status_transition' }
+                });
+            }
+
+            // Check if status already matches (idempotency at DB level)
+            if (oldPaymentStatus === newStatus && updateData.status === newStatus) {
+                logger.info('Razorpay Webhook Event: Status already up to date, skipping redundant update', {
+                    paymentTxnId: paymentTxn.id,
+                    status: oldPaymentStatus,
+                    event,
+                });
+                // Still update non-status fields if present
+                if (updateData.payment_gateway_payment_id && !paymentTxn.payment_gateway_payment_id) {
+                    await PaymentTxnDbService.update(paymentTxn.id, {
+                        payment_gateway_payment_id: updateData.payment_gateway_payment_id,
+                    } as any);
+                }
+                // Mark as processed
+                this.markWebhookEventProcessed(eventKey);
+                return ResponsesService.success({
+                    success: true,
+                    message: 'success',
+                    data: { already_processed: true }
+                });
+            }
+
+            // Update payment txn if there are changes
+            if (Object.keys(updateData).length > 0) {
+                await PaymentTxnDbService.update(paymentTxn.id, updateData as any);
+                logger.info('Razorpay Webhook Event: PaymentTxn updated', {
+                    paymentTxnId: paymentTxn.id,
+                    oldStatus: oldPaymentStatus,
+                    newStatus,
+                    event,
+                });
+            }
+
+            // Mark as processed after successful update
+            this.markWebhookEventProcessed(eventKey);
+
+            // Forward status change to BPP ONIX if status changed
+            if (newStatus !== oldPaymentStatus) {
+                const becknPaymentStatus = mapGenericToBecknStatus(newStatus);
+
+                if (becknPaymentStatus) {
+                    try {
+                        logger.info('Razorpay Webhook Event: Forwarding status to BPP ONIX', {
+                            paymentTxnId: paymentTxn.id,
+                            authorizationReference: paymentTxn.authorization_reference,
+                            paymentStatus: becknPaymentStatus,
+                            oldStatus: oldPaymentStatus,
+                            newStatus,
+                        });
+
+                        await OnStatusActionHandler.handleEVChargingUBCBppOnStatusAction({
+                            authorization_reference: paymentTxn.authorization_reference,
+                            payment_status: becknPaymentStatus,
+                            oldPaymentStatus: oldPaymentStatus as GenericPaymentTxnStatus,
+                        });
+
+                        logger.info('Razorpay Webhook Event: Status forwarded to BPP ONIX successfully', {
+                            paymentTxnId: paymentTxn.id,
+                        });
+                    }
+                    catch (statusError: unknown) {
+                        const err = statusError instanceof Error ? statusError : new Error(String(statusError));
+                        logger.error('Razorpay Webhook Event: Failed to forward status to BPP ONIX', err, {
+                            paymentTxnId: paymentTxn.id,
+                            authorizationReference: paymentTxn.authorization_reference,
+                        });
+                    }
+                }
+            }
+
+            return ResponsesService.success({
+                success: true,
+                message: 'success',
+                data: {},
+            });
+        }
+        catch (error: unknown) {
+            const err = error instanceof Error ? error : new Error(String(error));
+            logger.error('Razorpay Webhook Event: Processing failed', err, { webhookPayload });
+
+            // Always return success to Razorpay to prevent retries
+            return ResponsesService.success({
+                success: true,
+                message: 'success',
+                data: {}
+            });
+        }
+        finally {
+            // Always release the lock
+            releaseLock();
         }
     }
 
@@ -817,9 +1249,10 @@ export default class RazorpayPaymentService {
                 };
             }
 
+            const feeAmount = Math.ceil(0.2 * amountInPaise / 100) + 2 * Math.round(9 * Math.ceil(0.2 * amountInPaise / 100) / 100);
             const createPaymentResponse = await RazorpayPaymentGatewayService.createUPIPayment(
                 {
-                    amount: amountInPaise,
+                    amount: amountInPaise + feeAmount,
                     currency: 'INR',
                     order_id: orderId,
                     email: customerInfo.email,
@@ -832,12 +1265,13 @@ export default class RazorpayPaymentService {
                     },
                     ip: deviceInfo?.ip,
                     user_agent: deviceInfo?.user_agent,
-                    referer: deviceInfo?.referer,
+                    referer: deviceInfo?.referer ?? 'https://pulseenergy.io/',
                     description: `Payment for ${paymentTxn.authorization_reference || paymentTxn.id}`,
                     notes: {
                         payment_txn_id: paymentTxn.id,
                         authorization_reference: paymentTxn.authorization_reference || '',
                     },
+                    fee: feeAmount, // Pass calculated fee for CFB
                 },
                 partnerId
             );

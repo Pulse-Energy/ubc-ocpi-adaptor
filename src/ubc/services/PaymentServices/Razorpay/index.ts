@@ -27,13 +27,10 @@ import {
     RazorpayOrderPaymentsResponse,
     RazorpayCreateRefundRequest,
     RazorpayRefundResponse,
-    RazorpayValidateVPARequest,
     RazorpayValidateVPAResponse,
     RazorpayCreateCustomerRequest,
     RazorpayCustomerResponse,
     RazorpayTokensResponse,
-    RazorpayCalculateFeesRequest,
-    RazorpayCalculateFeesResponse,
     RazorpayErrorResponse,
 } from '../../../../types/Razorpay';
 
@@ -246,11 +243,55 @@ export default class RazorpayPaymentGatewayService {
                 api_url: apiUrl,
             } = razorpayCredentials.credentials;
 
+            // Build clean request with only required fields to avoid fee tampering errors
+            // Razorpay S2S UPI requires: amount, currency, order_id, email, contact, method, upi
+            const cleanRequest: Record<string, unknown> = {
+                amount: request.amount,
+                currency: request.currency,
+                order_id: request.order_id,
+                method: 'upi',
+                upi: {
+                    flow: request.upi.flow,
+                },
+            };
+
+            // Add optional UPI fields only if provided
+            if (request.upi.vpa) {
+                (cleanRequest.upi as Record<string, unknown>).vpa = request.upi.vpa;
+            }
+            if (request.upi.expiry_time) {
+                (cleanRequest.upi as Record<string, unknown>).expiry_time = request.upi.expiry_time;
+            }
+
+            // Add customer fields - required for S2S
+            if (request.email) cleanRequest.email = request.email;
+            if (request.contact) cleanRequest.contact = request.contact;
+            // Contact should not have + prefix for Razorpay
+
+            // S2S required fields - ip, referer, user_agent
+            // These are mandatory for server-to-server integration
+            cleanRequest.ip = request.ip || '192.168.0.1';
+            cleanRequest.referer = request.referer || 'https://pulseenergy.io/';
+            cleanRequest.user_agent = request.user_agent || 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36';
+
+            // Optional fields
+            if (request.description) cleanRequest.description = request.description;
+            if (request.customer_id) cleanRequest.customer_id = request.customer_id;
+            if (request.save !== undefined) cleanRequest.save = request.save;
+            if (request.callback_url) cleanRequest.callback_url = request.callback_url;
+            if (request.notes && Object.keys(request.notes).length > 0) {
+                cleanRequest.notes = request.notes;
+            }
+            // Fee parameter for CFB (Customer Fee Bearer) - required when CFB is enabled
+
+            cleanRequest.fee = Math.ceil(0.2 * request.amount / 100) + 2 * Math.round(9 * Math.ceil(0.2 * request.amount / 100) / 100);            
+
             logger.info('Razorpay: Creating UPI payment', {
                 amount: request.amount,
                 order_id: request.order_id,
                 upi_flow: request.upi.flow,
                 partnerId,
+                cleanRequestKeys: Object.keys(cleanRequest),
             });
 
             const response = await this.makeRequest<RazorpayCreateUPIPaymentResponse>(
@@ -258,7 +299,7 @@ export default class RazorpayPaymentGatewayService {
                 `${apiUrl}/payments/create/upi`,
                 keyId,
                 keySecret,
-                request
+                cleanRequest
             );
 
             logger.info('Razorpay: UPI payment created successfully', {
@@ -736,67 +777,6 @@ export default class RazorpayPaymentGatewayService {
 
             logger.error(`Razorpay: Failed to fetch customer tokens - ${errorMessage}`, err, {
                 customerId,
-                partnerId,
-            });
-
-            return { success: false, error: errorMessage };
-        }
-    }
-
-    /**
-     * Calculate fees for a payment
-     * Reference: https://razorpay.com/docs/payments/payment-gateway/s2s-integration/payment-methods/upi/cfb-cc-upi/
-     * @param request - Calculate fees request
-     * @param partnerId - Partner ID for credentials
-     */
-    public static async calculateFees(
-        request: RazorpayCalculateFeesRequest,
-        partnerId: string,
-    ): Promise<{
-        success: boolean;
-        fees?: RazorpayCalculateFeesResponse;
-        error?: string;
-    }> {
-        try {
-            const razorpayCredentials = await this.getCredentials(partnerId);
-            if (!razorpayCredentials || !razorpayCredentials.credentials) {
-                logger.error('Razorpay: Failed to calculate fees - External Integration not found', undefined, {
-                    request,
-                    partnerId,
-                });
-                return { success: false, error: 'Razorpay credentials not found for partner' };
-            }
-
-            const {
-                key_id: keyId,
-                key_secret: keySecret,
-                api_url: apiUrl,
-            } = razorpayCredentials.credentials;
-
-            const response = await this.makeRequest<RazorpayCalculateFeesResponse>(
-                'POST',
-                `${apiUrl}/payments/calculate/fees`,
-                keyId,
-                keySecret,
-                request
-            );
-
-            logger.info('Razorpay: Fees calculated successfully', {
-                amount: request.amount,
-                fee: response.input.fee,
-            });
-
-            return {
-                success: true,
-                fees: response,
-            };
-        }
-        catch (e: unknown) {
-            const errorMessage = getErrorMessage(e);
-            const err = e instanceof Error ? e : new Error(errorMessage);
-
-            logger.error(`Razorpay: Failed to calculate fees - ${errorMessage}`, err, {
-                request,
                 partnerId,
             });
 

@@ -43,6 +43,18 @@ export enum RazorpayPaymentMethod {
     EMI = 'emi',
 }
 
+// ============ Webhook Event Types ============
+
+export enum RazorpayWebhookEvent {
+    OrderPaid = 'order.paid',
+    PaymentAuthorized = 'payment.authorized',
+    PaymentCaptured = 'payment.captured',
+    PaymentFailed = 'payment.failed',
+    RefundCreated = 'refund.created',
+    RefundProcessed = 'refund.processed',
+    RefundFailed = 'refund.failed',
+}
+
 // ============ Credentials ============
 
 export interface RazorpayCredentials {
@@ -118,9 +130,9 @@ export interface RazorpayCreateUPIPaymentRequest {
     /** Razorpay Order ID */
     order_id: string;
     /** Customer email */
-    email: string;
+    email?: string;
     /** Customer phone number */
-    contact: string;
+    contact?: string;
     /** Payment method - "upi" */
     method: 'upi';
     /** Customer ID (required for saving VPA) */
@@ -148,6 +160,8 @@ export interface RazorpayCreateUPIPaymentRequest {
     };
     /** Callback URL for payment status */
     callback_url?: string;
+    /** Fee amount in paise (for Customer Fee Bearer - CFB) */
+    fee?: number;
 }
 
 export interface RazorpayCreateUPIPaymentResponse {
@@ -282,6 +296,12 @@ export interface RazorpayPaymentResponse {
     method: string;
     /** Amount refunded */
     amount_refunded: number;
+    /** Amount captured */
+    amount_captured: number | null;
+    /** Amount transferred */
+    amount_transferred: number;
+    /** Base amount */
+    base_amount: number;
     /** Refund status */
     refund_status: string | null;
     /** Whether payment was captured */
@@ -328,9 +348,14 @@ export interface RazorpayPaymentResponse {
     created_at: number;
     /** UPI details */
     upi?: {
+        flow?: string;
         vpa?: string;
         payer_account_type?: string;
     };
+    /** Payment provider */
+    provider: string | null;
+    /** Reward */
+    reward: string | null;
 }
 
 // ============ Fetch Order Payments ============

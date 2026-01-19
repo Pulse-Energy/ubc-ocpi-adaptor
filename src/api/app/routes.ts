@@ -1163,25 +1163,28 @@ router.post('/webhook/razorpay', async (req: Request, res: Response) => {
  * Razorpay Callback Endpoint (POST)
  * Handles customer redirect after payment completion
  */
-router.post('/callback/razorpay', async (req: Request, res: Response) => {
+router.post('/external/payment/events', async (req: Request, res: Response) => {
     try {
-        const callbackPayload = req.body as RazorpayCallbackPayload;
+        const webhookPayload = req.body as RazorpayWebhookPayload;
         
-        logger.info('Razorpay callback received', {
-            hasPaymentId: !!callbackPayload.razorpay_payment_id,
-            hasOrderId: !!callbackPayload.razorpay_order_id,
-            hasError: !!callbackPayload.error_code,
+        logger.info('Razorpay webhook event received', {
+            event: webhookPayload.event,
+            accountId: webhookPayload.account_id,
+            contains: webhookPayload.contains,
+            hasPayment: !!webhookPayload.payload?.payment,
+            hasOrder: !!webhookPayload.payload?.order,
+            webhookPayload: JSON.stringify(webhookPayload),
         });
 
-        const response = await RazorpayPaymentService.razorpayCallback(callbackPayload);
+        const response = await RazorpayPaymentService.razorpayWebhookEvent(webhookPayload);
 
         res.status(response.httpStatus || 200).json(response.payload);
     }
     catch (error) {
-        logger.error('Razorpay callback error', error instanceof Error ? error : new Error(String(error)));
+        logger.error('Razorpay webhook event error', error instanceof Error ? error : new Error(String(error)));
         res.status(500).json({
             success: false,
-            message: 'Callback processing failed',
+            message: 'Webhook event processing failed',
             timestamp: new Date().toISOString(),
             error: error instanceof Error ? error.message : 'Unknown error',
         });
@@ -1872,79 +1875,5 @@ router.get('/razorpay/payment/:paymentId/:partnerId', async (req: Request, res: 
     }
 });
 
-/**
- * Calculate Payment Fees (for Customer Fee Bearer)
- * POST /api/app/razorpay/calculate-fees/:partnerId
- * 
- * Body:
- * {
- *   "amount": 10000 (in paise),
- *   "method": "upi",
- *   "contact": "9876543210",
- *   "email": "customer@email.com",
- *   "upi": { "flow": "intent" },
- *   "payer_account_type": "credit_card" (optional, for CFB on CC)
- * }
- */
-router.post('/razorpay/calculate-fees/:partnerId', async (req: Request, res: Response) => {
-    try {
-        const { partnerId } = req.params;
-        const { amount, currency, method, contact, email, description, upi, payer_account_type } = req.body;
-
-        if (!partnerId || !amount || !method || !contact || !email) {
-            res.status(400).json({
-                success: false,
-                message: 'Missing required parameters: partnerId, amount, method, contact, email',
-                timestamp: new Date().toISOString(),
-            });
-            return;
-        }
-
-        const result = await RazorpayPaymentGatewayService.calculateFees(
-            {
-                amount,
-                currency: currency || 'INR',
-                method,
-                contact,
-                email,
-                description,
-                upi,
-                payer_account_type,
-            },
-            partnerId
-        );
-
-        if (result.success && result.fees) {
-            res.status(200).json({
-                success: true,
-                message: 'Fees calculated successfully',
-                data: {
-                    originalAmount: result.fees.display.original_amount,
-                    fee: result.fees.input.fee,
-                    tax: result.fees.input.tax,
-                    totalAmount: result.fees.display.amount,
-                    display: result.fees.display,
-                },
-                timestamp: new Date().toISOString(),
-            });
-        }
-        else {
-            res.status(400).json({
-                success: false,
-                message: result.error || 'Failed to calculate fees',
-                error: result.error,
-                timestamp: new Date().toISOString(),
-            });
-        }
-    }
-    catch (error) {
-        res.status(500).json({
-            success: false,
-            message: 'Failed to calculate fees',
-            timestamp: new Date().toISOString(),
-            error: error instanceof Error ? error.message : 'Unknown error',
-        });
-    }
-});
 
 export default router;
