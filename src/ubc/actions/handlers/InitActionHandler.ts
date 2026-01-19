@@ -31,7 +31,7 @@ import { OCPIPartnerAdditionalProps, PaymentServiceProvider } from '../../../typ
 import PaymentGatewayService from '../../services/PaymentServices/PaymentGatewayService';
 import PublishActionService from '../services/PublishActionService';
 import { databaseService } from '../../../services/database.service';
-import OnStatusActionHandler from './OnStatusActionHandler';
+import { UBCSelectRequestPayload } from '../../schema/v2.0.0/actions/select/types/SelectPayload';
 
 export default class InitActionHandler {
     public static async handleBppInitAction(
@@ -96,13 +96,28 @@ export default class InitActionHandler {
             const backendInitPayload: ExtractedInitRequestBody =
                 InitActionHandler.translateUBCToBackendPayload(reqPayload);
 
+            // Fetch select request to get buyerFinderFee
+            const selectRequest = await InitActionHandler.fetchExistingBppSelectRequest(reqPayload.context.transaction_id);
+            let buyerFinderFee: { feeType?: string; feeValue?: number } | undefined;
+            if (selectRequest) {
+                const orderAttributes = selectRequest.message?.order?.['beckn:orderAttributes'];
+                const orderAttributesRecord = orderAttributes as Record<string, unknown>;
+                const buyerFinderFeeObj = orderAttributesRecord?.['buyerFinderFee'] as { feeType?: string; feeValue?: number } | undefined;
+                if (buyerFinderFeeObj) {
+                    buyerFinderFee = {
+                        feeType: buyerFinderFeeObj.feeType,
+                        feeValue: buyerFinderFeeObj.feeValue,
+                    };
+                }
+            }
+
             // Create payment txn for both BPP and BAP (BAP gets 0 rupees for consistency)
             logger.debug(
                 `🟡 [${reqId}] Sending init call to backend in handleEVChargingUBCBppInitAction`,
                 { data: { backendInitPayload } }
             );
             const backendOnInitResponsePayload: ExtractedOnInitResponseBody =
-                await InitActionHandler.createPaymentTxnDetails(backendInitPayload, finalBeneficiary);
+                await InitActionHandler.createPaymentTxnDetails(backendInitPayload, finalBeneficiary, buyerFinderFee);
             logger.debug(
                 `🟢 [${reqId}] Received init response from backend in handleEVChargingUBCBppInitAction`,
                 { data: { backendOnInitResponsePayload } }
@@ -288,9 +303,36 @@ export default class InitActionHandler {
         return backendInitPayload;
     }
 
+    public static async fetchExistingBppSelectRequest(transactionId: string): Promise<UBCSelectRequestPayload | null> {
+        /**
+         * Fetch existing select request for this transaction id
+         */
+        const becknLogs = await BecknLogDbService.getByFilters({
+            where: {
+                transaction_id: transactionId,
+                action: `bpp.in.request.${BecknAction.select}`,
+                domain: BecknDomain.EVChargingUBC,
+            },
+            select: {
+                payload: true,
+            },
+            orderBy: {
+                created_on: Prisma.SortOrder.desc,
+            },
+            take: 1,
+        });
+
+        if (becknLogs?.records && becknLogs.records.length > 0) {
+            return becknLogs.records[0].payload as UBCSelectRequestPayload;
+        }
+
+        return null;
+    }
+
     public static async createPaymentTxnDetails(
         payload: ExtractedInitRequestBody,
-        beneficiary: 'BPP' | 'BAP'
+        beneficiary: 'BPP' | 'BAP',
+        buyerFinderFee?: { feeType?: string; feeValue?: number }
     ): Promise<ExtractedOnInitResponseBody> {
         const finalAmount = payload.payload.amount;
         
@@ -324,6 +366,14 @@ export default class InitActionHandler {
         const authorizationReference = Utils.generateUUID();
         const paymentStatus = BecknPaymentStatus.PENDING;
         const orderValueComponents = payload.payload.orderValueComponents;
+        
+        // Extract buyer finder fee from select request and prepare service_charge
+        const serviceCharge: { buyer_finder_fee?: { feeType?: string; feeValue?: number }; network_fee?: number } = {};
+        if (buyerFinderFee) {
+            serviceCharge.buyer_finder_fee = buyerFinderFee;
+        }
+        // network_fee defaults to 0.3, but we can set it here if needed in the future
+        
         const paymentTxnData: Prisma.PaymentTxnUncheckedCreateInput = {
             authorization_reference: authorizationReference,
             amount: finalAmount,
@@ -336,6 +386,8 @@ export default class InitActionHandler {
             requested_energy_units: payload.payload.charging_option_unit,
             partner_id: evseConnector.partner_id,
             beckn_transaction_id: payload.metadata.beckn_transaction_id,
+            beneficiary: beneficiary,
+            service_charge: serviceCharge,
         };
         const paymentTxn = await PaymentTxnDbService.create({
             data: paymentTxnData,

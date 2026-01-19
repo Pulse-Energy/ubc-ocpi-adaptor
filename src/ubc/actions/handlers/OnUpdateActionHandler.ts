@@ -14,9 +14,12 @@ import { ChargingSessionStatus } from '../../schema/v2.0.0/enums/ChargingSession
 import UpdateActionHandler from './UpdateActionHandler';
 import PaymentTxnDbService from '../../../db-services/PaymentTxnDbService';
 import { CDR as PrismaCDR } from '@prisma/client';
-import { BecknOrderValueResponse, BecknOrderValueComponents } from '../../schema/v2.0.0/types/OrderValue';
-import { OrderValueComponentsType } from '../../schema/v2.0.0/enums/OrderValueComponentsType';
+import { BecknOrderValueResponse } from '../../schema/v2.0.0/types/OrderValue';
 import { SessionDbService } from '../../../db-services/SessionDbService';
+import { calculateFinalAmountFromCDR, buildOrderValueFromFinalAmount } from '../../utils/OrderValueCalculator';
+import { FinalAmount } from '../../types/FinalAmount';
+import { ServiceCharge } from '../../types/ServiceCharge';
+import { PaymentTxn } from '@prisma/client';
 // Import OCPIPrice type - using direct type definition to avoid path issues
 type OCPIPrice = {
     excl_vat: number;
@@ -176,71 +179,27 @@ export default class OnUpdateActionHandler {
      * Builds order_value from CDR total_cost and breakdown costs
      */
     private static async buildOrderValueFromCDR(
-        cdr: PrismaCDR
+        cdr: PrismaCDR,
+        paymentTxn?: PaymentTxn | null
     ): Promise<BecknOrderValueResponse> {
         const currency = cdr.currency;
         const totalCost = cdr.total_cost as unknown as OCPIPrice;
 
-        // Use incl_vat if available, otherwise excl_vat
-        const totalValue = totalCost.incl_vat ?? totalCost.excl_vat;
+        // Get service charge from payment_txn if available
+        const serviceCharge = paymentTxn?.service_charge as ServiceCharge | null | undefined;
 
-        const components: BecknOrderValueComponents[] = [];
-
-        const chargingSessionCost = totalCost.excl_vat;
-        const cpoGst = totalCost?.incl_vat ? (totalCost.incl_vat - totalCost.excl_vat) : 0;
-        const buyerFinderFee = totalCost.excl_vat * (0.9 / 100);
-        const networkFinderFee = totalCost.excl_vat * (0.3 / 100);
-        const total = chargingSessionCost + cpoGst + buyerFinderFee + networkFinderFee;
-
-        components.push({
-            type: OrderValueComponentsType.UNIT,
-            value: chargingSessionCost,
-            currency: currency,
-            description: 'Charging session cost',
-        });
-
-        // Buyer finder fee
-        components.push({
-            type: OrderValueComponentsType.FEE,
-            value: buyerFinderFee,
-            currency: currency,
-            description: 'Buyer finder fee',
-        });
-
-        // Network finder fee
-        components.push({
-            type: OrderValueComponentsType.FEE,
-            value: networkFinderFee,
-            currency: currency,
-            description: 'Network finder fee',
-        });
-
-        // GST
-        components.push({
-            type: OrderValueComponentsType.TAX,
-            value: cpoGst,
-            currency: currency,
-            description: 'GST',
-        });
+        // Calculate final amount using shared logic with service charge percentages
+        const finalAmount: FinalAmount = calculateFinalAmountFromCDR(totalCost, serviceCharge);
 
         // Add this to DB
         if (cdr.session_id) {
             await SessionDbService.update(cdr.session_id, {
-                final_amount: {
-                    charging_session_cost: totalCost.excl_vat,
-                    gst: cpoGst,
-                    buyer_finder_fee: buyerFinderFee,
-                    network_finder_fee: networkFinderFee,
-                    total: total,
-                },
+                final_amount: finalAmount,
             });
         }
 
-        return {
-            currency: currency,
-            value: totalValue,
-            components: components,
-        };
+        // Build order value from final amount
+        return buildOrderValueFromFinalAmount(finalAmount, currency);
     }
 
     /**
@@ -290,8 +249,8 @@ export default class OnUpdateActionHandler {
 
             const becknOrderId = existingBppOnUpdateResponse.message.order['beckn:id'];
 
-            // Build order_value from CDR
-            const orderValue = await OnUpdateActionHandler.buildOrderValueFromCDR(cdr);
+            // Build order_value from CDR with service charge from payment_txn
+            const orderValue = await OnUpdateActionHandler.buildOrderValueFromCDR(cdr, paymentTxn);
 
             // Build ExtractedOnUpdateRequestBody
             const onUpdatePayload: ExtractedOnUpdateRequestBody = {
