@@ -405,7 +405,7 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
             });
             // Pass session_id (cpo_session_id) to handleActionOnChargingCompleted - it will fetch session and payment txn
             // Don't await - this is async and shouldn't block CDR response
-            if (stored?.session_id) {
+            if (stored?.session_id && !existing) {
                 ChargingService.handleActionOnChargingCompleted(stored.session_id)
                     .catch((e: any) => {
                         logger.error(`🔴 [${reqId}] Error in handleActionOnChargingCompleted: ${e?.toString()}`, e, {

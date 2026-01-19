@@ -235,6 +235,7 @@ model Session {
   partner                           OCPIPartner? @relation(fields: [partner_id], references: [id], onDelete: Cascade)
   requested_energy_units            Decimal?     @db.Decimal(10, 3)
   buyer_info                        Json? // OCPIBusinessDetailsClass
+  final_amount                      Json       @default("{}") // Not an OCPI field - internal use only
 
   // Log relations (named to avoid ambiguity)
   ocpi_logs_session                 OCPILog[]    @relation("OCPILogSession")
@@ -495,6 +496,7 @@ model PaymentTxn {
   payment_gateway_payment_id      String?     // BillDesk/Razorpay payment/transaction ID
   details                         Json?       @default("{}") @db.Json // Full payment gateway response
   additional_props                Json?       @default("{}") @db.Json
+  beneficiary                     String?     // 'BAP' or 'BPP'
   created_at                      DateTime    @default(now())
   updated_at                      DateTime    @updatedAt
   deleted                         Boolean     @default(false)
