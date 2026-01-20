@@ -32,6 +32,7 @@ import PaymentGatewayService from '../../services/PaymentServices/PaymentGateway
 import PublishActionService from '../services/PublishActionService';
 import { databaseService } from '../../../services/database.service';
 import { UBCSelectRequestPayload } from '../../schema/v2.0.0/actions/select/types/SelectPayload';
+import OnStatusActionHandler from './OnStatusActionHandler';
 
 export default class InitActionHandler {
     public static async handleBppInitAction(
@@ -195,18 +196,18 @@ export default class InitActionHandler {
                                         callback_time: callbackConfig.callback_time,
                                     });
 
-                                    // setTimeout(() => {
-                                    //     logger.debug(`🟡 [${reqId}] Sending on_status call with COMPLETED payment status`, {
-                                    //         authorization_reference: authorizationReference,
-                                    //     });
-                                    //     OnStatusActionHandler.sendOnStatusWithCompletedPayment(authorizationReference)
-                                    //         .then(() => {
-                                    //             logger.debug(`🟢 [${reqId}] Successfully sent on_status call with COMPLETED payment status`);
-                                    //         })
-                                    //         .catch((e: any) => {
-                                    //             logger.error(`🔴 [${reqId}] Error sending on_status call: ${e?.toString()}`, e);
-                                    //         });
-                                    // }, callbackTimeMs);
+                                    setTimeout(() => {
+                                        logger.debug(`🟡 [${reqId}] Sending on_status call with COMPLETED payment status`, {
+                                            authorization_reference: authorizationReference,
+                                        });
+                                        OnStatusActionHandler.sendOnStatusWithCompletedPayment(authorizationReference)
+                                            .then(() => {
+                                                logger.debug(`🟢 [${reqId}] Successfully sent on_status call with COMPLETED payment status`);
+                                            })
+                                            .catch((e: any) => {
+                                                logger.error(`🔴 [${reqId}] Error sending on_status call: ${e?.toString()}`, e);
+                                            });
+                                    }, callbackTimeMs);
                                 }
                             }
                         }
