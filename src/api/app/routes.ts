@@ -1734,7 +1734,6 @@ router.post('/razorpay/refund/:paymentId', async (req: Request, res: Response) =
         const result = await RazorpayPaymentGatewayService.createRefund(
             paymentId,
             { amount, speed, receipt, notes },
-            partnerId
         );
 
         if (result.success && result.refund) {
