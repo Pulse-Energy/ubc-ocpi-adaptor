@@ -46,11 +46,25 @@ spec:
           - secretRef:
               name: prod-pulse-ubc-ocpi-adaptor-secret
 ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pulse-ubc-ocpi-adaptor-service
+spec:
+  selector:
+    app.kubernetes.io/name: pulse-ubc-ocpi-adaptor-wl
+  ports:
+    - protocol: TCP
+      port: 6001
+      targetPort: 6001
+  type: ClusterIP
+---
 kind: Ingress
 apiVersion: networking.k8s.io/v1
 metadata:
   name: pulse-ubc-ocpi-adaptor-ingress
   annotations:
+    kubernetes.io/ingress.class: "nginx"
     env: prod
 spec:
   rules:
