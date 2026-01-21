@@ -176,7 +176,7 @@ export default class OnStatusActionHandler {
             "beckn:id": initPaymentData['beckn:id'] as string,
             "beckn:amount": initPaymentData['beckn:amount'] as BecknPayment['beckn:amount'],
             "beckn:beneficiary": beneficiary,
-            "beckn:paymentStatus": backendOnStatusRequestPayload.payment_status,
+            "beckn:paymentStatus": backendOnStatusRequestPayload.payment_status as BecknPaymentStatus,
         };
 
         // Only include paymentURL and txnRef for BPP beneficiary (per init logic)
