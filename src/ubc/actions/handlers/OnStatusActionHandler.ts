@@ -270,57 +270,51 @@ export default class OnStatusActionHandler {
             throw new Error('No payment txn found');
         }
         const paymentStatus = paymentTxn.status;
-        if (oldPaymentStatus === GenericPaymentTxnStatus.Success || paymentStatus === oldPaymentStatus) {
-            return;
-        }
+        if ((paymentStatus === BecknPaymentStatus.COMPLETED || paymentStatus === BecknPaymentStatus.REFUNDED) && (oldPaymentStatus !== (paymentStatus as unknown as GenericPaymentTxnStatus))) {
+            const becknTransactionId = paymentTxn.beckn_transaction_id;
 
-        if (oldPaymentStatus !== GenericPaymentTxnStatus.Pending) {
-            throw new Error('Payment txn is not pending');
-        }
+            // Fetch existing responses to formulate on_status payload
+            const existingBppOnSelectResponse = await OnStatusActionHandler.fetchExistingBppOnSelectResponse(becknTransactionId);
+            const existingBppOnInitResponse = await InitActionHandler.fetchExistingBppOnInitResponse(becknTransactionId);
 
-        const becknTransactionId = paymentTxn.beckn_transaction_id;
+            if (!existingBppOnSelectResponse) {
+                throw new Error('No existing on_select response found');
+            }
 
-        // Fetch existing responses to formulate on_status payload
-        const existingBppOnSelectResponse = await OnStatusActionHandler.fetchExistingBppOnSelectResponse(becknTransactionId);
-        const existingBppOnInitResponse = await InitActionHandler.fetchExistingBppOnInitResponse(becknTransactionId);
+            if (!existingBppOnInitResponse) {
+                throw new Error('No existing on_init response found');
+            }
 
-        if (!existingBppOnSelectResponse) {
-            throw new Error('No existing on_select response found');
-        }
-
-        if (!existingBppOnInitResponse) {
-            throw new Error('No existing on_init response found');
-        }
-
-        // Update payment status in database
-        PaymentTxnDbService.update(paymentTxn.id, {
-            status: payment_status,
-        });
+            // Update payment status in database
+            PaymentTxnDbService.update(paymentTxn.id, {
+                status: payment_status,
+            });
 
 
-        const becknPaymentStatus = mapGenericToBecknStatus(payment_status);
-        if (!becknPaymentStatus) {
-            throw new Error('Invalid payment status');
-        }
+            const becknPaymentStatus = mapGenericToBecknStatus(payment_status);
+            if (!becknPaymentStatus) {
+                throw new Error('Invalid payment status');
+            }
 
-       // v0.9: Use type assertion since on_init structure changed but we still need to build on_status from it
-        // Convert backend payload to UBC format (no status request needed for async on_status)
-        const ubcOnStatusPayload = await this.translateBackendToUBC(
-            existingBppOnSelectResponse,
-            existingBppOnInitResponse,
-            {
-                ...payload,
-                payment_status: becknPaymentStatus,
-            },
-            becknTransactionId
-        );
+        // v0.9: Use type assertion since on_init structure changed but we still need to build on_status from it
+            // Convert backend payload to UBC format (no status request needed for async on_status)
+            const ubcOnStatusPayload = await this.translateBackendToUBC(
+                existingBppOnSelectResponse,
+                existingBppOnInitResponse,
+                {
+                    ...payload,
+                    payment_status: becknPaymentStatus,
+                },
+                becknTransactionId
+            );
 
-        const bppHost = Utils.getBPPClientHost();
+            const bppHost = Utils.getBPPClientHost();
 
-        return await BppOnixRequestService.sendPostRequest({
-            url: `${bppHost}/${BecknAction.on_status}`,
-            data: ubcOnStatusPayload,
-        }, BecknDomain.EVChargingUBC);
+            return await BppOnixRequestService.sendPostRequest({
+                url: `${bppHost}/${BecknAction.on_status}`,
+                data: ubcOnStatusPayload,
+            }, BecknDomain.EVChargingUBC);
+            }
     }
 
     public static async fetchExistingBppOnSelectResponse(transactionId: string): Promise<UBCOnSelectRequestPayload | null> {
