@@ -13,10 +13,13 @@ spec:
     matchLabels:
       app.kubernetes.io/name: pulse-ubc-ocpi-adaptor-wl
   template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pulse-ubc-ocpi-adaptor-wl
     spec:
       containers:
       - name: pulse-ubc-ocpi-adaptor-container
-        image: asia-south1-docker.pkg.dev/pulse-energy/pulse-ubc-ocpi-adaptor/pulse-ubc-ocpi-adaptor:123198a 
+        image: asia-south1-docker.pkg.dev/pulse-energy/pulse-ubc-ocpi-adaptor/pulse-ubc-ocpi-adaptor:abfd2a3 
         ports:
           - containerPort: 6001
         resources:
@@ -40,8 +43,6 @@ spec:
           - name: LOG_TIMESTAMP
             value: "false"
         envFrom:
-          - secretRef:
-              name: prod-pulse-ubc-ocpi-adaptor-secret
           - secretRef:
               name: prod-pulse-ubc-ocpi-adaptor-secret
 ---
