@@ -140,7 +140,8 @@ export default class OnStatusActionHandler {
         existingOnSelectResponse: UBCOnSelectRequestPayload,
         existingOnInitResponse: UBCOnInitRequestPayload,
         backendOnStatusRequestPayload: ExtractedOnStatusRequestBody,
-        transactionId: string
+        transactionId: string,
+        amount?: number
     ): Promise<UBCOnStatusRequestPayload> {
         const selectOrder = existingOnSelectResponse.message.order;
         const initOrder = existingOnInitResponse.message.order;
@@ -170,11 +171,15 @@ export default class OnStatusActionHandler {
         // Build payment object with all fields per example schema
         const initPaymentData = initPayment as Record<string, unknown>;
         const beneficiary = (initPaymentData['beckn:beneficiary'] as string) || 'BPP';
+        const becknAmount = amount ? {
+            currency: 'INR',
+            value: amount,
+        } : initPaymentData['beckn:amount'] as BecknPayment['beckn:amount'];
         const paymentObject: Partial<BecknPayment> = {
             "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
             "@type": ObjectType.payment,
             "beckn:id": initPaymentData['beckn:id'] as string,
-            "beckn:amount": initPaymentData['beckn:amount'] as BecknPayment['beckn:amount'],
+            "beckn:amount": becknAmount,
             "beckn:beneficiary": beneficiary,
             "beckn:paymentStatus": backendOnStatusRequestPayload.payment_status as BecknPaymentStatus,
         };
@@ -259,7 +264,7 @@ export default class OnStatusActionHandler {
      * No preceding status request is required - this is an independent callback
      */
     public static async forwardOnStatusToBppOnix(payload: ExtractedOnStatusRequestBody): Promise<void> {
-        const { authorization_reference, payment_status, oldPaymentStatus } = payload;
+        const { authorization_reference, payment_status, oldPaymentStatus, amount } = payload;
 
         const paymentTxn = await PaymentTxnDbService.getFirstByFilter({
             where: {
@@ -305,7 +310,8 @@ export default class OnStatusActionHandler {
                     ...payload,
                     payment_status: becknPaymentStatus,
                 },
-                becknTransactionId
+                becknTransactionId,
+                amount
             );
 
             const bppHost = Utils.getBPPClientHost();

@@ -419,6 +419,7 @@ export default class ChargingService {
                         authorization_reference: paymentTxn.authorization_reference,
                         payment_status: GenericPaymentTxnStatus.Refunded,
                         oldPaymentStatus: GenericPaymentTxnStatus.Success,
+                        amount: refundAmount,
                     });
                     logger.info(
                         `🟢 ${authorization_reference} Refund: Successfully sent on_status to BAP`,
