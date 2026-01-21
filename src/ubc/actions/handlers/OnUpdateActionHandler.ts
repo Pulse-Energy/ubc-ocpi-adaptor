@@ -14,8 +14,12 @@ import { ChargingSessionStatus } from '../../schema/v2.0.0/enums/ChargingSession
 import UpdateActionHandler from './UpdateActionHandler';
 import PaymentTxnDbService from '../../../db-services/PaymentTxnDbService';
 import { CDR as PrismaCDR } from '@prisma/client';
-import { BecknOrderValueResponse, BecknOrderValueComponents } from '../../schema/v2.0.0/types/OrderValue';
-import { OrderValueComponentsType } from '../../schema/v2.0.0/enums/OrderValueComponentsType';
+import { BecknOrderValueResponse } from '../../schema/v2.0.0/types/OrderValue';
+import { SessionDbService } from '../../../db-services/SessionDbService';
+import { calculateFinalAmountFromCDR, buildOrderValueFromFinalAmount } from '../../utils/OrderValueCalculator';
+import { FinalAmount } from '../../types/FinalAmount';
+import { ServiceCharge } from '../../types/ServiceCharge';
+import { PaymentTxn } from '@prisma/client';
 // Import OCPIPrice type - using direct type definition to avoid path issues
 type OCPIPrice = {
     excl_vat: number;
@@ -174,135 +178,28 @@ export default class OnUpdateActionHandler {
     /**
      * Builds order_value from CDR total_cost and breakdown costs
      */
-    private static buildOrderValueFromCDR(
-        cdr: PrismaCDR
-    ): BecknOrderValueResponse {
+    private static async buildOrderValueFromCDR(
+        cdr: PrismaCDR,
+        paymentTxn?: PaymentTxn | null
+    ): Promise<BecknOrderValueResponse> {
         const currency = cdr.currency;
         const totalCost = cdr.total_cost as unknown as OCPIPrice;
-        const totalEnergyCost = cdr.total_energy_cost as unknown as OCPIPrice | undefined;
-        const totalTimeCost = cdr.total_time_cost as unknown as OCPIPrice | undefined;
-        const totalFixedCost = cdr.total_fixed_cost as unknown as OCPIPrice | undefined;
-        const totalParkingCost = cdr.total_parking_cost as unknown as OCPIPrice | undefined;
 
-        // Use incl_vat if available, otherwise excl_vat
-        let totalValue = totalCost.incl_vat ?? totalCost.excl_vat;
+        // Get service charge from payment_txn if available
+        const serviceCharge = paymentTxn?.service_charge as ServiceCharge | null | undefined;
 
-        const components: BecknOrderValueComponents[] = [];
+        // Calculate final amount using shared logic with service charge percentages
+        const finalAmount: FinalAmount = calculateFinalAmountFromCDR(totalCost, serviceCharge);
 
-        // Add UNIT component from total_energy_cost (base charging cost)
-        if (totalEnergyCost) {
-            const energyCostValue = totalEnergyCost.incl_vat ?? totalEnergyCost.excl_vat;
-            components.push({
-                type: OrderValueComponentsType.UNIT,
-                value: energyCostValue,
-                currency: currency,
-                description: 'Charging session cost',
+        // Add this to DB
+        if (cdr.session_id) {
+            await SessionDbService.update(cdr.session_id, {
+                final_amount: finalAmount,
             });
         }
 
-        // Add FEE component from total_time_cost
-        if (totalTimeCost) {
-            const timeCostValue = totalTimeCost.incl_vat ?? totalTimeCost.excl_vat;
-            components.push({
-                type: OrderValueComponentsType.UNIT,
-                value: timeCostValue,
-                currency: currency,
-                description: 'Time-based cost',
-            });
-        }
-
-        // Add FEE component from total_fixed_cost
-        if (totalFixedCost) {
-            const fixedCostValue = totalFixedCost.incl_vat ?? totalFixedCost.excl_vat;
-            components.push({
-                type: OrderValueComponentsType.UNIT,
-                value: fixedCostValue,
-                currency: currency,
-                description: 'Fixed cost',
-            });
-        }
-
-        // Add FEE component from total_parking_cost
-        if (totalParkingCost) {
-            const parkingCostValue = totalParkingCost.incl_vat ?? totalParkingCost.excl_vat;
-            components.push({
-                type: OrderValueComponentsType.UNIT,
-                value: parkingCostValue,
-                currency: currency,
-                description: 'Parking cost',
-            });
-        }
-
-        // Calculate TAX if both incl_vat and excl_vat are available
-        if (totalCost.incl_vat !== undefined && totalCost.excl_vat !== undefined) {
-            const taxValue = totalCost.incl_vat - totalCost.excl_vat;
-            if (taxValue > 0) {
-                components.push({
-                    type: OrderValueComponentsType.TAX,
-                    value: taxValue,
-                    currency: currency,
-                    description: 'GST',
-                });
-            }
-        }
-
-        // Add service charge on total cost
-        if (totalCost.incl_vat || totalCost.excl_vat) {
-            const bhimProcessingFee = (totalCost.incl_vat ?? totalCost.excl_vat) * 0.02;
-            components.push({
-                type: OrderValueComponentsType.FEE,
-                value: bhimProcessingFee,
-                currency: currency,
-                description: 'BHIM Processing Fee',
-            });
-
-            totalValue += bhimProcessingFee;
-
-            // Pulse processing fee 1% or 5 rupees whichever is higher
-            const pulseProcessingFee = Math.max(totalValue * 0.01, 5);
-            components.push({
-                type: OrderValueComponentsType.FEE,
-                value: pulseProcessingFee,
-                currency: currency,
-                description: 'Service Charge',
-            });
-            totalValue += pulseProcessingFee;
-        }
-
-        // If no components were added, add 2 components with total value and service charge
-        if (components.length === 0) {
-            components.push({
-                type: OrderValueComponentsType.UNIT,
-                value: totalValue,
-                currency: currency,
-                description: 'Total charging cost',
-            });
-
-            const serviceCharge = totalValue * 0.02;
-            components.push({
-                type: OrderValueComponentsType.FEE,
-                value: serviceCharge,
-                currency: currency,
-                description: 'BHIM Processing Fee',
-            });
-            totalValue += serviceCharge;
-
-            // Pulse processing fee 1% or 5 rupees whichever is higher
-            const pulseProcessingFee = Math.max(totalValue * 0.01, 5);
-            components.push({
-                type: OrderValueComponentsType.FEE,
-                value: pulseProcessingFee,
-                currency: currency,
-                description: 'Service Charge',
-            });
-            totalValue += pulseProcessingFee;
-        }
-
-        return {
-            currency: currency,
-            value: totalValue,
-            components: components,
-        };
+        // Build order value from final amount
+        return buildOrderValueFromFinalAmount(finalAmount, currency);
     }
 
     /**
@@ -352,8 +249,8 @@ export default class OnUpdateActionHandler {
 
             const becknOrderId = existingBppOnUpdateResponse.message.order['beckn:id'];
 
-            // Build order_value from CDR
-            const orderValue = OnUpdateActionHandler.buildOrderValueFromCDR(cdr);
+            // Build order_value from CDR with service charge from payment_txn
+            const orderValue = await OnUpdateActionHandler.buildOrderValueFromCDR(cdr, paymentTxn);
 
             // Build ExtractedOnUpdateRequestBody
             const onUpdatePayload: ExtractedOnUpdateRequestBody = {

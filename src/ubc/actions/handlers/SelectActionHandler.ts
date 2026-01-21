@@ -16,9 +16,7 @@ import { ChargingSessionStatus } from '../../schema/v2.0.0/enums/ChargingSession
 import { BecknDomain } from '../../schema/v2.0.0/enums/BecknDomain';
 import { UBCChargingMethod } from '../../schema/v2.0.0/enums/UBCChargingMethod';
 import BppOnixRequestService from '../../services/BppOnixRequestService';
-import { OrderValueComponentsType } from '../../schema/v2.0.0/enums/OrderValueComponentsType';
 import {
-    BecknOrderValueComponents,
     BecknOrderValueResponse,
 } from '../../schema/v2.0.0/types/OrderValue';
 import { BecknOrderItemResponse } from '../../schema/v2.0.0/types/OrderItem';
@@ -27,6 +25,7 @@ import { OCPIv211PriceComponent, OCPIv211TariffElement } from '../../../ocpi/sch
 import { Tariff } from '@prisma/client';
 import { TariffDbService } from '../../../db-services/TariffDbService';
 import { LocationDbService } from '../../../db-services/LocationDbService';
+import { calculateFinalAmount, buildOrderValueFromFinalAmount } from '../../utils/OrderValueCalculator';
 
 /**
  * Handler for select action
@@ -310,53 +309,6 @@ export default class SelectActionHandler {
         );
     }
 
-    private static buildOrderValueComponents(
-        estimatedChargingCost: {
-            charging_session_cost: number,
-            gst: number,
-            service_charge: number,
-            buyer_finder_fee?: number,
-        },
-    ): BecknOrderValueComponents[] {
-        const components: BecknOrderValueComponents[] = [
-            {
-                type: OrderValueComponentsType.UNIT,
-                value: estimatedChargingCost.charging_session_cost,
-                currency: 'INR',
-                description: 'Estimated charging cost',
-            },
-        ];
-
-        if (estimatedChargingCost.gst) {
-            components.push({
-                type: OrderValueComponentsType.TAX,
-                value: estimatedChargingCost.gst,
-                currency: 'INR',
-                description: 'GST',
-            });
-        }
-
-        if (estimatedChargingCost.service_charge) {
-            components.push({
-                type: OrderValueComponentsType.FEE,
-                value: estimatedChargingCost.service_charge,
-                currency: 'INR',
-                description: 'Service Charge',
-            });
-        }
-
-        if (estimatedChargingCost.buyer_finder_fee) {
-            components.push({
-                type: OrderValueComponentsType.FEE,
-                value: estimatedChargingCost.buyer_finder_fee,
-                currency: 'INR',
-                description: 'Buyer Finder Fee',
-            });
-        }
-
-        return components;
-    }
-
     private static buildOrderValue(
         tariff: Tariff, 
         chargingOptionUnit: number,
@@ -370,31 +322,29 @@ export default class SelectActionHandler {
         const ocpiTariffElement = tariffElement.ocpi_tariff_element[0];
         const priceComponents = ocpiTariffElement.price_components as OCPIv211PriceComponent[];
 
-        const chargingSessionCost = priceComponents.reduce((acc: number, curr: OCPIv211PriceComponent) => acc + (curr.price * chargingOptionUnit) + (curr.vat ? (curr.price * chargingOptionUnit) * (curr.vat / 100) : 0), 0);
+        // Calculate charging session cost excl VAT (base price only)
+        const chargingSessionCostExclVat = priceComponents.reduce((acc: number, curr: OCPIv211PriceComponent) => {
+            return acc + (curr.price * chargingOptionUnit);
+        }, 0);
 
-        const buyerFinderFeeValue = buyerFinderFee?.feeValue || 0;
-        const subtotal = chargingSessionCost + buyerFinderFeeValue;
-        const gst = subtotal * 0.18;
-        const totalChargingCost = subtotal + gst;
-        
-        // Add service charge on charging session cost
-        const bhimProcessingFee = totalChargingCost * 0.02;
-        const pulseProcessingFee = Math.max(totalChargingCost * 0.01, 5);
-        const serviceCharge = bhimProcessingFee + pulseProcessingFee;
+        // Calculate GST from VAT in price components
+        // VAT is in percentage, so we calculate per component (in case different components have different VAT rates)
+        // Then sum them up
+        const gst = priceComponents.reduce((acc: number, curr: OCPIv211PriceComponent) => {
+            const basePrice = curr.price * chargingOptionUnit;
+            // VAT is in percentage, so: basePrice * (vat / 100)
+            const vatAmount = curr.vat ? (basePrice * (curr.vat / 100)) : 0;
+            return acc + vatAmount;
+        }, 0);
 
-        const total = totalChargingCost + serviceCharge;
+        // Use shared logic to calculate final amount with buyer finder fee from select call
+        const finalAmount = calculateFinalAmount(
+            chargingSessionCostExclVat,
+            gst,
+            buyerFinderFee
+        );
 
-        
-        const orderValueComponents = SelectActionHandler.buildOrderValueComponents({
-            charging_session_cost: chargingSessionCost,
-            gst: gst, 
-            service_charge: serviceCharge,
-            buyer_finder_fee: buyerFinderFeeValue > 0 ? buyerFinderFeeValue : undefined,
-        });
-        return {
-            currency: tariffElement.currency,
-            value: total,
-            components: orderValueComponents,
-        };
+        // Build order value from final amount
+        return buildOrderValueFromFinalAmount(finalAmount, tariffElement.currency);
     }   
 }

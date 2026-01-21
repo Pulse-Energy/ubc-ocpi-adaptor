@@ -9,7 +9,6 @@ import InvoiceGenerationService from '../../services/invoice/InvoiceGeneration';
 import { CdrDbService } from '../../../db-services/CdrDbService';
 import { SessionDbService } from '../../../db-services/SessionDbService';
 import PaymentGatewayService from '../../services/PaymentServices/PaymentGatewayService';
-import { OCPIPrice } from '../../../ocpi/schema/general/types';
 import { databaseService } from '../../../services/database.service';
 
 export default class ChargingService {
@@ -284,20 +283,20 @@ export default class ChargingService {
                 return;
             }
 
-            // Get the total cost from session (OCPIPrice format)
-            const totalCost = session.total_cost as OCPIPrice | null;
+            // Get the final amount from session (FinalAmount format)
+            const finalAmount = session.final_amount as { total?: number } | null;
             
-            if (!totalCost || totalCost.excl_vat === undefined) {
+            if (!finalAmount || finalAmount.total === undefined) {
                 logger.warn(
-                    `🟡 ${authorization_reference} Refund: Session total_cost not available`,
+                    `🟡 ${authorization_reference} Refund: Session final_amount not available`,
                     { data: { authorization_reference, sessionId: session.id } }
                 );
                 return;
             }
 
-            // Calculate refund amount = payment_txn.amount - session.total_cost.excl_vat
+            // Calculate refund amount = payment_txn.amount - session.final_amount.total
             const paidAmount = Number(paymentTxn.amount);
-            const chargedAmount = totalCost.excl_vat;
+            const chargedAmount = finalAmount.total;
             const refundAmount = paidAmount - chargedAmount;
 
             logger.info(
