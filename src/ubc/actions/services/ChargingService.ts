@@ -14,6 +14,8 @@ import { OCPIPrice } from '../../../ocpi/schema/general/types';
 import { ServiceCharge } from '../../types/ServiceCharge';
 import { FinalAmount } from '../../types/FinalAmount';
 import { calculateFinalAmountFromCDR } from '../../utils/OrderValueCalculator';
+import OnStatusActionHandler from '../handlers/OnStatusActionHandler';
+import { GenericPaymentTxnStatus } from '../../../types/BillDesk';
 
 export default class ChargingService {
     public static async autoCutOffChargingSession(session: Session): Promise<void> {
@@ -368,7 +370,6 @@ export default class ChargingService {
                 refund_amount: refundAmount,
                 reason: `Charging session completed. Charged: ₹${chargedAmount.toFixed(2)}, Paid: ₹${paidAmount.toFixed(2)}`,
             });
-
             if (refundResult.success) {
                 logger.info(
                     `🟢 ${authorization_reference} Refund: Successfully initiated`,
@@ -398,7 +399,52 @@ export default class ChargingService {
 
                 await PaymentTxnDbService.update(paymentTxn.id, {
                     additional_props: updatedAdditionalProps as any,
+                    status: GenericPaymentTxnStatus.Refunded,
                 });
+
+                logger.info(
+                    `🟢 ${authorization_reference} Refund: Updated payment transaction status to REFUNDED`,
+                    {
+                        data: {
+                            paymentTxnId: paymentTxn.id,
+                            old_status: paymentTxn.status,
+                            new_status: GenericPaymentTxnStatus.Refunded,
+                        },
+                    }
+                );
+
+                // Send on_status request to BAP
+                try {
+                    await OnStatusActionHandler.handleEVChargingUBCBppOnStatusAction({
+                        authorization_reference: paymentTxn.authorization_reference,
+                        payment_status: GenericPaymentTxnStatus.Refunded,
+                        oldPaymentStatus: GenericPaymentTxnStatus.Success,
+                    });
+                    logger.info(
+                        `🟢 ${authorization_reference} Refund: Successfully sent on_status to BAP`,
+                        {
+                            data: {
+                                paymentTxnId: paymentTxn.id,
+                                authorization_reference: paymentTxn.authorization_reference,
+                                payment_status: GenericPaymentTxnStatus.Refunded,
+                            },
+                        }
+                    );
+                }
+                catch (statusError: unknown) {
+                    // Log error but don't fail - refund was already processed
+                    const err = statusError instanceof Error ? statusError : new Error(String(statusError));
+                    logger.error(
+                        `🔴 ${authorization_reference} Refund: Failed to send on_status to BAP`,
+                        err,
+                        {
+                            data: {
+                                paymentTxnId: paymentTxn.id,
+                                authorization_reference: paymentTxn.authorization_reference,
+                            },
+                        }
+                    );
+                }
             }
             else {
                 logger.error(

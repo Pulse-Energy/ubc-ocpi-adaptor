@@ -19,7 +19,7 @@ spec:
     spec:
       containers:
       - name: pulse-ubc-ocpi-adaptor-container
-        image: asia-south1-docker.pkg.dev/pulse-energy/pulse-ubc-ocpi-adaptor/pulse-ubc-ocpi-adaptor:abfd2a3 
+        image: asia-south1-docker.pkg.dev/pulse-energy/pulse-ubc-ocpi-adaptor/pulse-ubc-ocpi-adaptor:ab55429 
         ports:
           - containerPort: 6001
         resources:
@@ -78,8 +78,19 @@ spec:
               name: pulse-ubc-ocpi-adaptor-service
               port:
                 number: 6001
+    - host: tp-ubc-ocpi-adaptor.pulseenergy.io
+      http:
+        paths:
+        - path: /
+          pathType: Prefix
+          backend:
+            service:
+              name: pulse-ubc-ocpi-adaptor-service
+              port:
+                number: 6001
   tls:
     - secretName: pulse-energy-full-sectigo-cert1-2025
       hosts:
         - pulse-ubc-ocpi-adaptor.pulseenergy.io
+        - tp-ubc-ocpi-adaptor.pulseenergy.io
       
