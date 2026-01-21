@@ -1,6 +1,6 @@
 import PaymentTxnDbService from '../../../db-services/PaymentTxnDbService';
 import { ChargingSessionStatus } from '../../schema/v2.0.0/enums/ChargingSessionStatus';
-import { Session } from '@prisma/client';
+import { CDR, Session } from '@prisma/client';
 import AdminCommandsModule from '../../../admin/modules/AdminCommandsModule';
 import { Request } from 'express';
 import OnUpdateActionHandler from '../handlers/OnUpdateActionHandler';
@@ -10,6 +10,10 @@ import { CdrDbService } from '../../../db-services/CdrDbService';
 import { SessionDbService } from '../../../db-services/SessionDbService';
 import PaymentGatewayService from '../../services/PaymentServices/PaymentGatewayService';
 import { databaseService } from '../../../services/database.service';
+import { OCPIPrice } from '../../../ocpi/schema/general/types';
+import { ServiceCharge } from '../../types/ServiceCharge';
+import { FinalAmount } from '../../types/FinalAmount';
+import { calculateFinalAmountFromCDR } from '../../utils/OrderValueCalculator';
 
 export default class ChargingService {
     public static async autoCutOffChargingSession(session: Session): Promise<void> {
@@ -178,12 +182,6 @@ export default class ChargingService {
                 }
             }
 
-            // Process refund if there's excess payment
-            // Refund amount = payment_txn.amount - session.total_cost
-            if (paymentTxn && session) {
-                await ChargingService.processRefundIfRequired(paymentTxn.id, session, authorization_reference);
-            }
-
             const becknTransactionId = paymentTxn?.beckn_transaction_id ?? '';
             
             // Use CDR-based on_update if CDR is available (includes order_value from CDR)
@@ -198,8 +196,7 @@ export default class ChargingService {
                         },
                     }
                 );
-                // Don't await - this is async and shouldn't block CDR response
-                OnUpdateActionHandler.handleOnUpdateFromCDR(authorization_reference, storedCdr)
+                await OnUpdateActionHandler.handleOnUpdateFromCDR(authorization_reference, storedCdr)
                     .then(() => {
                         logger.debug(
                             `🟢 ${authorization_reference} Successfully sent on_update from CDR in handleActionOnChargingCompleted`,
@@ -246,6 +243,12 @@ export default class ChargingService {
                     }
                 );
             }
+
+            // Process refund if there's excess payment
+            // Refund amount = payment_txn.amount - session.total_cost
+            if (paymentTxn && session && storedCdr) {
+                await ChargingService.processRefundIfRequired(storedCdr, paymentTxn.id, session, authorization_reference);
+            }
         } 
         catch (error: any) {
             logger.error(
@@ -267,6 +270,7 @@ export default class ChargingService {
      * @param authorization_reference - Authorization reference for logging
      */
     public static async processRefundIfRequired(
+        cdr: CDR,
         paymentTxnId: string,
         session: Session,
         authorization_reference: string
@@ -284,9 +288,27 @@ export default class ChargingService {
             }
 
             // Get the final amount from session (FinalAmount format)
-            const finalAmount = session.final_amount as { total?: number } | null;
+            let finalAmount = session.final_amount as FinalAmount;
             
             if (!finalAmount || finalAmount.total === undefined) {
+                const totalCost = cdr.total_cost as unknown as OCPIPrice;
+
+                // Get service charge from payment_txn if available
+                const serviceCharge = paymentTxn?.service_charge as ServiceCharge | null | undefined;
+
+                // Calculate final amount using shared logic with service charge percentages
+                finalAmount = calculateFinalAmountFromCDR(totalCost, serviceCharge);
+
+                // Add this to DB
+                if (cdr.session_id) {
+                    const session = await SessionDbService.getByCpoSessionId(cdr.session_id);
+                    if (session) {
+                        await SessionDbService.update(session.id, {
+                            final_amount: finalAmount,
+                        });
+                    }
+                }
+
                 logger.warn(
                     `🟡 ${authorization_reference} Refund: Session final_amount not available`,
                     { data: { authorization_reference, sessionId: session.id } }
