@@ -20,7 +20,6 @@ import {
 } from "../../../../types/Razorpay";
 import { OCPIPartnerAdditionalProps } from "../../../../types/OCPIPartner";
 import { PaymentTxnAdditionalProps } from "../../../../types/PaymentTxn";
-import OnStatusActionHandler from "../../../actions/handlers/OnStatusActionHandler";
 
 // Types for payment gateway
 interface CreatePaymentGatewayOrderResponseType {
@@ -228,44 +227,6 @@ export default class PaymentGatewayService {
                         refund_status: refundResult.refundStatus,
                     });
 
-                    // Update payment transaction status to REFUNDED
-                    const newRefundStatus = GenericPaymentTxnStatus.Refunded;
-
-                    // Update payment transaction status
-                    await PaymentTxnDbService.update(paymentTxn.id, {
-                        status: newRefundStatus,
-                    } as any);
-
-                    logger.info('Refund: Updated payment transaction status', {
-                        payment_txn_id,
-                        old_status: paymentTxn.status,
-                        new_status: newRefundStatus,
-                        refund_amount: refund_amount,
-                        paid_amount: Number(paymentTxn.amount),
-                    });
-
-                    // Send on_status request to BAP
-                    try {
-                        await OnStatusActionHandler.handleEVChargingUBCBppOnStatusAction({
-                            authorization_reference: paymentTxn.authorization_reference,
-                            payment_status: newRefundStatus,
-                            oldPaymentStatus: GenericPaymentTxnStatus.Success,
-                        });
-                        logger.info('Refund: Successfully sent on_status to BAP', {
-                            payment_txn_id,
-                            authorization_reference: paymentTxn.authorization_reference,
-                            payment_status: newRefundStatus,
-                        });
-                    }
-                    catch (statusError: unknown) {
-                        // Log error but don't fail - refund was already processed
-                        const err = statusError instanceof Error ? statusError : new Error(String(statusError));
-                        logger.error('Refund: Failed to send on_status to BAP', err, {
-                            payment_txn_id,
-                            authorization_reference: paymentTxn.authorization_reference,
-                        });
-                    }
-
                     return {
                         success: true,
                         refund_id: refundResult.refundId,
@@ -300,44 +261,6 @@ export default class PaymentGatewayService {
                         refund_id: refundResult.refundId,
                         refund_status: refundResult.refundStatus,
                     });
-
-                    // Update payment transaction status to REFUNDED
-                    const newRefundStatus = GenericPaymentTxnStatus.Refunded;
-
-                    // Update payment transaction status
-                    await PaymentTxnDbService.update(paymentTxn.id, {
-                        status: newRefundStatus,
-                    } as any);
-
-                    logger.info('Refund: Updated payment transaction status', {
-                        payment_txn_id,
-                        old_status: paymentTxn.status,
-                        new_status: newRefundStatus,
-                        refund_amount: refund_amount,
-                        paid_amount: Number(paymentTxn.amount),
-                    });
-
-                    // Send on_status request to BAP
-                    try {
-                        await OnStatusActionHandler.handleEVChargingUBCBppOnStatusAction({
-                            authorization_reference: paymentTxn.authorization_reference,
-                            payment_status: newRefundStatus,
-                            oldPaymentStatus: GenericPaymentTxnStatus.Success,
-                        });
-                        logger.info('Refund: Successfully sent on_status to BAP', {
-                            payment_txn_id,
-                            authorization_reference: paymentTxn.authorization_reference,
-                            payment_status: newRefundStatus,
-                        });
-                    }
-                    catch (statusError: unknown) {
-                        // Log error but don't fail - refund was already processed
-                        const err = statusError instanceof Error ? statusError : new Error(String(statusError));
-                        logger.error('Refund: Failed to send on_status to BAP', err, {
-                            payment_txn_id,
-                            authorization_reference: paymentTxn.authorization_reference,
-                        });
-                    }
 
                     return {
                         success: true,
