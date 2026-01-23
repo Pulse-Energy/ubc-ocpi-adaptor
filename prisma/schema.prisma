@@ -237,6 +237,7 @@ model Session {
   requested_energy_units            Decimal?     @db.Decimal(10, 3)
   buyer_info                        Json? // OCPIBusinessDetailsClass
   final_amount                      Json       @default("{}") // Not an OCPI field - internal use only
+  additional_props                  Json?      @default("{}") @db.Json // Store if on_update is called for the cdr or not
 
   // Log relations (named to avoid ambiguity)
   ocpi_logs_session                 OCPILog[]    @relation("OCPILogSession")
