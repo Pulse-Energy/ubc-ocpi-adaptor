@@ -178,7 +178,9 @@ export default class PaymentGatewayService {
             }
 
             // Validate payment status - can only refund successful payments
-            if (paymentTxn.status !== GenericPaymentTxnStatus.Success && paymentTxn.status !== 'SUCCESS') {
+            // Accept both GenericPaymentTxnStatus.Success ('SUCCESS') and BecknPaymentStatus.COMPLETED ('COMPLETED')
+            const successfulStatuses = [GenericPaymentTxnStatus.Success, 'SUCCESS', 'COMPLETED'];
+            if (!successfulStatuses.includes(paymentTxn.status as string)) {
                 logger.error('Refund: Payment is not in successful status', undefined, { 
                     payment_txn_id, 
                     status: paymentTxn.status 

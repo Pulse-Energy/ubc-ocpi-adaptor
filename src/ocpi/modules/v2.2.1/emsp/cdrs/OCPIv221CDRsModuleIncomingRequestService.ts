@@ -11,6 +11,7 @@ import ChargingService from '../../../../../ubc/actions/services/ChargingService
 import { CDRService } from './CDRService';
 import { isEmpty } from 'lodash';
 import { logger } from '../../../../../services/logger.service';
+import { SessionDbService } from '../../../../../db-services/SessionDbService';
 // NOTE: Utils import removed – not used in this module.
 
 /**
@@ -405,16 +406,27 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
             });
             // Pass session_id (cpo_session_id) to handleActionOnChargingCompleted - it will fetch session and payment txn
             // Don't await - this is async and shouldn't block CDR response
-            if (stored?.session_id && !existing) {
-                ChargingService.handleActionOnChargingCompleted(stored.session_id)
-                    .catch((e: any) => {
-                        logger.error(`🔴 [${reqId}] Error in handleActionOnChargingCompleted: ${e?.toString()}`, e, {
-                            data: { ...logData, session_id: stored.session_id },
+            // Check session's additional_props.on_update_stop_charging_sent to determine if on_update should be sent
+            if (stored?.session_id && stored?.authorization_reference) {
+                const session = await SessionDbService.getByAuthorizationReference(stored.authorization_reference);
+                const additionalProps = (session?.additional_props as Record<string, unknown>) || {};
+                const onUpdateStopChargingSent = additionalProps.on_update_stop_charging_sent === true;
+
+                if (!onUpdateStopChargingSent) {
+                    ChargingService.handleActionOnChargingCompleted(stored.session_id)
+                        .catch((e: any) => {
+                            logger.error(`🔴 [${reqId}] Error in handleActionOnChargingCompleted: ${e?.toString()}`, e, {
+                                data: { ...logData, session_id: stored.session_id },
+                            });
                         });
+                } else {
+                    logger.debug(`🟡 [${reqId}] on_update_stop_charging already sent, skipping handleActionOnChargingCompleted`, {
+                        data: { ...logData, cdrId: stored?.id }
                     });
+                }
             }
             else {
-                logger.warn(`🟡 [${reqId}] session_id not found in CDR, skipping handleActionOnChargingCompleted`, {
+                logger.warn(`🟡 [${reqId}] session_id or authorization_reference not found in CDR, skipping handleActionOnChargingCompleted`, {
                     data: { ...logData, cdrId: stored?.id }
                 });
             }
