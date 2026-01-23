@@ -296,7 +296,7 @@ export default class OnStatusActionHandler {
             });
 
 
-            const becknPaymentStatus = mapGenericToBecknStatus(payment_status);
+            const becknPaymentStatus = payment_status as BecknPaymentStatus;
             if (!becknPaymentStatus) {
                 throw new Error('Invalid payment status');
             }
