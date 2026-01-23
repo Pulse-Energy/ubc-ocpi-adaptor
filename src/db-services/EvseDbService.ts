@@ -68,4 +68,19 @@ export class EvseDbService {
         return evse;
     }
 
+    public static async getByEvseUId(
+        evseUid: string,
+        args: Prisma.EVSEFindFirstArgs = {}
+    ): Promise<EVSE & { evse_connectors?: EVSEConnector[] } | null> {
+        const evse = await databaseService.prisma.eVSE.findFirst({
+            where: {
+                uid: evseUid,
+                deleted: false,
+            },
+            ...args,
+        });
+
+        return evse;
+    }
+
 }

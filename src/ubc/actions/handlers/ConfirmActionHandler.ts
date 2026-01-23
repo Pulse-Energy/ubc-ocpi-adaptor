@@ -163,7 +163,7 @@ export default class ConfirmActionHandler {
 
         const session = await SessionDbService.getByAuthorizationReference(becknOrderId);
 
-        const evse = await EvseDbService.getByEvseId(session?.evse_uid ?? '');
+        const evse = await EvseDbService.getByEvseUId(session?.evse_uid ?? '');
 
         const evseStatus = evse?.status;
 

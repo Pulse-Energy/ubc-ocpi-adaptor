@@ -252,7 +252,7 @@ export default class OCPIv221CommandsModuleIncomingRequestService {
         }
 
         // Find EVSE and connector to get power rating and tariff
-        const evse = await EvseDbService.getByEvseId(session.evse_uid, {
+        const evse = await EvseDbService.getByEvseUId(session.evse_uid, {
             include: {
                 evse_connectors: true,
             },
