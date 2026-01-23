@@ -20,7 +20,7 @@ spec:
       terminationGracePeriodSeconds: 60
       containers:
       - name: pulse-ubc-ocpi-adaptor-container
-        image: asia-south1-docker.pkg.dev/pulse-energy/pulse-ubc-ocpi-adaptor/pulse-ubc-ocpi-adaptor:b0bc800
+        image: asia-south1-docker.pkg.dev/pulse-energy/pulse-ubc-ocpi-adaptor/pulse-ubc-ocpi-adaptor:0e4628b
         ports:
           - containerPort: 6001
         resources:
