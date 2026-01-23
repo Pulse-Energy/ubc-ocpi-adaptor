@@ -353,7 +353,7 @@ export default class PublishActionService {
      * Used to mark charger as unavailable during charging sessions
      * @param ocpiLocationId - OCPI location ID
      * @param reservationTime - Optional reservation time in seconds
-     * @param becknConnectorId - Optional Beckn connector ID (format: IND*TPC*{ocpi_location_id}*{evse_uid}*{connector_id}). If provided, only this connector will be published.
+     * @param becknConnectorId - Optional Beckn connector ID (format: IND*{ubc_party_id}*{ocpi_location_id}*{evse_uid}*{connector_id}). If provided, only this connector will be published.
      */
     public static async publishWithReservation(
         ocpiLocationId: string,
@@ -751,8 +751,8 @@ export default class PublishActionService {
 
             for (const [, evse] of location.evses.entries()) {
                 for (const connector of evse.connectors) {
-                    // Build Beckn connector ID (format: IND*TPC*{ocpi_location_id}*{evse_uid}*{connector_id})
-                    const builtConnectorId = `IND*TPC*${location.ocpi_location_id}*${evse.uid}*${connector.connector_id}`;
+                    // Use beckn_connector_id from connector record if available, otherwise generate (for backwards compatibility)
+                    const builtConnectorId = connector.beckn_connector_id || `IND*TPC*${location.ocpi_location_id}*${evse.uid}*${connector.connector_id}`;
                     
                     // Collect tariff IDs from connector
                     if (connector.tariff_ids && connector.tariff_ids.length > 0) {

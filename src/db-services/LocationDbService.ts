@@ -33,6 +33,81 @@ export type EVSEWithRelations = EVSE & {
 };
 
 export class LocationDbService {
+    /**
+     * Generate Beckn connector ID in format: IND*{ubc_party_id}*{ocpi_location_id}*{evse_uid}*{connector_id}
+     * @param ubcPartyId - UBC party ID (default: TPC)
+     * @param ocpiLocationId - OCPI location ID
+     * @param evseUid - EVSE UID
+     * @param connectorId - Connector ID
+     * @returns Formatted Beckn connector ID
+     */
+    public static generateBecknConnectorId(
+        ubcPartyId: string,
+        ocpiLocationId: string,
+        evseUid: string,
+        connectorId: string,
+    ): string {
+        return `IND*${ubcPartyId}*${ocpiLocationId}*${evseUid}*${connectorId}`;
+    }
+
+    /**
+     * Bulk generate and store beckn_connector_id for all connectors of a partner
+     * @param partnerId - Partner ID
+     * @param ubcPartyId - UBC party ID (default: TPC)
+     * @returns Number of connectors updated
+     */
+    public static async generateBecknConnectorIdsForPartner(
+        partnerId: string,
+        ubcPartyId: string = 'TPC',
+    ): Promise<{ updated: number; connectors: Array<{ id: string; beckn_connector_id: string }> }> {
+        const prisma = databaseService.prisma;
+
+        // Fetch all connectors for this partner with their EVSE and Location info
+        const connectors = await prisma.eVSEConnector.findMany({
+            where: {
+                partner_id: partnerId,
+                deleted: false,
+            },
+            include: {
+                evse: {
+                    include: {
+                        location: true,
+                    },
+                },
+            },
+        });
+
+        const updatedConnectors: Array<{ id: string; beckn_connector_id: string }> = [];
+
+        for (const connector of connectors) {
+            if (!connector.evse || !connector.evse.location) {
+                continue;
+            }
+
+            const becknConnectorId = this.generateBecknConnectorId(
+                ubcPartyId,
+                connector.evse.location.ocpi_location_id,
+                connector.evse.uid,
+                connector.connector_id,
+            );
+
+            await prisma.eVSEConnector.update({
+                where: { id: connector.id },
+                data: { beckn_connector_id: becknConnectorId },
+            });
+
+            updatedConnectors.push({
+                id: connector.id,
+                beckn_connector_id: becknConnectorId,
+            });
+        }
+
+        return {
+            updated: updatedConnectors.length,
+            connectors: updatedConnectors,
+        };
+    }
+
     public static async findByOcpiLocationId(
         locationId: string,
         partnerId?: string,
@@ -56,6 +131,7 @@ export class LocationDbService {
     public static async upsertFromOcpiLocation(
         ocpiLocation: OCPILocation,
         partnerId: string,
+        ubcPartyId: string = 'TPC',
     ): Promise<LocationWithRelations> {
         const prisma = databaseService.prisma;
 
@@ -110,7 +186,14 @@ export class LocationDbService {
 
                 if (evse.connectors && evse.connectors.length > 0) {
                     for (const connector of evse.connectors) {
-                        await this.createConnectorForEvse(evseRecord.id, partnerId, connector);
+                        await this.createConnectorForEvse(
+                            evseRecord.id,
+                            partnerId,
+                            connector,
+                            ocpiLocation.id,
+                            evse.uid,
+                            ubcPartyId,
+                        );
                     }
                 }
             }
@@ -185,7 +268,7 @@ export class LocationDbService {
         };
     }
 
-    public static mapPrismaConnectorToOcpi(connector: EVSEConnector): OCPIConnector {
+    public static mapPrismaConnectorToOcpi(connector: EVSEConnector): OCPIConnector & { beckn_connector_id?: string } {
         return {
             id: connector.connector_id,
             standard: connector.standard as OCPIConnectorType,
@@ -200,6 +283,7 @@ export class LocationDbService {
             tariff_ids: connector.tariff_ids ?? undefined,
             terms_and_conditions: connector.terms_and_conditions ?? undefined,
             last_updated: connector.last_updated.toISOString(),
+            beckn_connector_id: connector.beckn_connector_id ?? undefined,
         };
     }
 
@@ -470,8 +554,22 @@ export class LocationDbService {
         evseId: string,
         partnerId: string,
         connector: OCPIConnector,
+        ocpiLocationId?: string,
+        evseUid?: string,
+        ubcPartyId?: string,
     ): Promise<EVSEConnector> {
         const prisma = databaseService.prisma;
+
+        // Generate beckn_connector_id if we have all the required info
+        let becknConnectorId: string | null = null;
+        if (ocpiLocationId && evseUid && ubcPartyId) {
+            becknConnectorId = this.generateBecknConnectorId(
+                ubcPartyId,
+                ocpiLocationId,
+                evseUid,
+                connector.id,
+            );
+        }
 
         return prisma.eVSEConnector.create({
             data: {
@@ -488,6 +586,7 @@ export class LocationDbService {
                 tariff_ids: connector.tariff_ids ?? [],
                 terms_and_conditions: connector.terms_and_conditions ?? null,
                 last_updated: new Date(connector.last_updated ?? new Date().toISOString()),
+                beckn_connector_id: becknConnectorId,
             },
         });
     }

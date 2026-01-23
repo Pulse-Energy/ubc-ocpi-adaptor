@@ -56,7 +56,7 @@ export class EvseDbService {
     public static async getByEvseId(
         evseId: string,
         args: Prisma.EVSEFindFirstArgs = {}
-    ): Promise<EVSE | null> {
+    ): Promise<EVSE & { evse_connectors?: EVSEConnector[] } | null> {
         const evse = await databaseService.prisma.eVSE.findFirst({
             where: {
                 evse_id: evseId,

@@ -22,6 +22,7 @@ import { UBCOnUpdateRequestPayload } from '../../../../../ubc/schema/v2.0.0/acti
 import BppOnixRequestService from '../../../../../ubc/services/BppOnixRequestService';
 import { BecknAction } from '../../../../../ubc/schema/v2.0.0/enums/BecknAction';
 import { BecknDomain } from '../../../../../ubc/schema/v2.0.0/enums/BecknDomain';
+import { EvseDbService } from '../../../../../db-services/EvseDbService';
 
 /**
  * OCPI 2.2.1 – Commands module (incoming, EMSP side).
@@ -251,22 +252,23 @@ export default class OCPIv221CommandsModuleIncomingRequestService {
             return;
         }
 
-        const becknConnectorId = `IND*TPC*${session.location_id}*${session.evse_uid}*${session.connector_id}`;
-
         // Find EVSE and connector to get power rating and tariff
-        const evse = await LocationDbService.findEVSEByBecknConnectorId(becknConnectorId);
+        const evse = await EvseDbService.getByEvseId(session.evse_uid, {
+            include: {
+                evse_connectors: true,
+            },
+        });
         if (!evse) {
-            logger.warn(`🟡 [${reqId}] EVSE not found for start charging: ${becknConnectorId}`);
+            logger.warn(`🟡 [${reqId}] EVSE not found for start charging: ${session.evse_uid}`);
             return;
         }
 
-        const parsedConnectorId = LocationDbService.parseBecknConnectorId(becknConnectorId);
-        const evseConnector = evse.evse_connectors.find(
-            connector => connector.connector_id === parsedConnectorId.connectorId && !connector.deleted
+        const evseConnector = evse?.evse_connectors?.find(
+            connector => connector.connector_id === session.connector_id && !connector.deleted
         );
 
         if (!evseConnector) {
-            logger.warn(`🟡 [${reqId}] EVSE Connector not found for start charging: ${becknConnectorId}`);
+            logger.warn(`🟡 [${reqId}] EVSE Connector not found for start charging: ${session.connector_id}`);
             return;
         }
 
@@ -300,11 +302,17 @@ export default class OCPIv221CommandsModuleIncomingRequestService {
             reqId,
         );
 
+        // Get beckn_connector_id from the connector record
+        const becknConnectorId = evseConnector.beckn_connector_id ?? undefined;
+        if (!becknConnectorId) {
+            logger.warn(`🟡 [${reqId}] beckn_connector_id not found for connector: ${session.location_id}/${session.evse_uid}/${session.connector_id}`);
+        }
+
         // Publish catalog with reservation
         await PublishActionService.publishWithReservation(
             session.location_id,
             reservationTime,
-            becknConnectorId
+            becknConnectorId,
         );
         
     }
@@ -321,10 +329,17 @@ export default class OCPIv221CommandsModuleIncomingRequestService {
             return;
         }
 
+        // Fetch beckn_connector_id from the connector record
+        const connector = await LocationDbService.findConnectorByLocationEvseAndConnectorId(
+            session.location_id,
+            session.evse_uid,
+            session.connector_id,
+        );
+        const becknConnectorId = connector?.beckn_connector_id ?? undefined;
 
-        // Reconstruct Beckn connector ID: IND*TPC*{location_id}*{evse_uid}*{connector_id}
-        const becknConnectorId = `IND*TPC*${session.location_id}*${session.evse_uid}*${session.connector_id}`;
-
+        if (!becknConnectorId) {
+            logger.warn(`🟡 [${reqId}] beckn_connector_id not found for connector: ${session.location_id}/${session.evse_uid}/${session.connector_id}`);
+        }
         
         // Publish with no reservation (undefined) to restore normal availability
         await PublishActionService.publishWithReservation(

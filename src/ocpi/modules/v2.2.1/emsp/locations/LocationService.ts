@@ -6,6 +6,7 @@ import {
 } from '../../../../schema/modules/locations/types';
 import { isEqual } from 'lodash';
 import { logger } from '../../../../../services/logger.service';
+import { LocationDbService } from '../../../../../db-services/LocationDbService';
 
 /**
  * Service for building create and update fields from OCPI payloads
@@ -323,22 +324,43 @@ export class LocationService {
 
     /**
      * Build connector create fields from OCPI payload - only includes fields present in payload
+     * @param payload - OCPI connector payload
+     * @param evseId - Internal EVSE ID
+     * @param partnerId - Partner ID
+     * @param ocpiLocationId - OCPI location ID (for beckn_connector_id generation)
+     * @param evseUid - EVSE UID (for beckn_connector_id generation)
+     * @param ubcPartyId - UBC party ID (default: TPC)
      */
     public static buildConnectorCreateFields(
         payload: OCPIConnector & { connector_id?: string },
         evseId: string,
         partnerId: string,
+        ocpiLocationId?: string,
+        evseUid?: string,
+        ubcPartyId?: string,
     ): Prisma.EVSEConnectorUncheckedCreateInput {
         const reqId = 'internal';
-        const logData = { action: 'buildConnectorCreateFields', evseId, partnerId, connectorId: payload.id };
+        const connectorId = (payload as any).connector_id ?? payload.id;
+        const logData = { action: 'buildConnectorCreateFields', evseId, partnerId, connectorId };
 
         try {
             logger.debug(`🟡 [${reqId}] Starting buildConnectorCreateFields in LocationService`, { data: logData });
 
+            // Generate beckn_connector_id if we have all the required info
+            let becknConnectorId: string | undefined;
+            if (ocpiLocationId && evseUid && ubcPartyId) {
+                becknConnectorId = LocationDbService.generateBecknConnectorId(
+                    ubcPartyId,
+                    ocpiLocationId,
+                    evseUid,
+                    connectorId,
+                );
+            }
+
             const connectorCreateFields: Prisma.EVSEConnectorUncheckedCreateInput = {
             evse_id: evseId,
             partner_id: partnerId,
-            connector_id: (payload as any).connector_id ?? payload.id,
+            connector_id: connectorId,
             standard: payload.standard,
             format: payload.format,
             power_type: payload.power_type,
@@ -346,6 +368,7 @@ export class LocationService {
             max_amperage: BigInt(payload.max_amperage),
             last_updated: new Date(payload.last_updated),
             deleted: false,
+            beckn_connector_id: becknConnectorId ?? null,
         };
 
         if (payload.qr_code !== undefined) connectorCreateFields.qr_code = payload.qr_code;
@@ -354,7 +377,7 @@ export class LocationService {
         if (payload.tariff_ids !== undefined) connectorCreateFields.tariff_ids = payload.tariff_ids;
 
             logger.debug(`🟢 [${reqId}] Completed buildConnectorCreateFields in LocationService`, { 
-                data: { ...logData, fieldCount: Object.keys(connectorCreateFields).length } 
+                data: { ...logData, fieldCount: Object.keys(connectorCreateFields).length, becknConnectorId } 
             });
 
             return connectorCreateFields;

@@ -11,6 +11,7 @@ import { databaseService } from '../../services/database.service';
 import { LocationDbService } from '../../db-services/LocationDbService';
 import OCPIResponseService from '../../ocpi/services/OCPIResponseService';
 import { logger } from '../../services/logger.service';
+import { OCPIPartnerAdditionalProps } from '../../types/OCPIPartner';
 
 export default class AdminLocationsModule {
     public static async sendGetLocations(
@@ -241,6 +242,74 @@ export default class AdminLocationsModule {
         }
         catch (e: any) {
             logger.error(`🔴 [${reqId}] Error in sendGetLocation: ${e?.toString()}`, e, {
+                data: {
+                    ...logData,
+                    error: e,
+                },
+            });
+            throw e;
+        }
+    }
+
+    /**
+     * Bulk generate beckn_connector_id for all connectors of a partner
+     * Format: IND*{ubc_party_id}*{ocpi_location_id}*{evse_uid}*{connector_id}
+     */
+    public static async generateBecknConnectorIds(
+        req: Request,
+    ): Promise<HttpResponse<AdminResponsePayload<{ updated: number; connectors: Array<{ id: string; beckn_connector_id: string }> }>>> {
+        const reqId = req.headers['x-correlation-id'] as string || req.headers['x-request-id'] as string || 'unknown';
+        const logData = { action: 'generateBecknConnectorIds' };
+
+        try {
+            logger.debug(`🟡 [${reqId}] Starting generateBecknConnectorIds in AdminLocationsModule`, { data: logData });
+
+            const { partner_id: partnerId } = req.query as { partner_id?: string };
+
+            if (!partnerId) {
+                logger.warn(`🟡 [${reqId}] partner_id missing in generateBecknConnectorIds`, { data: logData });
+                throw new ValidationError('partner_id is required');
+            }
+
+            const prisma = databaseService.prisma;
+
+            logger.debug(`🟡 [${reqId}] Finding partner in generateBecknConnectorIds`, { 
+                data: { ...logData, partner_id: partnerId } 
+            });
+            const partner = await prisma.oCPIPartner.findUnique({
+                where: { id: partnerId },
+            });
+
+            if (!partner || partner.deleted) {
+                logger.warn(`🟡 [${reqId}] Partner not found in generateBecknConnectorIds`, { 
+                    data: { ...logData, partner_id: partnerId } 
+                });
+                throw new ValidationError('OCPI partner not found');
+            }
+
+            // Get ubc_party_id from partner's additional_props, default to 'TPC'
+            const additionalProps = partner.additional_props as OCPIPartnerAdditionalProps | null;
+            const ubcPartyId = additionalProps?.ubc_party_id ?? 'TPC';
+
+            logger.debug(`🟡 [${reqId}] Generating beckn_connector_ids with ubcPartyId: ${ubcPartyId}`, { 
+                data: { ...logData, partner_id: partnerId, ubcPartyId } 
+            });
+
+            const result = await LocationDbService.generateBecknConnectorIdsForPartner(partnerId, ubcPartyId);
+
+            logger.debug(`🟢 [${reqId}] Generated beckn_connector_ids for ${result.updated} connectors`, { 
+                data: { ...logData, updated: result.updated } 
+            });
+
+            return {
+                httpStatus: 200,
+                payload: {
+                    data: result,
+                },
+            };
+        }
+        catch (e: any) {
+            logger.error(`🔴 [${reqId}] Error in generateBecknConnectorIds: ${e?.toString()}`, e, {
                 data: {
                     ...logData,
                     error: e,

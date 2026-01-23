@@ -18,11 +18,33 @@ import { OCPILogCommand } from '../../../../types';
 import { LocationService } from './LocationService';
 import { isEmpty } from 'lodash';
 import { logger } from '../../../../../services/logger.service';
+import { OCPIPartnerAdditionalProps } from '../../../../../types/OCPIPartner';
 
 /**
  * Handle all incoming requests for the Locations module from the CPO
  */
 export default class OCPIv221LocationsModuleIncomingRequestService {
+
+    /**
+     * Get the UBC party ID from the partner's additional_props
+     * @param partnerId - Partner ID
+     * @returns UBC party ID (default: 'TPC')
+     */
+    private static async getUbcPartyId(partnerId: string): Promise<string> {
+        try {
+            const partner = await databaseService.prisma.oCPIPartner.findUnique({
+                where: { id: partnerId },
+                select: { additional_props: true },
+            });
+            
+            const additionalProps = partner?.additional_props as OCPIPartnerAdditionalProps | null;
+            return additionalProps?.ubc_party_id ?? 'TPC';
+        }
+        catch (e) {
+            logger.warn('Failed to get ubc_party_id from partner, using default TPC', { partnerId, error: e });
+            return 'TPC';
+        }
+    }
 
     // get requests
 
@@ -398,9 +420,12 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
                 }
             }
 
+            // Get UBC party ID for beckn_connector_id generation
+            const ubcPartyId = await this.getUbcPartyId(partnerCredentials.partner_id);
+
             // Handle EVSEs if provided
             logger.debug(`🟡 [${reqId}] Processing EVSEs in handlePutLocation`, { 
-                data: { logData, evsesCount: payload.evses?.length || 0 } 
+                data: { logData, evsesCount: payload.evses?.length || 0, ubcPartyId } 
             });
             if (payload.evses !== undefined && payload.evses.length > 0) {
             for (const evse of payload.evses) {
@@ -465,7 +490,14 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
                             }
                             else {
                                 // Create connector if it doesn't exist - only include fields present in payload
-                                const connectorCreateFields = LocationService.buildConnectorCreateFields(connector as OCPIConnector & { connector_id?: string }, evseRecord.id, partnerCredentials.partner_id);
+                                const connectorCreateFields = LocationService.buildConnectorCreateFields(
+                                    connector as OCPIConnector & { connector_id?: string },
+                                    evseRecord.id,
+                                    partnerCredentials.partner_id,
+                                    location_id,
+                                    evse.uid,
+                                    ubcPartyId,
+                                );
                                 await databaseService.prisma.eVSEConnector.create({
                                     data: connectorCreateFields,
                                 });
@@ -601,6 +633,9 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
 
         // Handle connectors if provided
         if (payload.connectors !== undefined && payload.connectors.length > 0) {
+            // Get UBC party ID for beckn_connector_id generation
+            const ubcPartyId = await this.getUbcPartyId(partnerCredentials.partner_id);
+
             for (const connector of payload.connectors) {
                 const connectorId = (connector as any).connector_id ?? connector.id;
                 const existingConnector = await databaseService.prisma.eVSEConnector.findFirst({
@@ -624,7 +659,14 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
                 }
                 else {
                     // Create connector if it doesn't exist - only include fields present in payload
-                    const connectorCreateFields = LocationService.buildConnectorCreateFields(connector as OCPIConnector & { connector_id?: string }, evseRecord.id, partnerCredentials.partner_id);
+                    const connectorCreateFields = LocationService.buildConnectorCreateFields(
+                        connector as OCPIConnector & { connector_id?: string },
+                        evseRecord.id,
+                        partnerCredentials.partner_id,
+                        location_id,
+                        evse_uid,
+                        ubcPartyId,
+                    );
                     await databaseService.prisma.eVSEConnector.create({
                         data: connectorCreateFields,
                     });
@@ -766,8 +808,18 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
             }
         }
         else {
+            // Get UBC party ID for beckn_connector_id generation
+            const ubcPartyId = await this.getUbcPartyId(partnerCredentials.partner_id);
+
             // Create connector if it doesn't exist - only include fields present in payload
-            const connectorCreateFields = LocationService.buildConnectorCreateFields(payload, evseRecord.id, partnerCredentials.partner_id);
+            const connectorCreateFields = LocationService.buildConnectorCreateFields(
+                payload,
+                evseRecord.id,
+                partnerCredentials.partner_id,
+                location_id,
+                evse_uid,
+                ubcPartyId,
+            );
             await databaseService.prisma.eVSEConnector.create({
                 data: connectorCreateFields,
             });

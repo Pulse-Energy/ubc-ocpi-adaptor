@@ -165,11 +165,16 @@ export default class InitActionHandler {
                                 select: { ocpi_location_id: true },
                             });
                             if (location?.ocpi_location_id) {
+                                // Get beckn_connector_id from the connector record (use first matching connector)
+                                const parsedId = LocationDbService.parseBecknConnectorId(chargePointConnectorId);
+                                const connector = evse.evse_connectors?.find(c => c.connector_id === parsedId.connectorId && !c.deleted);
+                                const becknConnectorId = connector?.beckn_connector_id ?? chargePointConnectorId;
+                                
                                 // Reserve for 5 minutes (300 seconds) - publish only this connector
                                 await PublishActionService.publishWithReservation(
                                     location.ocpi_location_id,
                                     300, // 5 minutes
-                                    chargePointConnectorId // Publish only this connector
+                                    becknConnectorId // Publish only this connector
                                 );
                             }
                         }

@@ -145,7 +145,7 @@ export default class UpdateActionHandler {
         const becknLogs = await BecknLogDbService.getByFilters({
             where: {
                 transaction_id: transactionId,
-                action: `bpp.out.request.${BecknAction.on_update}`,
+                action: `bpp.in.request.${BecknAction.update}`,
                 domain: BecknDomain.EVChargingUBC,
             },
             select: {
