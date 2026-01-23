@@ -13,6 +13,7 @@ import { OrderStatus } from '../../schema/v2.0.0/enums/OrderStatus';
 import { ChargingSessionStatus } from '../../schema/v2.0.0/enums/ChargingSessionStatus';
 import UpdateActionHandler from './UpdateActionHandler';
 import PaymentTxnDbService from '../../../db-services/PaymentTxnDbService';
+import BecknLogDbService from '../../../db-services/BecknLogDbService';
 import { CDR as PrismaCDR } from '@prisma/client';
 import { BecknOrderValueResponse } from '../../schema/v2.0.0/types/OrderValue';
 import { SessionDbService } from '../../../db-services/SessionDbService';
@@ -137,21 +138,30 @@ export default class OnUpdateActionHandler {
     /**
      * Receives on_update from backend and forwards to BPP ONIX
      * Backend → BPP Provider → BPP ONIX
+     * 
+     * First tries to use existing on_update response (for subsequent calls),
+     * then falls back to update request (for first call)
      */
     public static async forwardOnUpdateToBppOnix(
         payload: ExtractedOnUpdateRequestBody
     ): Promise<void> {
         const becknTransactionId = payload.beckn_transaction_id;
 
-        const existingBppOnUpdateResponse =
-            await UpdateActionHandler.fetchExistingBppOnUpdateResponse(becknTransactionId);
+        // First try to fetch existing on_update response (for subsequent calls)
+        let basePayload = await OnUpdateActionHandler.fetchExistingOnUpdateResponse(becknTransactionId);
+        
+        // If no on_update exists yet, use the original update request (for first call)
+        if (!basePayload) {
+            logger.debug(`🟡 [${becknTransactionId}] No existing on_update found, fetching update request`);
+            basePayload = await UpdateActionHandler.fetchExistingBppOnUpdateResponse(becknTransactionId);
+        }
 
-        if (!existingBppOnUpdateResponse) {
-            throw new Error('No existing on_update response found');
+        if (!basePayload) {
+            throw new Error('No existing update request or on_update response found');
         }
 
         if (
-            existingBppOnUpdateResponse?.message?.order?.['beckn:id'] !==
+            basePayload?.message?.order?.['beckn:id'] !==
             payload?.beckn_order_id
         ) {
             throw new Error('Order id mismatch');
@@ -162,7 +172,7 @@ export default class OnUpdateActionHandler {
         }
 
         // Convert backend payload to UBC format
-        const ubcOnUpdatePayload = this.translateBackendToUBC(existingBppOnUpdateResponse, payload);
+        const ubcOnUpdatePayload = this.translateBackendToUBC(basePayload, payload);
 
         const bppHost = Utils.getBPPClientHost();
 
@@ -173,6 +183,34 @@ export default class OnUpdateActionHandler {
             },
             BecknDomain.EVChargingUBC
         );
+    }
+
+    /**
+     * Fetches existing on_update response from beckn logs (for subsequent on_update calls)
+     */
+    private static async fetchExistingOnUpdateResponse(
+        transactionId: string
+    ): Promise<UBCOnUpdateRequestPayload | null> {
+        const becknLogs = await BecknLogDbService.getByFilters({
+            where: {
+                transaction_id: transactionId,
+                action: `bpp.out.request.${BecknAction.on_update}`,
+                domain: BecknDomain.EVChargingUBC,
+            },
+            select: {
+                payload: true,
+            },
+            orderBy: {
+                created_on: 'desc',
+            },
+            take: 1,
+        });
+
+        if (becknLogs?.records && becknLogs.records.length > 0) {
+            return becknLogs.records[0].payload as UBCOnUpdateRequestPayload;
+        }
+
+        return null;
     }
 
     /**
@@ -235,19 +273,23 @@ export default class OnUpdateActionHandler {
 
             const becknTransactionId = paymentTxn.beckn_transaction_id;
 
-            // Fetch existing on_update response to get beckn_order_id
-            const existingBppOnUpdateResponse =
-                await UpdateActionHandler.fetchExistingBppOnUpdateResponse(becknTransactionId);
+            // First try to fetch existing on_update response, then fall back to update request
+            let basePayload = await OnUpdateActionHandler.fetchExistingOnUpdateResponse(becknTransactionId);
+            
+            if (!basePayload) {
+                logger.debug(`🟡 [${authorizationReference}] No existing on_update found, fetching update request`);
+                basePayload = await UpdateActionHandler.fetchExistingBppOnUpdateResponse(becknTransactionId);
+            }
 
-            if (!existingBppOnUpdateResponse) {
+            if (!basePayload) {
                 logger.warn(
-                    `🟡 [${authorizationReference}] No existing on_update response found in handleOnUpdateFromCDR`,
+                    `🟡 [${authorizationReference}] No existing update request or on_update response found in handleOnUpdateFromCDR`,
                     { data: { ...logData, beckn_transaction_id: becknTransactionId } }
                 );
                 return;
             }
 
-            const becknOrderId = existingBppOnUpdateResponse.message.order['beckn:id'];
+            const becknOrderId = basePayload.message.order['beckn:id'];
 
             // Build order_value from CDR with service charge from payment_txn
             const orderValue = await OnUpdateActionHandler.buildOrderValueFromCDR(cdr, paymentTxn);

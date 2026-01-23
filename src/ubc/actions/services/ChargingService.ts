@@ -39,7 +39,7 @@ export default class ChargingService {
 
             if (
                 requested_energy_units === 0 ||
-                requested_energy_units < (session?.kwh?.toNumber() ?? 0)
+                requested_energy_units * 0.9 < (1000 * (session?.kwh?.toNumber() ?? 0))
             ) {
                 const req = {
                     body: {
