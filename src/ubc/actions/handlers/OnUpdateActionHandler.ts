@@ -231,9 +231,12 @@ export default class OnUpdateActionHandler {
 
         // Add this to DB
         if (cdr.session_id) {
-            await SessionDbService.update(cdr.session_id, {
-                final_amount: finalAmount,
-            });
+            const session = await SessionDbService.getByCpoSessionId(cdr.session_id);
+            if (session) {
+                await SessionDbService.update(session.id, {
+                    final_amount: finalAmount,
+                });
+            }
         }
 
         // Build order value from final amount
@@ -309,6 +312,19 @@ export default class OnUpdateActionHandler {
 
             // Forward on_update to BPP ONIX
             await OnUpdateActionHandler.forwardOnUpdateToBppOnix(onUpdatePayload);
+
+            // Mark on_update as sent in session's additional_props
+            if (cdr.session_id) {
+                const session = await SessionDbService.getByCpoSessionId(cdr.session_id);
+                if (session) {
+                await SessionDbService.update(session.id, {
+                        additional_props: {
+                            ...(session.additional_props as Record<string, unknown>),
+                            on_update_stop_charging_sent: true,
+                        },
+                    });
+                }
+            }
 
             logger.debug(
                 `🟢 [${authorizationReference}] Successfully sent on_update from CDR in handleOnUpdateFromCDR`,
