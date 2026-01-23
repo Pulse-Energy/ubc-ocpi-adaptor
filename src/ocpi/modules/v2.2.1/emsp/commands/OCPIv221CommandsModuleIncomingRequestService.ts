@@ -15,7 +15,6 @@ import PublishActionService from '../../../../../ubc/actions/services/PublishAct
 import { LocationDbService } from '../../../../../db-services/LocationDbService';
 import { TariffDbService } from '../../../../../db-services/TariffDbService';
 import PaymentTxnDbService from '../../../../../db-services/PaymentTxnDbService';
-import UpdateActionHandler from '../../../../../ubc/actions/handlers/UpdateActionHandler';
 import { ChargingSessionStatus } from '../../../../../ubc/schema/v2.0.0/enums/ChargingSessionStatus';
 import { OrderStatus } from '../../../../../ubc/schema/v2.0.0/enums/OrderStatus';
 import { UBCOnUpdateRequestPayload } from '../../../../../ubc/schema/v2.0.0/actions/update/types/OnUpdatePayload';
@@ -358,6 +357,8 @@ export default class OCPIv221CommandsModuleIncomingRequestService {
 
     /**
      * Sends on_update async with the specified session status
+     * First time: Uses the update request log (since on_update hasn't been sent yet)
+     * After that: Uses the existing on_update response
      */
     private static async sendOnUpdateWithStatus(
         session: Session,
@@ -381,17 +382,22 @@ export default class OCPIv221CommandsModuleIncomingRequestService {
             return;
         }
 
-        // Fetch existing on_update response to build new one
-        const existingBppOnUpdateResponse =
-            await UpdateActionHandler.fetchExistingBppOnUpdateResponse(paymentTxn.beckn_transaction_id);
+        // First try to fetch existing on_update response (for subsequent calls)
+        let basePayload = await OCPIv221CommandsModuleIncomingRequestService.fetchExistingOnUpdateResponse(paymentTxn.beckn_transaction_id);
+        
+        // If no on_update exists yet, use the original update request (for first call)
+        if (!basePayload) {
+            logger.debug(`🟡 [${reqId}] No existing on_update found, fetching update request to generate first on_update`);
+            basePayload = await OCPIv221CommandsModuleIncomingRequestService.fetchUpdateRequest(paymentTxn.beckn_transaction_id);
+        }
 
-        if (!existingBppOnUpdateResponse) {
-            logger.warn(`🟡 [${reqId}] No existing on_update response found for transaction: ${paymentTxn.beckn_transaction_id}`);
+        if (!basePayload) {
+            logger.warn(`🟡 [${reqId}] No update request or on_update response found for transaction: ${paymentTxn.beckn_transaction_id}`);
             return;
         }
 
         // Build new on_update payload with updated status
-        const order = existingBppOnUpdateResponse.message.order;
+        const order = basePayload.message.order;
         const fulfillment = order['beckn:fulfillment'];
         const deliveryAttributes = fulfillment?.['beckn:deliveryAttributes'] as Record<string, unknown>;
 
@@ -411,6 +417,7 @@ export default class OCPIv221CommandsModuleIncomingRequestService {
         }
 
         // Update delivery attributes with new session status
+        // Per schema: on_update must include connectorType, maxPowerKW, and sessionStatus
         const updatedDeliveryAttributes = {
             ...deliveryAttributes,
             "@context": (deliveryAttributes?.['@context'] as string) || "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/EvChargingSession/v1/context.jsonld",
@@ -420,7 +427,7 @@ export default class OCPIv221CommandsModuleIncomingRequestService {
 
         // Build on_update payload
         const context = Utils.getBPPContext({
-            ...existingBppOnUpdateResponse.context,
+            ...basePayload.context,
             action: BecknAction.on_update,
         });
 
@@ -462,5 +469,61 @@ export default class OCPIv221CommandsModuleIncomingRequestService {
         logger.debug(`🟢 [${reqId}] Sent on_update with status ${sessionStatus}`, {
             data: { authorization_reference: session.authorization_reference, sessionStatus }
         });
+    }
+
+    /**
+     * Fetches existing on_update response from beckn logs (for subsequent on_update calls)
+     */
+    private static async fetchExistingOnUpdateResponse(
+        transactionId: string
+    ): Promise<UBCOnUpdateRequestPayload | null> {
+        const becknLogs = await databaseService.prisma.becknLog.findMany({
+            where: {
+                transaction_id: transactionId,
+                action: `bpp.out.request.${BecknAction.on_update}`,
+                domain: BecknDomain.EVChargingUBC,
+            },
+            select: {
+                payload: true,
+            },
+            orderBy: {
+                created_on: 'desc',
+            },
+            take: 1,
+        });
+
+        if (becknLogs && becknLogs.length > 0) {
+            return becknLogs[0].payload as UBCOnUpdateRequestPayload;
+        }
+
+        return null;
+    }
+
+    /**
+     * Fetches the original update request from beckn logs (for first on_update generation)
+     */
+    private static async fetchUpdateRequest(
+        transactionId: string
+    ): Promise<UBCOnUpdateRequestPayload | null> {
+        const becknLogs = await databaseService.prisma.becknLog.findMany({
+            where: {
+                transaction_id: transactionId,
+                action: `bpp.in.request.${BecknAction.update}`,
+                domain: BecknDomain.EVChargingUBC,
+            },
+            select: {
+                payload: true,
+            },
+            orderBy: {
+                created_on: 'desc',
+            },
+            take: 1,
+        });
+
+        if (becknLogs && becknLogs.length > 0) {
+            return becknLogs[0].payload as UBCOnUpdateRequestPayload;
+        }
+
+        return null;
     }
 }
