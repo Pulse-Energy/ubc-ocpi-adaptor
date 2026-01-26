@@ -252,6 +252,76 @@ function applyReservationToWindows(
 }
 
 /**
+ * ConnectorType enum values (normal standards, not OCPI terms)
+ */
+enum ConnectorType {
+    CCS2 = 'CCS2',
+    CHAdeMO = 'CHAdeMO',
+    GBT = 'GBT',
+    Type2 = 'Type2',
+    Type1 = 'Type1',
+    IEC60309 = 'IEC60309',
+    WallSocket15A = 'WallSocket15A',
+    AC001 = 'AC001',
+    DC001 = 'DC001',
+}
+
+/**
+ * Maps OCPI connector standards to normal ConnectorType values
+ * This is used when publishing to convert OCPI terms to standard connector types
+ */
+const typeMap: Record<string, ConnectorType> = {
+    // ===== DC fast charging =====
+    IEC_62196_T2_COMBO: ConnectorType.CCS2,     // CCS2
+    IEC_62196_T1_COMBO: ConnectorType.CCS2,     // CCS1 → closest match
+    CHADEMO: ConnectorType.CHAdeMO,
+    GBT_DC: ConnectorType.GBT,                  // ❌ non-OCPI, normalize
+    GB_T_DC: ConnectorType.GBT,                 // ✅ OCPI
+
+    // ===== AC charging =====
+    IEC_62196_T2: ConnectorType.Type2,
+    IEC_62196_T1: ConnectorType.Type1,
+    GB_T_AC: ConnectorType.GBT,
+    IEC_60309: ConnectorType.IEC60309,
+    IEC_60309_2_three_32: ConnectorType.IEC60309, // non-OCPI variant
+
+    // ===== Household / wall sockets =====
+    DOMESTIC_I: ConnectorType.WallSocket15A,
+    DOMESTIC_G: ConnectorType.WallSocket15A,
+    DOMESTIC_F: ConnectorType.WallSocket15A,
+
+    // ===== Legacy / internal =====
+    AC_001: ConnectorType.AC001,
+    DC_001: ConnectorType.DC001,
+};
+
+/**
+ * Converts OCPI connector standard to normal ConnectorType
+ * @param ocpiStandard - OCPI connector standard (e.g., "IEC_62196_T2_COMBO")
+ * @returns Normal connector type (e.g., "CCS2") or the original value if not found in map
+ */
+function convertOcpiStandardToConnectorType(ocpiStandard: string | null | undefined): string {
+    if (!ocpiStandard) {
+        return 'UNKNOWN';
+    }
+    
+    // Try exact match first
+    const normalized = ocpiStandard.toUpperCase();
+    if (typeMap[normalized]) {
+        return typeMap[normalized];
+    }
+    
+    // Try with underscores normalized
+    const withUnderscores = normalized.replace(/-/g, '_');
+    if (typeMap[withUnderscores]) {
+        return typeMap[withUnderscores];
+    }
+    
+    // Return original if no mapping found
+    return ocpiStandard;
+}
+
+/**
  * Service for handling publish action
  */
 export default class PublishActionService {
@@ -319,7 +389,8 @@ export default class PublishActionService {
         if (isStartDate) {
             // Set to start of day in UTC
             formattedDate.setUTCHours(0, 0, 0, 0);
-        } else {
+        }
+        else {
             // Set to end of day in UTC
             formattedDate.setUTCHours(23, 59, 59, 999);
         }
@@ -388,43 +459,45 @@ export default class PublishActionService {
     /**
      * Gets appropriate charging description based on connector type and power
      */
-    private static getChargingDescription(connector: EVSEConnector, locationName?: string): string {
+    private static getChargingDescription(connector: EVSEConnector): string {
         const powerType = connector.power_type || '';
         const isAC = powerType.toUpperCase() === 'AC';
         const isDC = powerType.toUpperCase() === 'DC';
         const maxPower = connector.max_electric_power ? Number(connector.max_electric_power) / 1000 : 0; // Convert W to kW
+        const connectorType = convertOcpiStandardToConnectorType(connector.standard);
         
         if (isAC) {
-            return `AC Charger - ${connector.standard} (${maxPower}kW)`;
+            return `AC Charger - ${connectorType} (${maxPower}kW)`;
         }
         else if (isDC) {
             if (maxPower >= 50) {
-                return `DC Fast Charger - ${connector.standard} (${maxPower}kW)`;
+                return `DC Fast Charger - ${connectorType} (${maxPower}kW)`;
             }
-            return `DC Charger - ${connector.standard} (${maxPower}kW)`;
+            return `DC Charger - ${connectorType} (${maxPower}kW)`;
         }
-        return `${connector.standard} Charger (${maxPower}kW)`;
+        return `${connectorType} Charger (${maxPower}kW)`;
     }
 
     /**
      * Gets appropriate long description based on connector type and power
      */
-    private static getChargingLongDescription(connector: EVSEConnector, locationName?: string): string {
+    private static getChargingLongDescription(connector: EVSEConnector): string {
         const powerType = connector.power_type || '';
         const isAC = powerType.toUpperCase() === 'AC';
         const isDC = powerType.toUpperCase() === 'DC';
         const maxPower = connector.max_electric_power ? Number(connector.max_electric_power) / 1000 : 0; // Convert W to kW
+        const connectorType = convertOcpiStandardToConnectorType(connector.standard);
         
         if (isAC) {
-            return `AC charging station supporting ${connector.standard} connector type with ${maxPower}kW maximum power output. Suitable for overnight and extended charging sessions.`;
+            return `AC charging station supporting ${connectorType} connector type with ${maxPower}kW maximum power output. Suitable for overnight and extended charging sessions.`;
         }
         else if (isDC) {
             if (maxPower >= 50) {
-                return `Fast DC charging station supporting ${connector.standard} connector type with ${maxPower}kW maximum power output. Features advanced thermal management and smart charging capabilities for rapid charging.`;
+                return `Fast DC charging station supporting ${connectorType} connector type with ${maxPower}kW maximum power output. Features advanced thermal management and smart charging capabilities for rapid charging.`;
             }
-            return `DC charging station supporting ${connector.standard} connector type with ${maxPower}kW maximum power output. Features advanced thermal management and smart charging capabilities.`;
+            return `DC charging station supporting ${connectorType} connector type with ${maxPower}kW maximum power output. Features advanced thermal management and smart charging capabilities.`;
         }
-        return `Charging station supporting ${connector.standard} connector type with ${maxPower}kW maximum power output. Features advanced thermal management and smart charging capabilities.`;
+        return `Charging station supporting ${connectorType} connector type with ${maxPower}kW maximum power output. Features advanced thermal management and smart charging capabilities.`;
     }
     /**
      * Translates app publish payload to UBC format
@@ -538,10 +611,13 @@ export default class PublishActionService {
         const maxPowerKW = connector.max_electric_power ? Number(connector.max_electric_power) / 1000 : 0; // Convert W to kW
         const minPowerKW = maxPowerKW; // Make min and max the same
 
+        // Convert OCPI connector standard to normal ConnectorType
+        const connectorType = convertOcpiStandardToConnectorType(connector.standard);
+
         const attributes: BecknChargingServiceAttributes = {
             "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/EvChargingService/v1/context.jsonld",
             "@type": "ChargingService",
-            "connectorType": connector.standard,
+            "connectorType": connectorType,
             "maxPowerKW": maxPowerKW,
             "minPowerKW": minPowerKW,
             "reservationSupported": false,
@@ -569,7 +645,10 @@ export default class PublishActionService {
         };
 
         // Determine charging speed: CCS2 + DC = FAST, else SLOW
-        const isCCS2 = connector.standard?.toUpperCase() === 'CCS2';
+        // Check both the converted connectorType and original standard for CCS2
+        const isCCS2 = connectorType === ConnectorType.CCS2 || 
+                      connector.standard?.toUpperCase() === 'IEC_62196_T2_COMBO' ||
+                      connector.standard?.toUpperCase() === 'IEC_62196_T1_COMBO';
         const isDC = connector.power_type?.toUpperCase() === 'DC';
         const chargingSpeed = (isCCS2 && isDC) ? 'FAST' : 'SLOW';
         attributes.chargingSpeed = chargingSpeed;
@@ -760,6 +839,7 @@ export default class PublishActionService {
                     }
                     
                     const locationName = location.name || location.ocpi_location_id;
+                    const connectorType = convertOcpiStandardToConnectorType(connector.standard);
 
                     items.push({
                         "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
@@ -767,9 +847,9 @@ export default class PublishActionService {
                         "beckn:id": builtConnectorId,
                         "beckn:descriptor": {
                             "@type": ObjectType.descriptor,
-                            "schema:name": `${locationName} - ${connector.standard}`,
-                            "beckn:shortDesc": this.getChargingDescription(connector, locationName),
-                            "beckn:longDesc": this.getChargingLongDescription(connector, locationName),
+                            "schema:name": `${locationName} - ${connectorType}`,
+                            "beckn:shortDesc": this.getChargingDescription(connector),
+                            "beckn:longDesc": this.getChargingLongDescription(connector),
                         },
                         "beckn:category": {
                             "@type": "schema:CategoryCode",
@@ -897,7 +977,8 @@ export default class PublishActionService {
                 const ends = tariffDates.map(t => t.end_date_time).filter(Boolean) as string[];
                 catalogStartDate = starts.length > 0 ? starts.sort()[0].split('T')[0] : new Date().toISOString().split('T')[0];
                 catalogEndDate = ends.length > 0 ? ends.sort().reverse()[0].split('T')[0] : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-            } else {
+            }
+            else {
                 catalogStartDate = new Date().toISOString().split('T')[0];
                 catalogEndDate = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
             }
