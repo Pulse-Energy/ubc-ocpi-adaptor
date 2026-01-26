@@ -571,6 +571,11 @@ export class LocationDbService {
             );
         }
 
+        // Filter out null/undefined values from tariff_ids array
+        const tariffIds = Array.isArray(connector.tariff_ids)
+            ? connector.tariff_ids.filter((id): id is string => id != null && typeof id === 'string')
+            : [];
+
         return prisma.eVSEConnector.create({
             data: {
                 evse_id: evseId,
@@ -583,7 +588,7 @@ export class LocationDbService {
                 max_voltage: connector.max_voltage ?? BigInt(0),
                 max_amperage: connector.max_amperage ?? BigInt(0),
                 max_electric_power: connector.max_electric_power ?? null,
-                tariff_ids: connector.tariff_ids ?? [],
+                tariff_ids: tariffIds,
                 terms_and_conditions: connector.terms_and_conditions ?? null,
                 last_updated: new Date(connector.last_updated ?? new Date().toISOString()),
                 beckn_connector_id: becknConnectorId,
