@@ -76,7 +76,10 @@ export default class PaymentGatewayService {
         const amount = paymentTxn.amount;
         const status = paymentTxn.status;
         const additionalProps = paymentTxn.additional_props as PaymentTxnAdditionalProps;
-        const paymentSdk = additionalProps?.payment_sdk || PaymentSDK.BillDesk;
+        const paymentSdk = additionalProps?.payment_sdk || PaymentSDK.Razorpay;
+        logger.debug('paymentSdk', {
+            data: {paymentSdk, additionalProps, paymentTxn}
+        });
 
         const response: CreatePaymentGatewayOrderResponseType = {
             success: false,
