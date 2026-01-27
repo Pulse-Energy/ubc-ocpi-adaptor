@@ -31,10 +31,10 @@ export default class OnStatusActionHandler {
             logger.debug(`🟡 Received on_status request in handleBppOnStatusRequest`, { data: reqDetails });
 
             const body = reqDetails.body as ExtractedOnStatusRequestBody;
-            
+
             // Forward on_status to BPP ONIX (no response needed as request comes from backend)
             await OnStatusActionHandler.handleEVChargingUBCBppOnStatusAction(body);
-            
+
 
             logger.debug(`🟢 Sending on_status response in handleBppOnStatusRequest`, { data: {} });
 
@@ -211,12 +211,12 @@ export default class OnStatusActionHandler {
                 "@context": initPaymentAttributes['@context'] || "https://raw.githubusercontent.com/bhim/ubc-tsd/main/beckn-schemas/UBCExtensions/v1/context.jsonld",
                 "@type": initPaymentAttributes['@type'] || "UBCPaymentAttributes",
             };
-            
+
             // Only include upiTransactionId if present (per example schema)
             if (initPaymentAttributes['upiTransactionId']) {
                 paymentAttributes['upiTransactionId'] = initPaymentAttributes['upiTransactionId'];
             }
-            
+
             // Only include paymentAttributes if it has upiTransactionId
             if (paymentAttributes['upiTransactionId']) {
                 paymentObject['beckn:paymentAttributes'] = paymentAttributes as BecknPayment['beckn:paymentAttributes'];
@@ -271,11 +271,17 @@ export default class OnStatusActionHandler {
                 authorization_reference: authorization_reference,
             },
         });
+
         if (!paymentTxn) {
             throw new Error('No payment txn found');
         }
-        const paymentStatus = paymentTxn.status;
-        if ((paymentStatus === BecknPaymentStatus.COMPLETED || paymentStatus === BecknPaymentStatus.REFUNDED) && (oldPaymentStatus !== (paymentStatus as unknown as GenericPaymentTxnStatus))) {
+
+        logger.debug(`🟡 [${authorization_reference}] Payment txn found`, { paymentTxn });
+
+        const paymentStatus = mapGenericToBecknStatus(paymentTxn.status);
+        
+        if ((paymentStatus === BecknPaymentStatus.COMPLETED || paymentStatus === BecknPaymentStatus.REFUNDED) &&
+            (oldPaymentStatus !== (paymentStatus as unknown as GenericPaymentTxnStatus))) {
             const becknTransactionId = paymentTxn.beckn_transaction_id;
 
             // Fetch existing responses to formulate on_status payload
@@ -291,17 +297,18 @@ export default class OnStatusActionHandler {
             }
 
             // Update payment status in database
-            PaymentTxnDbService.update(paymentTxn.id, {
+            await PaymentTxnDbService.update(paymentTxn.id, {
                 status: payment_status,
             });
 
+            logger.debug(`🟡 [${authorization_reference}] Updated payment status to`, { paymentTxnId: paymentTxn.id, payment_status });
 
             const becknPaymentStatus = payment_status as BecknPaymentStatus;
             if (!becknPaymentStatus) {
                 throw new Error('Invalid payment status');
             }
 
-        // v0.9: Use type assertion since on_init structure changed but we still need to build on_status from it
+            // v0.9: Use type assertion since on_init structure changed but we still need to build on_status from it
             // Convert backend payload to UBC format (no status request needed for async on_status)
             const ubcOnStatusPayload = await this.translateBackendToUBC(
                 existingBppOnSelectResponse,
@@ -315,12 +322,17 @@ export default class OnStatusActionHandler {
             );
 
             const bppHost = Utils.getBPPClientHost();
+            
+            logger.debug(`🟡 [${authorization_reference}] Translating backend to UBC format: `, { bppHost, ubcOnStatusPayload });
 
             return await BppOnixRequestService.sendPostRequest({
                 url: `${bppHost}/${BecknAction.on_status}`,
                 data: ubcOnStatusPayload,
             }, BecknDomain.EVChargingUBC);
-            }
+        }
+        else {
+            logger.debug(`🟡 [${authorization_reference}] Payment status not changed`, { paymentStatus, oldPaymentStatus });
+        }
     }
 
     public static async fetchExistingBppOnSelectResponse(transactionId: string): Promise<UBCOnSelectRequestPayload | null> {
