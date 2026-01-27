@@ -15,6 +15,7 @@ import {
     PaymentSDK,
 } from "../../../../types/BillDesk";
 import {
+    CreateUPIPaymentWithRazorpayResponse,
     RazorpayObject,
     RazorpayPaymentResponse,
 } from "../../../../types/Razorpay";
@@ -72,7 +73,7 @@ export default class PaymentGatewayService {
     public static async createPaymentGatewayOrder(
         paymentTxn: PaymentTxn,
         partner: OCPIPartner
-    ): Promise<CreatePaymentGatewayOrderResponseType> {
+    ): Promise<CreatePaymentGatewayOrderResponseType | CreateUPIPaymentWithRazorpayResponse> {
         const amount = paymentTxn.amount;
         const status = paymentTxn.status;
         const additionalProps = paymentTxn.additional_props as PaymentTxnAdditionalProps;
@@ -139,6 +140,22 @@ export default class PaymentGatewayService {
             );
 
             if (createOrderResponse.success && createOrderResponse.razorpayOrder) {
+
+                logger.debug('createOrderResponse', {
+                    data: {createOrderResponse}
+                });
+                const createUPIPaymentWithRazorpayPaymentGatewayResponse = await RazorpayPaymentService.createUPIPaymentWithRazorpayPaymentGateway(
+                    createOrderResponse,
+                    paymentTxn,
+                );
+                if (createUPIPaymentWithRazorpayPaymentGatewayResponse.success) {
+                    return createUPIPaymentWithRazorpayPaymentGatewayResponse;
+                }
+
+                logger.error('Failed to create Razorpay UPI payment', undefined, { 
+                    paymentTxn, 
+                    createUPIPaymentWithRazorpayPaymentGatewayResponse 
+                });
                 response.success = true;
                 response.orderId = createOrderResponse.razorpayOrder.id;
                 response.razorpay = createOrderResponse.razorpayObject;
