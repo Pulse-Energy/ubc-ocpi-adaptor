@@ -20,7 +20,7 @@ import { Prisma } from '@prisma/client';
 import { LocationDbService } from '../../../db-services/LocationDbService';
 import { OCPIStatusMapper } from '../../utils/OCPIStatusMapper';
 import PaymentTxnDbService from '../../../db-services/PaymentTxnDbService';
-import { GenericPaymentTxnStatus } from '../../../types/BillDesk';
+import { mapGenericToBecknStatus } from '../../services/PaymentServices/Razorpay/RazorpayPaymentService';
 
 /**
  * Handler for status action (BAP → BPP request-response)
@@ -230,8 +230,9 @@ export default class StatusActionHandler {
 
             if (paymentTxn) {
                 // Add paymentStatus from payment txn if it's COMPLETED
-                if (paymentTxn.status === BecknPaymentStatus.COMPLETED || paymentTxn.status === GenericPaymentTxnStatus.Success) {
-                    paymentObject['beckn:paymentStatus'] = paymentTxn.status as BecknPaymentStatus;
+                const paymentStatus = mapGenericToBecknStatus(paymentTxn.status);
+                if (paymentStatus === BecknPaymentStatus.COMPLETED) {
+                    paymentObject['beckn:paymentStatus'] = paymentStatus;
                     
                     // Add paidAt if payment was completed (use updated_at as paidAt timestamp)
                     if (paymentTxn.updated_at) {
