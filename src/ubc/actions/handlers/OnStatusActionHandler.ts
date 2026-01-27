@@ -96,7 +96,7 @@ export default class OnStatusActionHandler {
 
             // Update payment status to COMPLETED
             await PaymentTxnDbService.update(paymentTxn.id, {
-                status: BecknPaymentStatus.COMPLETED,
+                status: GenericPaymentTxnStatus.Success,
             });
 
             logger.info('Updated payment status to COMPLETED', {
