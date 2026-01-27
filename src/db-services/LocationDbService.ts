@@ -24,6 +24,7 @@ import {
     OCPIConnectorType,
     OCPIConnectorFormat,
 } from '../ocpi/schema/modules/locations/enums';
+import { EvseConnectorDbService } from './EvseConnectorDbService';
 
 export type LocationWithRelations = Location & {
     evses: (EVSE & { evse_connectors: EVSEConnector[] })[];
@@ -357,35 +358,21 @@ export class LocationDbService {
     public static async findEVSEByBecknConnectorId(
         becknConnectorId: string,
     ): Promise<EVSEWithRelations | null> {
-        // Parse the formatted connector ID
-        const parsed = LocationDbService.parseBecknConnectorId(becknConnectorId);
-        
-        // Find location by OCPI location ID (csId) - no partner_id filter
-        const location = await databaseService.prisma.location.findFirst({
-            where: {
-                ocpi_location_id: parsed.csId,
-                deleted: false,
-            },
-            select: {
-                id: true,
+        const evseConnector = await EvseConnectorDbService.getByBecknConnectorId(becknConnectorId, {
+            include: {
+                evse: {
+                    include: {
+                        evse_connectors: true,
+                    }
+                },
             },
         });
 
-        if (!location) {
+        if (!evseConnector) {
             return null;
         }
 
-        // Find EVSE directly by location_id and uid (cpId) - no partner_id filter
-        return databaseService.prisma.eVSE.findFirst({
-            where: {
-                location_id: location.id,
-                uid: parsed.cpId,
-                deleted: false,
-            },
-            include: {
-                evse_connectors: true,
-            },
-        }) as Promise<EVSEWithRelations | null>;
+        return evseConnector.evse as EVSEWithRelations | null;
     }
 
     /**
