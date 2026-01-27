@@ -33,7 +33,7 @@ import PublishActionService from '../services/PublishActionService';
 import { databaseService } from '../../../services/database.service';
 import { UBCSelectRequestPayload } from '../../schema/v2.0.0/actions/select/types/SelectPayload';
 import OnStatusActionHandler from './OnStatusActionHandler';
-import { PaymentSDK } from '../../../types/BillDesk';
+import { CreateUPIPaymentWithRazorpayResponse } from '../../../types/Razorpay';
 
 export default class InitActionHandler {
     public static async handleBppInitAction(
@@ -451,24 +451,24 @@ export default class InitActionHandler {
             return await this.sendGeneratePaymentLinkCallToBackend(payload, paymentTxn.partner_id);
         }
         else {
-            const paymentGatewayOrder = await PaymentGatewayService.createPaymentGatewayOrder(paymentTxn, ocpiPartner) as CreatePaymentGatewayOrderResponseType | CreateUPIPaymentWithRazorpayResponse;
-            const paymentSdk = paymentGatewayOrder.payment_sdk || PaymentSDK.Razorpay;
+            const paymentGatewayOrder = await PaymentGatewayService.createPaymentGatewayOrder(paymentTxn, ocpiPartner) as  CreateUPIPaymentWithRazorpayResponse;
+            // const paymentSdk = PaymentSDK.Razorpay;
 
-            if (paymentSdk === PaymentSDK.BillDesk) {
-                return {
-                    payment_link: paymentGatewayOrder.bill_desk?.payment_url || '',
-                    authorization_reference: paymentTxn.authorization_reference,
-                };
-            }
-            else if (paymentSdk === PaymentSDK.Razorpay) {
-                return {
-                    payment_link: paymentGatewayOrder.payment?.link || '',
-                    authorization_reference: paymentTxn.authorization_reference,
-                };
-            }
-            else {
-                throw new Error('Invalid payment SDK');
-            }
+            // if (paymentSdk === PaymentSDK.BillDesk) {
+            //     return {
+            //         payment_link: paymentGatewayOrder.bill_desk?.payment_url || '',
+            //         authorization_reference: paymentTxn.authorization_reference,
+            //     };
+            // }
+            // else if (paymentSdk === PaymentSDK.Razorpay) {
+            return {
+                payment_link: paymentGatewayOrder.payment?.link || '',
+                authorization_reference: paymentTxn.authorization_reference,
+            };
+            // }
+            // else {
+            //     throw new Error('Invalid payment SDK');
+            // }
         
         }
     }

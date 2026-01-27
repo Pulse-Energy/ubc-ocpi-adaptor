@@ -1553,6 +1553,7 @@ router.post('/razorpay/create-upi-payment/:paymentTxnId', async (req: Request, r
 
         // Create UPI payment with Razorpay
         const result = await RazorpayPaymentService.createUPIPaymentWithRazorpayPaymentGateway(
+            {} as any,
             paymentTxn,
             {
                 flow: flow as RazorpayUPIFlow,
