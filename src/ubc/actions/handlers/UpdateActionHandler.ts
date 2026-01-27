@@ -26,6 +26,7 @@ import { BecknPaymentStatus } from '../../schema/v2.0.0/enums/PaymentStatus';
 import { databaseService } from '../../../services/database.service';
 import OCPIPartnerDbService from '../../../db-services/OCPIPartnerDbService';
 import { OCPIPartnerAdditionalProps } from '../../../types/OCPIPartner';
+import { mapGenericToBecknStatus } from '../../services/PaymentServices/Razorpay/RazorpayPaymentService';
 
 /**
  * Handler for update action
@@ -272,7 +273,8 @@ export default class UpdateActionHandler {
                 throw new Error('Payment txn not found');
             }
 
-            if (paymentTxn.status !== BecknPaymentStatus.COMPLETED) {
+            const paymentStatus = mapGenericToBecknStatus(paymentTxn.status);
+            if (paymentStatus !== BecknPaymentStatus.COMPLETED) {
                 throw new Error('Payment txn is not completed');
             }
         }
