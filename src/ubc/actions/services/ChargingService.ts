@@ -62,29 +62,6 @@ export default class ChargingService {
                         data: { req, response },
                     }
                 );
-                const paymentTxn = await PaymentTxnDbService.getFirstByFilter({
-                    where: {
-                        authorization_reference: session.authorization_reference ?? '',
-                    },
-                });
-
-                const becknTransactionId = paymentTxn?.beckn_transaction_id ?? '';
-
-                await OnUpdateActionHandler.handleEVChargingUBCBppOnUpdateAction({
-                    beckn_transaction_id: becknTransactionId,
-                    beckn_order_id: paymentTxn?.authorization_reference ?? '',
-                    session_status: ChargingSessionStatus.COMPLETED,
-                });
-                logger.debug(
-                    `🟢 ${authorization_reference} Sent on_update request in autoCutOffChargingSession`,
-                    {
-                        data: {
-                            beckn_transaction_id: becknTransactionId,
-                            beckn_order_id: paymentTxn?.authorization_reference ?? '',
-                            session_status: ChargingSessionStatus.COMPLETED,
-                        },
-                    }
-                );
             }
         } 
         catch (error: any) {
