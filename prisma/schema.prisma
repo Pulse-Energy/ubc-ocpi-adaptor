@@ -117,13 +117,14 @@ model EVSEConnector {
   partner_id           String
   partner              OCPIPartner @relation(fields: [partner_id], references: [id], onDelete: Cascade)
   ocpilogs             OCPILog[]
-  beckn_connector_id   String? // Beckn connector ID (format: IND*TPC*{ocpi_location_id}*{evse_uid}*{connector_id}). If provided, only this connector will be published.
+  beckn_connector_id   String?  @unique // Beckn connector ID (format: IND*TPC*{ocpi_location_id}*{evse_uid}*{connector_id}). If provided, only this connector will be published.
 
   @@unique([evse_id, connector_id])
   @@index([evse_id])
   // Optimizes getByConnectorId lookups
   @@index([connector_id])
   @@index([partner_id])
+  @@index([beckn_connector_id])
   @@map("evse_connector")
 }
 
