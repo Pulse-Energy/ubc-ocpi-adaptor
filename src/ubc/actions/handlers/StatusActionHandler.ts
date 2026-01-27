@@ -20,6 +20,7 @@ import { Prisma } from '@prisma/client';
 import { LocationDbService } from '../../../db-services/LocationDbService';
 import { OCPIStatusMapper } from '../../utils/OCPIStatusMapper';
 import PaymentTxnDbService from '../../../db-services/PaymentTxnDbService';
+import { GenericPaymentTxnStatus } from '../../../types/BillDesk';
 
 /**
  * Handler for status action (BAP → BPP request-response)
@@ -229,7 +230,7 @@ export default class StatusActionHandler {
 
             if (paymentTxn) {
                 // Add paymentStatus from payment txn if it's COMPLETED
-                if (paymentTxn.status === BecknPaymentStatus.COMPLETED) {
+                if (paymentTxn.status === BecknPaymentStatus.COMPLETED || paymentTxn.status === GenericPaymentTxnStatus.Success) {
                     paymentObject['beckn:paymentStatus'] = paymentTxn.status as BecknPaymentStatus;
                     
                     // Add paidAt if payment was completed (use updated_at as paidAt timestamp)
