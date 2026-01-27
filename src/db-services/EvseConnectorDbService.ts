@@ -68,4 +68,15 @@ export class EvseConnectorDbService {
         return evseConnector;
     }
 
+    public static async getByBecknConnectorId(
+        becknConnectorId: string,
+        args: Prisma.EVSEConnectorFindFirstArgs = {}
+    ): Promise<(EVSEConnector & { evse?: EVSE & { location?: Location } }) | null> {
+        const evseConnector = await databaseService.prisma.eVSEConnector.findFirst({
+            where: { beckn_connector_id: becknConnectorId, deleted: false },
+            ...args,
+        });
+        return evseConnector;
+    }
+
 }
