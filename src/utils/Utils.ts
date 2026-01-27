@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { randomUUID } from "crypto";
+import { randomUUID, randomBytes } from "crypto";
 import { BecknDomain } from "../ubc/schema/v2.0.0/enums/BecknDomain";
 import GLOBAL_VARS from "../constants/global-vars";
 import { BecknAction } from "../ubc/schema/v2.0.0/enums/BecknAction";
@@ -91,8 +91,25 @@ export default class Utils {
         return randomUUID();
     }
 
-
-
+    /**
+     * Generate a nano ID (similar to PostgreSQL nanoid function)
+     * @param size - Length of the ID (default: 9)
+     * @returns Random nano ID string
+     */
+    public static generateNanoId(size: number = 9): string {
+        // URL-safe alphabet with exactly 64 characters (required for byte & 63)
+        const urlAlphabet = 'ModuleSymbhasOwnPr0123456789ABCDEFGHNRVfgctiUvzKqYTJkLxpZXIjQWms';
+        const bytes = randomBytes(size);
+        let id = '';
+        
+        for (let i = 0; i < size; i++) {
+            const byte = bytes[i];
+            const pos = byte & 63; // Same as byte % 64 (0-63)
+            id += urlAlphabet[pos];
+        }
+        
+        return id;
+    }
 
     // BPP */
 

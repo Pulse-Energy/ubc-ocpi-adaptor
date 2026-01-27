@@ -1,5 +1,6 @@
 import { Location, EVSE, EVSEConnector, Prisma } from '@prisma/client';
 import { databaseService } from '../services/database.service';
+import Utils from '../utils/Utils';
 import {
     OCPIConnector,
     OCPIEVSE,
@@ -35,18 +36,17 @@ export type EVSEWithRelations = EVSE & {
 export class LocationDbService {
     /**
      * Generate Beckn connector ID in format: IND*{ubc_party_id}*{ocpi_location_id}*{evse_uid}*{connector_id}
-     * @param ubcPartyId - UBC party ID (default: TPC)
-     * @param ocpiLocationId - OCPI location ID
-     * @param evseUid - EVSE UID
+     * Automatically generates random nanoids for ocpi_location_id and evse_uid
+     * @param ubcPartyId - UBC party ID (e.g., 'TPC')
      * @param connectorId - Connector ID
      * @returns Formatted Beckn connector ID
      */
     public static generateBecknConnectorId(
         ubcPartyId: string,
-        ocpiLocationId: string,
-        evseUid: string,
         connectorId: string,
     ): string {
+        const ocpiLocationId = Utils.generateNanoId(9);
+        const evseUid = Utils.generateNanoId(9);
         return `IND*${ubcPartyId}*${ocpiLocationId}*${evseUid}*${connectorId}`;
     }
 
@@ -67,6 +67,7 @@ export class LocationDbService {
             where: {
                 partner_id: partnerId,
                 deleted: false,
+                beckn_connector_id: null,
             },
             include: {
                 evse: {
@@ -86,8 +87,6 @@ export class LocationDbService {
 
             const becknConnectorId = this.generateBecknConnectorId(
                 ubcPartyId,
-                connector.evse.location.ocpi_location_id,
-                connector.evse.uid,
                 connector.connector_id,
             );
 
@@ -190,8 +189,6 @@ export class LocationDbService {
                             evseRecord.id,
                             partnerId,
                             connector,
-                            ocpiLocation.id,
-                            evse.uid,
                             ubcPartyId,
                         );
                     }
@@ -554,19 +551,15 @@ export class LocationDbService {
         evseId: string,
         partnerId: string,
         connector: OCPIConnector,
-        ocpiLocationId?: string,
-        evseUid?: string,
         ubcPartyId?: string,
     ): Promise<EVSEConnector> {
         const prisma = databaseService.prisma;
 
-        // Generate beckn_connector_id if we have all the required info
+        // Generate beckn_connector_id if ubcPartyId is provided
         let becknConnectorId: string | null = null;
-        if (ocpiLocationId && evseUid && ubcPartyId) {
+        if (ubcPartyId) {
             becknConnectorId = this.generateBecknConnectorId(
                 ubcPartyId,
-                ocpiLocationId,
-                evseUid,
                 connector.id,
             );
         }

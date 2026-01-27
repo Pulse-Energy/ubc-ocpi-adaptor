@@ -346,13 +346,11 @@ export class LocationService {
         try {
             logger.debug(`🟡 [${reqId}] Starting buildConnectorCreateFields in LocationService`, { data: logData });
 
-            // Generate beckn_connector_id if we have all the required info
+            // Generate beckn_connector_id if ubcPartyId is provided
             let becknConnectorId: string | undefined;
-            if (ocpiLocationId && evseUid && ubcPartyId) {
+            if (ubcPartyId) {
                 becknConnectorId = LocationDbService.generateBecknConnectorId(
                     ubcPartyId,
-                    ocpiLocationId,
-                    evseUid,
                     connectorId,
                 );
             }
