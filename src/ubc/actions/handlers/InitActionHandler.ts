@@ -33,6 +33,7 @@ import PublishActionService from '../services/PublishActionService';
 import { databaseService } from '../../../services/database.service';
 import { UBCSelectRequestPayload } from '../../schema/v2.0.0/actions/select/types/SelectPayload';
 import OnStatusActionHandler from './OnStatusActionHandler';
+import { PaymentSDK } from '../../../types/BillDesk';
 
 export default class InitActionHandler {
     public static async handleBppInitAction(
@@ -64,25 +65,25 @@ export default class InitActionHandler {
             const bapBeneficiary = reqPayload.message?.order?.['beckn:payment']?.['beckn:beneficiary'] as 'BPP' | 'BAP' | undefined;
             let finalBeneficiary: 'BPP' | 'BAP' = 'BPP'; // Default to BPP
             
-            if (bapBeneficiary === 'BPP') {
-                finalBeneficiary = 'BPP';
-            }
-            else if (bapBeneficiary === 'BAP') {
-                // Get partner to check beneficiary configuration
-                const chargePointConnectorId = reqPayload.message?.order?.['beckn:orderItems']?.[0]?.['beckn:orderedItem'];
-                if (chargePointConnectorId) {
-                    const evse = await LocationDbService.findEVSEByBecknConnectorId(chargePointConnectorId);
-                    if (evse?.evse_connectors?.[0]?.partner_id) {
-                        const partner = await OCPIPartnerDbService.getById(evse.evse_connectors[0].partner_id);
-                        const additionalProps = partner?.additional_props as OCPIPartnerAdditionalProps | undefined;
-                        const partnerBeneficiary = additionalProps?.beneficiary;
+            // if (bapBeneficiary === 'BPP') {
+            //     finalBeneficiary = 'BPP';
+            // }
+            // else if (bapBeneficiary === 'BAP') {
+            //     // Get partner to check beneficiary configuration
+            //     const chargePointConnectorId = reqPayload.message?.order?.['beckn:orderItems']?.[0]?.['beckn:orderedItem'];
+            //     if (chargePointConnectorId) {
+            //         const evse = await LocationDbService.findEVSEByBecknConnectorId(chargePointConnectorId);
+            //         if (evse?.evse_connectors?.[0]?.partner_id) {
+            //             const partner = await OCPIPartnerDbService.getById(evse.evse_connectors[0].partner_id);
+            //             const additionalProps = partner?.additional_props as OCPIPartnerAdditionalProps | undefined;
+            //             const partnerBeneficiary = additionalProps?.beneficiary;
                         
-                        if (partnerBeneficiary === 'BAP' || partnerBeneficiary === 'BPP') {
-                            finalBeneficiary = partnerBeneficiary;
-                        }
-                    }
-                }
-            }
+            //             if (partnerBeneficiary === 'BAP' || partnerBeneficiary === 'BPP') {
+            //                 finalBeneficiary = partnerBeneficiary;
+            //             }
+            //         }
+            //     }
+            // }
             
             logger.debug(`🟡 [${reqId}] Determined beneficiary: ${finalBeneficiary}`, {
                 bapBeneficiary,
@@ -450,11 +451,25 @@ export default class InitActionHandler {
             return await this.sendGeneratePaymentLinkCallToBackend(payload, paymentTxn.partner_id);
         }
         else {
-            const paymentGatewayOrder = await PaymentGatewayService.createPaymentGatewayOrder(paymentTxn, ocpiPartner);
-            return {
-                payment_link: paymentGatewayOrder.bill_desk?.payment_url || '',
-                authorization_reference: paymentTxn.authorization_reference,
-            };
+            const paymentGatewayOrder = await PaymentGatewayService.createPaymentGatewayOrder(paymentTxn, ocpiPartner) as CreatePaymentGatewayOrderResponseType | CreateUPIPaymentWithRazorpayResponse;
+            const paymentSdk = paymentGatewayOrder.payment_sdk || PaymentSDK.Razorpay;
+
+            if (paymentSdk === PaymentSDK.BillDesk) {
+                return {
+                    payment_link: paymentGatewayOrder.bill_desk?.payment_url || '',
+                    authorization_reference: paymentTxn.authorization_reference,
+                };
+            }
+            else if (paymentSdk === PaymentSDK.Razorpay) {
+                return {
+                    payment_link: paymentGatewayOrder.payment?.link || '',
+                    authorization_reference: paymentTxn.authorization_reference,
+                };
+            }
+            else {
+                throw new Error('Invalid payment SDK');
+            }
+        
         }
     }
 

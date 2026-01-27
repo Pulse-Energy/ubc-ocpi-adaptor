@@ -22,6 +22,7 @@ import {
     CreateOrderWithRazorpayResponse,
     CreateUPIPaymentWithRazorpayResponse,
     RazorpayPaymentStatus,
+    RazorpayCreateUPIPaymentRequest,
 } from "../../../../types/Razorpay";
 import { GenericPaymentTxnStatus, PaymentSDK } from "../../../../types/BillDesk";
 import { HttpResponse } from "../../../../types/responses";
@@ -1196,13 +1197,14 @@ export default class RazorpayPaymentService {
      * @returns Created payment details with intent link (for intent flow)
      */
     public static async createUPIPaymentWithRazorpayPaymentGateway(
+        createOrderResponse: CreateOrderWithRazorpayResponse,
         paymentTxn: PaymentTxn,
-        upiOptions: {
+        upiOptions?: {
             flow: RazorpayUPIFlow | string;
             vpa?: string;
             expiry_time?: number;
         },
-        customerInfo: {
+        customerInfo?: {
             email: string;
             contact: string;
         },
@@ -1223,12 +1225,20 @@ export default class RazorpayPaymentService {
                 };
             }
 
+            const deviceProps = {
+                ip: deviceInfo?.ip || '127.0.0.1',
+                user_agent: deviceInfo?.user_agent|| 'Mozilla/5.0',
+                referer: deviceInfo || 'https://pulseenergy.io/',
+            };
+
+            const emailObject: RazorpayCreateUPIPaymentRequest['email'] = customerInfo?.email ?? 'info@pulseenergy.io';
+            const contactObject: RazorpayCreateUPIPaymentRequest['contact'] = customerInfo?.contact ?? '9876543210';
+
             // Get order ID from additional props
-            const existingProps = paymentTxn.additional_props as Record<string, unknown> | null;
-            const existingOrder = existingProps?.payment_gateway_create_object as RazorpayCreateOrderResponse | undefined;
+            const existingOrder = createOrderResponse.razorpayOrder;
             
             if (!existingOrder || !existingOrder.id) {
-                logger.error('Razorpay: No order found. Create an order first.', undefined, { paymentTxnId: paymentTxn.id });
+                logger.error('Razorpay: No order found. Create an order first.', undefined, { createOrderResponse });
                 return {
                     success: false,
                     error: 'No Razorpay order found. Create an order first.',
@@ -1239,11 +1249,21 @@ export default class RazorpayPaymentService {
             const amountInPaise = existingOrder.amount;
 
             // Validate VPA for collect flow
-            if (upiOptions.flow === RazorpayUPIFlow.Collect && !upiOptions.vpa) {
+            if (upiOptions?.flow === RazorpayUPIFlow.Collect && !upiOptions?.vpa) {
                 return {
                     success: false,
                     error: 'VPA is required for collect flow',
                 };
+            }
+
+            const upiOptionsObject: RazorpayCreateUPIPaymentRequest['upi'] = {
+                flow: upiOptions?.flow ?? RazorpayUPIFlow.Intent,
+            }
+            
+            if(upiOptions?.flow === RazorpayUPIFlow.Collect) {
+                upiOptionsObject.flow = RazorpayUPIFlow.Collect;
+                upiOptionsObject.vpa = upiOptions.vpa || '';
+                upiOptionsObject.expiry_time = upiOptions.expiry_time || 5;
             }
 
             const feeAmount = Math.ceil(0.2 * amountInPaise / 100) + 2 * Math.round(9 * Math.ceil(0.2 * amountInPaise / 100) / 100);
@@ -1252,17 +1272,13 @@ export default class RazorpayPaymentService {
                     amount: amountInPaise + feeAmount,
                     currency: 'INR',
                     order_id: orderId,
-                    email: customerInfo.email,
-                    contact: customerInfo.contact,
+                    email: emailObject,
+                    contact: contactObject,
                     method: 'upi',
-                    upi: {
-                        flow: upiOptions.flow,
-                        vpa: upiOptions.vpa,
-                        expiry_time: upiOptions.expiry_time,
-                    },
-                    ip: deviceInfo?.ip,
-                    user_agent: deviceInfo?.user_agent,
-                    referer: deviceInfo?.referer ?? 'https://pulseenergy.io/',
+                    upi: upiOptionsObject,
+                    ip: deviceProps?.ip,
+                    user_agent: deviceProps?.user_agent,
+                    referer: deviceProps.referer as string,
                     description: `Payment for ${paymentTxn.authorization_reference || paymentTxn.id}`,
                     notes: {
                         payment_txn_id: paymentTxn.id,
