@@ -30,7 +30,6 @@ import OCPIPartnerDbService from '../../../db-services/OCPIPartnerDbService';
 import { OCPIPartnerAdditionalProps, PaymentServiceProvider } from '../../../types/OCPIPartner';
 import PaymentGatewayService from '../../services/PaymentServices/PaymentGatewayService';
 import PublishActionService from '../services/PublishActionService';
-import { databaseService } from '../../../services/database.service';
 import { UBCSelectRequestPayload } from '../../schema/v2.0.0/actions/select/types/SelectPayload';
 import OnStatusActionHandler from './OnStatusActionHandler';
 import { CreateUPIPaymentWithRazorpayResponse } from '../../../types/Razorpay';
@@ -134,9 +133,9 @@ export default class InitActionHandler {
             let partner = null;
             const chargePointConnectorId = reqPayload.message?.order?.['beckn:orderItems']?.[0]?.['beckn:orderedItem'];
             if (chargePointConnectorId) {
-                const evse = await LocationDbService.findEVSEByBecknConnectorId(chargePointConnectorId);
-                if (evse?.evse_connectors?.[0]?.partner_id) {
-                    partner = await OCPIPartnerDbService.getById(evse.evse_connectors[0].partner_id);
+                const connectorData = await LocationDbService.getConnectorByBecknId(chargePointConnectorId);
+                if (connectorData?.connector?.partner_id) {
+                    partner = await OCPIPartnerDbService.getById(connectorData.connector.partner_id);
                 }
             }
 
@@ -159,25 +158,14 @@ export default class InitActionHandler {
                 try {
                     const chargePointConnectorId = reqPayload.message?.order?.['beckn:orderItems']?.[0]?.['beckn:orderedItem'];
                     if (chargePointConnectorId) {
-                        const evse = await LocationDbService.findEVSEByBecknConnectorId(chargePointConnectorId);
-                        if (evse) {
-                            const location = await databaseService.prisma.location.findUnique({
-                                where: { id: evse.location_id },
-                                select: { ocpi_location_id: true },
-                            });
-                            if (location?.ocpi_location_id) {
-                                // Get beckn_connector_id from the connector record (use first matching connector)
-                                const parsedId = LocationDbService.parseBecknConnectorId(chargePointConnectorId);
-                                const connector = evse.evse_connectors?.find(c => c.connector_id === parsedId.connectorId && !c.deleted);
-                                const becknConnectorId = connector?.beckn_connector_id ?? chargePointConnectorId;
-                                
-                                // Reserve for 5 minutes (300 seconds) - publish only this connector
-                                await PublishActionService.publishWithReservation(
-                                    location.ocpi_location_id,
-                                    300, // 5 minutes
-                                    becknConnectorId // Publish only this connector
-                                );
-                            }
+                        // Fetch connector directly from DB using beckn_connector_id
+                        const connectorData = await LocationDbService.getConnectorByBecknId(chargePointConnectorId);
+                        if (connectorData) {
+                            // Reserve for 5 minutes (300 seconds) - publish only this connector
+                            await PublishActionService.publishWithReservation(
+                                connectorData.connector.connector_id, // OCPI connector_id
+                                300 // 5 minutes
+                            );
                         }
                     }
 
@@ -189,9 +177,9 @@ export default class InitActionHandler {
                         // Get partner to check callback_on_status_api configuration
                         const chargePointConnectorId = reqPayload.message?.order?.['beckn:orderItems']?.[0]?.['beckn:orderedItem'];
                         if (chargePointConnectorId) {
-                            const evse = await LocationDbService.findEVSEByBecknConnectorId(chargePointConnectorId);
-                            if (evse?.evse_connectors?.[0]?.partner_id) {
-                                const partner = await OCPIPartnerDbService.getById(evse.evse_connectors[0].partner_id);
+                            const connectorData = await LocationDbService.getConnectorByBecknId(chargePointConnectorId);
+                            if (connectorData?.connector?.partner_id) {
+                                const partner = await OCPIPartnerDbService.getById(connectorData.connector.partner_id);
                                 const additionalProps = partner?.additional_props as OCPIPartnerAdditionalProps | undefined;
                                 const callbackConfig = additionalProps?.callback_on_status_api;
 
@@ -343,22 +331,14 @@ export default class InitActionHandler {
     ): Promise<ExtractedOnInitResponseBody> {
         const finalAmount = payload.payload.amount;
         
-        // Find EVSE directly from Beckn connector ID
-        const evse = await LocationDbService.findEVSEByBecknConnectorId(payload.payload.charge_point_connector_id);
+        // Fetch connector directly from DB using beckn_connector_id
+        const connectorData = await LocationDbService.getConnectorByBecknId(payload.payload.charge_point_connector_id);
         
-        if (!evse) {
-            throw new Error(`EVSE not found for ID: ${payload.payload.charge_point_connector_id}`);
-        }
-
-        // Get connector from EVSE
-        const parsedConnectorId = LocationDbService.parseBecknConnectorId(payload.payload.charge_point_connector_id);
-        const evseConnector = evse.evse_connectors.find(
-            connector => connector.connector_id === parsedConnectorId.connectorId && !connector.deleted
-        );
-        
-        if (!evseConnector) {
+        if (!connectorData) {
             throw new Error(`Connector not found for ID: ${payload.payload.charge_point_connector_id}`);
         }
+
+        const evseConnector = connectorData.connector;
         
         if (!evseConnector.partner_id) {
             throw new Error(`Connector ${payload.payload.charge_point_connector_id} does not have a partner_id`);

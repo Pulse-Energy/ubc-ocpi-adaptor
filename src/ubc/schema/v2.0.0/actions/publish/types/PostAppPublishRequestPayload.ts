@@ -1,12 +1,18 @@
 /**
  * Request payload for publish action from CPO/App
  * Based on Catalog Publish API requirements
- * Updated to accept ocpi_location_ids array - all location, EVSE, connector, and tariff data will be fetched from database
+ * Exactly ONE of the following must be provided: ocpi_location_ids, evse_ids, connector_ids, or partner_id
  * BPP ID, BPP URI, and transaction ID are automatically generated from config
  */
 export type PostAppPublishRequestPayload = {
-    /** Required: Array of OCPI Location IDs - all location, EVSE, connector, and tariff data will be fetched from database */
-    ocpi_location_ids: string[];
+    /** Array of OCPI Location IDs - mutually exclusive with evse_ids, connector_ids, partner_id */
+    ocpi_location_ids?: string[];
+    /** Array of EVSE IDs (uid) - mutually exclusive with ocpi_location_ids, connector_ids, partner_id */
+    evse_ids?: string[];
+    /** Array of Connector IDs - mutually exclusive with ocpi_location_ids, evse_ids, partner_id */
+    connector_ids?: string[];
+    /** Partner ID - fetch all locations for this partner - mutually exclusive with ocpi_location_ids, evse_ids, connector_ids */
+    partner_id?: string;
     /** Optional: Accepted payment methods (defaults to [UPI, BANK_TRANSFER] if not provided) */
     accepted_payment_methods?: string[];
     /** Optional: Catalog validity period (defaults to tariff validity dates if not provided) */
@@ -27,7 +33,5 @@ export type PostAppPublishRequestPayload = {
     isActive?: boolean;
     /** Optional: Reservation time in seconds. If provided, excludes the period from now to now + reservationTime from availability windows */
     reservationTime?: number;
-    /** Optional: Beckn connector ID (format: IND*{ubc_party_id}*{ocpi_location_id}*{evse_uid}*{connector_id}). If provided, only this connector will be published. */
-    connector_id?: string;
 };
 

@@ -12,7 +12,6 @@ import { OCPIRequestLogService } from '../../../../services/OCPIRequestLogServic
 import { OCPILogCommand } from '../../../../types';
 import Utils from '../../../../../utils/Utils';
 import PublishActionService from '../../../../../ubc/actions/services/PublishActionService';
-import { LocationDbService } from '../../../../../db-services/LocationDbService';
 import { TariffDbService } from '../../../../../db-services/TariffDbService';
 import PaymentTxnDbService from '../../../../../db-services/PaymentTxnDbService';
 import { ChargingSessionStatus } from '../../../../../ubc/schema/v2.0.0/enums/ChargingSessionStatus';
@@ -301,17 +300,10 @@ export default class OCPIv221CommandsModuleIncomingRequestService {
             reqId,
         );
 
-        // Get beckn_connector_id from the connector record
-        const becknConnectorId = evseConnector.beckn_connector_id ?? undefined;
-        if (!becknConnectorId) {
-            logger.warn(`🟡 [${reqId}] beckn_connector_id not found for connector: ${session.location_id}/${session.evse_uid}/${session.connector_id}`);
-        }
-
-        // Publish catalog with reservation
+        // Publish catalog with reservation using OCPI connector_id
         await PublishActionService.publishWithReservation(
-            session.location_id,
-            reservationTime,
-            becknConnectorId,
+            session.connector_id,
+            reservationTime
         );
         
     }
@@ -328,23 +320,10 @@ export default class OCPIv221CommandsModuleIncomingRequestService {
             return;
         }
 
-        // Fetch beckn_connector_id from the connector record
-        const connector = await LocationDbService.findConnectorByLocationEvseAndConnectorId(
-            session.location_id,
-            session.evse_uid,
-            session.connector_id,
-        );
-        const becknConnectorId = connector?.beckn_connector_id ?? undefined;
-
-        if (!becknConnectorId) {
-            logger.warn(`🟡 [${reqId}] beckn_connector_id not found for connector: ${session.location_id}/${session.evse_uid}/${session.connector_id}`);
-        }
-        
         // Publish with no reservation (undefined) to restore normal availability
         await PublishActionService.publishWithReservation(
-            session.location_id,
-            undefined,
-            becknConnectorId
+            session.connector_id,
+            undefined
         );
 
         // Send on_update with COMPLETED status

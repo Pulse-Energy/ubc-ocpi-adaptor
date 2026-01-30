@@ -281,32 +281,16 @@ export default class UpdateActionHandler {
         
         if (charging_action === ChargingAction.StartCharging) {
             
-            // Find EVSE directly from Beckn connector ID
-            const evse = await LocationDbService.findEVSEByBecknConnectorId(charge_point_connector_id);
+            // Fetch connector directly from DB using beckn_connector_id
+            const connectorData = await LocationDbService.getConnectorByBecknId(charge_point_connector_id);
             
-            if (!evse) {
-                throw new Error(`EVSE not found for: ${charge_point_connector_id}`);
+            if (!connectorData) {
+                throw new Error(`Connector not found for: ${charge_point_connector_id}`);
             }
 
-            // Get connector from EVSE
-            const parsedConnectorId = LocationDbService.parseBecknConnectorId(charge_point_connector_id);
-            const evseConnector = evse.evse_connectors.find(
-                connector => connector.connector_id === parsedConnectorId.connectorId && !connector.deleted
-            );
-            
-            if (!evseConnector) {
-                throw new Error(`EVSE Connector not found for: ${charge_point_connector_id}`);
-            }
-
-            // Get location to get ocpi_location_id
-            const location = await databaseService.prisma.location.findUnique({
-                where: { id: evse.location_id },
-                select: { ocpi_location_id: true },
-            });
-
-            if (!location) {
-                throw new Error(`Location not found for EVSE: ${evse.id}`);
-            }
+            const evseConnector = connectorData.connector;
+            const evse = connectorData.evse;
+            const location = connectorData.location;
     
             const req = {
                 body: {

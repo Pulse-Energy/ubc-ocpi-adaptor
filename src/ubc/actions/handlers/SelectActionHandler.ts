@@ -200,22 +200,14 @@ export default class SelectActionHandler {
         } = reqPayload;
         const chargingOptionUnit = Number(charging_option_unit)/1000; // Convert kWh to Wh
         
-        // Find EVSE directly from Beckn connector ID
-        const evse = await LocationDbService.findEVSEByBecknConnectorId(charge_point_connector_id);
+        // Fetch connector directly from DB using beckn_connector_id
+        const connectorData = await LocationDbService.getConnectorByBecknId(charge_point_connector_id);
         
-        if (!evse) {
-            throw new Error(`EVSE not found for: ${charge_point_connector_id}`);
+        if (!connectorData) {
+            throw new Error(`Connector not found for: ${charge_point_connector_id}`);
         }
 
-        // Get connector from EVSE
-        const parsedConnectorId = LocationDbService.parseBecknConnectorId(charge_point_connector_id);
-        const evseConnector = evse.evse_connectors.find(
-            connector => connector.connector_id === parsedConnectorId.connectorId && !connector.deleted
-        );
-        
-        if (!evseConnector) {
-            throw new Error(`EVSE Connector not found for: ${charge_point_connector_id}`);
-        }
+        const evseConnector = connectorData.connector;
 
         const ocpiTariff = await TariffDbService.getByOcpiTariffId(evseConnector.tariff_ids[0]);
         if (!ocpiTariff) {

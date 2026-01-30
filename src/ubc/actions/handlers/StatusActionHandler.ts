@@ -145,31 +145,29 @@ export default class StatusActionHandler {
      * @throws Error if EVSE is not found
      */
     public static async getConnectorStatusFromEVSE(orderedItem: string): Promise<string> {
-        // Find the EVSE directly from the Beckn connector ID
-        const evse = await LocationDbService.findEVSEByBecknConnectorId(orderedItem);
+        // Fetch connector directly from DB using beckn_connector_id
+        const connectorData = await LocationDbService.getConnectorByBecknId(orderedItem);
 
-        if (!evse) {
-            const parsedConnectorId = LocationDbService.parseBecknConnectorId(orderedItem);
-            const errorMessage = `EVSE not found for connector ID: locationId=${parsedConnectorId.csId}, evseUid=${parsedConnectorId.cpId}`;
+        if (!connectorData) {
+            const errorMessage = `Connector not found for beckn_connector_id: ${orderedItem}`;
             logger.error(`🔴 ${errorMessage}`, new Error(errorMessage), { 
                 data: { 
-                    locationId: parsedConnectorId.csId,
-                    evseUid: parsedConnectorId.cpId,
-                    orderedItem,
+                    beckn_connector_id: orderedItem,
                 } 
             });
             throw new Error(errorMessage);
         }
 
+        const { evse, location } = connectorData;
+
         // Map OCPI EVSE status to UBC connectorStatus
         const connectorStatus = OCPIStatusMapper.mapOCPIStatusToUBCConnectorStatus(evse.status);
-        const parsedConnectorId = LocationDbService.parseBecknConnectorId(orderedItem);
         logger.debug(`🟢 Fetched connector status from EVSE`, { 
             data: { 
                 ocpiStatus: evse.status,
                 ubcConnectorStatus: connectorStatus,
-                locationId: parsedConnectorId.csId,
-                evseUid: parsedConnectorId.cpId,
+                locationId: location.ocpi_location_id,
+                evseUid: evse.uid,
             } 
         });
 

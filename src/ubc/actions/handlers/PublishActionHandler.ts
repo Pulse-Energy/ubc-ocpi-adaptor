@@ -27,14 +27,6 @@ export default class PublishActionHandler {
             hasOcpiLocationIds: !!payload?.ocpi_location_ids 
         });
 
-        if (!payload || !payload.ocpi_location_ids || !Array.isArray(payload.ocpi_location_ids) || payload.ocpi_location_ids.length === 0) {
-            logger.error(`🔴 Invalid publish request payload structure`, undefined, { 
-                body: req.body,
-                payload 
-            });
-            throw new Error('Invalid publish request payload: ocpi_location_ids array is required');
-        }
-
         try {
             // Wait for stitched response (on_publish callback)
             const stitchedResponse = await PublishActionHandler.handleEVChargingUBCBppPublishAction(payload);

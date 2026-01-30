@@ -15,12 +15,23 @@ import { BecknCatalogOffer } from '../../schema/v2.0.0/types/CatalogOffer';
 import { BecknChargingServiceAttributes } from '../../schema/v2.0.0/types/ChargingService';
 import { ObjectType } from '../../schema/v2.0.0/enums/ObjectType';
 import { AcceptedPaymentMethod } from '../../schema/v2.0.0/enums/AcceptedPaymentMethod';
-import { LocationWithRelations, LocationDbService } from '../../../db-services/LocationDbService';
+import { LocationWithRelations } from '../../../db-services/LocationDbService';
 import { TariffDbService } from '../../../db-services/TariffDbService';
 import { EVSEConnector, Location, EVSE, OCPIPartner } from '@prisma/client';
 import { databaseService } from '../../../services/database.service';
 import GLOBAL_VARS from '../../../constants/global-vars';
 import { OCPIHours, OCPIRegularHours } from '../../../ocpi/schema/modules/locations/types';
+
+/**
+ * Map entry type for locations with EVSEs and connectors
+ * Used to build catalogs with specific filtering by connector_ids, evse_ids, etc.
+ */
+export type LocationMapEntry = Location & {
+    evses: Map<string, EVSE & {
+        connectors: EVSEConnector[];
+    }>;
+    partner: OCPIPartner | null;
+};
 
 /**
  * Formats a Date object to ISO 8601 string with timezone offset
@@ -426,33 +437,38 @@ export default class PublishActionService {
      * @param reservationTime - Optional reservation time in seconds
      * @param becknConnectorId - Optional Beckn connector ID (format: IND*{ubc_party_id}*{ocpi_location_id}*{evse_uid}*{connector_id}). If provided, only this connector will be published.
      */
+    /**
+     * Publishes catalog with reservation time for a specific connector
+     * Used to mark charger as unavailable during charging sessions
+     * @param connectorId - OCPI connector ID (e.g., "1", "2")
+     * @param reservationTime - Optional reservation time in seconds
+     */
     public static async publishWithReservation(
-        ocpiLocationId: string,
-        reservationTime?: number,
-        becknConnectorId?: string
+        connectorId: string,
+        reservationTime?: number
     ): Promise<void> {
         try {
             if (GLOBAL_VARS.ENABLE_CATALOG_PUBLISH === 'false') {
-                logger.debug(`🟢 Skipping catalog publish for ${becknConnectorId ? `connector ${becknConnectorId}` : `location ${ocpiLocationId}`}`, {
+                logger.debug(`🟢 Skipping catalog publish for connector ${connectorId}`, {
                     reservationTime: reservationTime,
                 });
                 return;
             }
+
             const publishPayload: PostAppPublishRequestPayload = {
-                ocpi_location_ids: [ocpiLocationId],
+                connector_ids: [connectorId],
                 reservationTime: reservationTime,
-                connector_id: becknConnectorId, // Pass connector ID to filter
             };
 
             const ubcPublishPayload = await this.translateAppPayloadToUBC(publishPayload);
             await this.sendPublishCallToBecknONIX(ubcPublishPayload);
 
-            logger.debug(`🟢 Published catalog with reservation for ${becknConnectorId ? `connector ${becknConnectorId}` : `location ${ocpiLocationId}`}`, {
+            logger.debug(`🟢 Published catalog with reservation for connector ${connectorId}`, {
                 reservationTime: reservationTime,
             });
         }
         catch (e: any) {
-            logger.error(`🔴 Error publishing with reservation for ${becknConnectorId ? `connector ${becknConnectorId}` : `location ${ocpiLocationId}`}: ${e?.toString()}`, e);
+            logger.error(`🔴 Error publishing with reservation for connector ${connectorId}: ${e?.toString()}`, e);
             // Don't throw - publish failures shouldn't block charging operations
         }
     }
@@ -501,61 +517,48 @@ export default class PublishActionService {
     }
     /**
      * Translates app publish payload to UBC format
-     * Fetches location data from database using ocpi_location_ids array
+     * Fetches location data from database using one of: ocpi_location_ids, evse_ids, connector_ids, or partner_id
+     * Exactly one of these must be provided.
      */
     public static async translateAppPayloadToUBC(payload: PostAppPublishRequestPayload): Promise<UBCPublishRequestPayload> {
         if (!payload) {
             throw new Error('Payload is required');
         }
 
-        if (!payload.ocpi_location_ids || !Array.isArray(payload.ocpi_location_ids) || payload.ocpi_location_ids.length === 0) {
-            throw new Error('ocpi_location_ids array is required in payload and must not be empty');
+        // Validate that exactly one of the 4 fields is present
+        const hasLocationIds = payload.ocpi_location_ids && Array.isArray(payload.ocpi_location_ids) && payload.ocpi_location_ids.length > 0;
+        const hasEvseIds = payload.evse_ids && Array.isArray(payload.evse_ids) && payload.evse_ids.length > 0;
+        const hasConnectorIds = payload.connector_ids && Array.isArray(payload.connector_ids) && payload.connector_ids.length > 0;
+        const hasPartnerId = payload.partner_id && typeof payload.partner_id === 'string' && payload.partner_id.length > 0;
+
+        const providedFields = [hasLocationIds, hasEvseIds, hasConnectorIds, hasPartnerId].filter(Boolean);
+        
+        if (providedFields.length === 0) {
+            throw new Error('Exactly one of ocpi_location_ids, evse_ids, connector_ids, or partner_id must be provided');
+        }
+        
+        if (providedFields.length > 1) {
+            throw new Error('Only one of ocpi_location_ids, evse_ids, connector_ids, or partner_id can be provided at a time');
         }
 
-        const transaction_id = Utils.generateUUID();
+        // Fetch locations and build the map based on which field is provided
+        const { locationsMap, partner } = await this.fetchLocationsMapFromPayload(payload);
 
-        // Fetch all locations from database (with partner relation)
-        const locations = await databaseService.prisma.location.findMany({
-            where: {
-                ocpi_location_id: {
-                    in: payload.ocpi_location_ids,
-                },
-                deleted: false,
-            },
-            include: {
-                evses: {
-                    include: {
-                        evse_connectors: true,
-                    },
-                    where: {
-                        deleted: false,
-                    },
-                },
-                partner: true,
-            },
-        });
-
-        if (locations.length === 0) {
-            throw new Error(`No locations found for provided ocpi_location_ids: ${payload.ocpi_location_ids.join(', ')}`);
-        }
-
-        // Check if all requested locations were found
-        const foundLocationIds = new Set(locations.map(l => l.ocpi_location_id));
-        const missingLocationIds = payload.ocpi_location_ids.filter(id => !foundLocationIds.has(id));
-        if (missingLocationIds.length > 0) {
-            logger.warn(`Some locations not found: ${missingLocationIds.join(', ')}`);
+        if (locationsMap.size === 0) {
+            throw new Error('No locations found for the provided input');
         }
 
         // Verify all locations have the same partner (required for single catalog)
-        const partners = new Set(locations.map(l => l.partner_id).filter(Boolean));
+        const partners = new Set(Array.from(locationsMap.values()).map(l => l.partner?.id).filter(Boolean));
         if (partners.size > 1) {
             throw new Error('All locations must belong to the same partner');
         }
 
-        const partner = locations[0].partner;
         if (!partner) {
-            throw new Error(`Partner not found for locations`);
+            throw new Error('Partner not found for locations');
         }
+
+        const transaction_id = Utils.generateUUID();
 
         // For publish (BPP-only, goes to CDS), we create context without BAP info
         // Note: action is hardcoded as 'catalog_publish' for CDS API
@@ -568,16 +571,15 @@ export default class PublishActionService {
             message_id: Utils.generateUUID(),
         });
         
-        // Build catalogs from all locations (combine into single catalog)
-        const catalogs = await this.getCatalogsFromLocations(
-            locations,
+        // Build catalogs from the locations map (already filtered based on input)
+        const catalogs = await this.getCatalogsFromLocationsMap(
+            locationsMap,
             partner,
             payload.accepted_payment_methods,
             payload.validity,
             payload.availability_windows,
             payload.isActive,
             payload.reservationTime,
-            payload.connector_id
         );
 
         const ubcPublishPayload: UBCPublishRequestPayload = {
@@ -588,6 +590,271 @@ export default class PublishActionService {
         };
 
         return ubcPublishPayload;
+    }
+
+    /**
+     * Fetches locations from database and builds a map based on payload input type
+     * The map only includes the specific EVSEs/connectors requested (for filtering)
+     * Handles ocpi_location_ids, evse_ids, connector_ids, or partner_id
+     */
+    private static async fetchLocationsMapFromPayload(payload: PostAppPublishRequestPayload): Promise<{
+        locationsMap: Map<string, LocationMapEntry>;
+        partner: OCPIPartner | null;
+    }> {
+        const locationsMap = new Map<string, LocationMapEntry>();
+
+        // Case 1: Fetch by partner_id - get all locations with all EVSEs and connectors
+        if (payload.partner_id) {
+            const locations = await databaseService.prisma.location.findMany({
+                where: {
+                    partner_id: payload.partner_id,
+                    deleted: false,
+                },
+                include: {
+                    evses: {
+                        include: {
+                            evse_connectors: true,
+                        },
+                        where: {
+                            deleted: false,
+                        },
+                    },
+                    partner: true,
+                },
+            });
+
+            if (locations.length === 0) {
+                throw new Error(`No locations found for partner_id: ${payload.partner_id}`);
+            }
+
+            // Build map with all EVSEs and connectors
+            for (const location of locations) {
+                const evsesMap = new Map<string, EVSE & { connectors: EVSEConnector[] }>();
+                
+                for (const evse of location.evses) {
+                    if (evse.deleted) continue;
+                    const connectors = evse.evse_connectors.filter(c => !c.deleted);
+                    if (connectors.length > 0) {
+                        evsesMap.set(evse.id, {
+                            ...evse,
+                            connectors: connectors,
+                        });
+                    }
+                }
+
+                if (evsesMap.size > 0) {
+                    locationsMap.set(location.id, {
+                        ...location,
+                        evses: evsesMap,
+                        partner: location.partner,
+                    });
+                }
+            }
+
+            logger.info(`Built location map with ${locationsMap.size} locations for partner_id: ${payload.partner_id}`);
+            return { locationsMap, partner: locations[0]?.partner || null };
+        }
+
+        // Case 2: Fetch by ocpi_location_ids - get all EVSEs and connectors for those locations
+        if (payload.ocpi_location_ids && payload.ocpi_location_ids.length > 0) {
+            const locations = await databaseService.prisma.location.findMany({
+                where: {
+                    ocpi_location_id: {
+                        in: payload.ocpi_location_ids,
+                    },
+                    deleted: false,
+                },
+                include: {
+                    evses: {
+                        include: {
+                            evse_connectors: true,
+                        },
+                        where: {
+                            deleted: false,
+                        },
+                    },
+                    partner: true,
+                },
+            });
+
+            // Check if all requested locations were found
+            const foundLocationIds = new Set(locations.map(l => l.ocpi_location_id));
+            const missingLocationIds = payload.ocpi_location_ids.filter(id => !foundLocationIds.has(id));
+            if (missingLocationIds.length > 0) {
+                logger.warn(`Some locations not found: ${missingLocationIds.join(', ')}`);
+            }
+
+            if (locations.length === 0) {
+                throw new Error(`No locations found for provided ocpi_location_ids: ${payload.ocpi_location_ids.join(', ')}`);
+            }
+
+            // Build map with all EVSEs and connectors for these locations
+            for (const location of locations) {
+                const evsesMap = new Map<string, EVSE & { connectors: EVSEConnector[] }>();
+                
+                for (const evse of location.evses) {
+                    if (evse.deleted) continue;
+                    const connectors = evse.evse_connectors.filter(c => !c.deleted);
+                    if (connectors.length > 0) {
+                        evsesMap.set(evse.id, {
+                            ...evse,
+                            connectors: connectors,
+                        });
+                    }
+                }
+
+                if (evsesMap.size > 0) {
+                    locationsMap.set(location.id, {
+                        ...location,
+                        evses: evsesMap,
+                        partner: location.partner,
+                    });
+                }
+            }
+
+            logger.info(`Built location map with ${locationsMap.size} locations for ocpi_location_ids`);
+            return { locationsMap, partner: locations[0]?.partner || null };
+        }
+
+        // Case 3: Fetch by evse_ids - only include those specific EVSEs with all their connectors
+        if (payload.evse_ids && payload.evse_ids.length > 0) {
+            // Fetch EVSEs with their connectors and location
+            const evses = await databaseService.prisma.eVSE.findMany({
+                where: {
+                    uid: {
+                        in: payload.evse_ids,
+                    },
+                    deleted: false,
+                },
+                include: {
+                    evse_connectors: {
+                        where: {
+                            deleted: false,
+                        },
+                    },
+                    location: {
+                        include: {
+                            partner: true,
+                        },
+                    },
+                },
+            });
+
+            if (evses.length === 0) {
+                throw new Error(`No EVSEs found for provided evse_ids: ${payload.evse_ids.join(', ')}`);
+            }
+
+            // Check if all requested EVSEs were found
+            const foundEvseIds = new Set(evses.map(e => e.uid));
+            const missingEvseIds = payload.evse_ids.filter(id => !foundEvseIds.has(id));
+            if (missingEvseIds.length > 0) {
+                logger.warn(`Some EVSEs not found: ${missingEvseIds.join(', ')}`);
+            }
+
+            // Build map with only the requested EVSEs
+            for (const evse of evses) {
+                const location = evse.location;
+                if (!location || location.deleted) continue;
+
+                const connectors = evse.evse_connectors.filter(c => !c.deleted);
+                if (connectors.length === 0) continue;
+
+                // Get or create location entry in map
+                let locationEntry = locationsMap.get(location.id);
+                if (!locationEntry) {
+                    locationEntry = {
+                        ...location,
+                        evses: new Map(),
+                        partner: location.partner,
+                    };
+                    locationsMap.set(location.id, locationEntry);
+                }
+
+                // Add this EVSE with all its connectors
+                locationEntry.evses.set(evse.id, {
+                    ...evse,
+                    connectors: connectors,
+                });
+            }
+
+            logger.info(`Built location map with ${locationsMap.size} locations for ${payload.evse_ids.length} evse_ids`);
+            const firstEvse = evses[0];
+            return { locationsMap, partner: firstEvse?.location?.partner || null };
+        }
+
+        // Case 4: Fetch by connector_ids - only include those specific connectors
+        if (payload.connector_ids && payload.connector_ids.length > 0) {
+            // Fetch connectors with their EVSE and location
+            const connectors = await databaseService.prisma.eVSEConnector.findMany({
+                where: {
+                    connector_id: {
+                        in: payload.connector_ids,
+                    },
+                    deleted: false,
+                },
+                include: {
+                    evse: {
+                        include: {
+                            location: {
+                                include: {
+                                    partner: true,
+                                },
+                            },
+                        },
+                    },
+                },
+            });
+
+            if (connectors.length === 0) {
+                throw new Error(`No connectors found for provided connector_ids: ${payload.connector_ids.join(', ')}`);
+            }
+
+            // Check if all requested connectors were found
+            const foundConnectorIds = new Set(connectors.map(c => c.connector_id));
+            const missingConnectorIds = payload.connector_ids.filter(id => !foundConnectorIds.has(id));
+            if (missingConnectorIds.length > 0) {
+                logger.warn(`Some connectors not found: ${missingConnectorIds.join(', ')}`);
+            }
+
+            // Build map with only the requested connectors
+            for (const connector of connectors) {
+                const evse = connector.evse;
+                if (!evse || evse.deleted) continue;
+
+                const location = evse.location;
+                if (!location || location.deleted) continue;
+
+                // Get or create location entry in map
+                let locationEntry = locationsMap.get(location.id);
+                if (!locationEntry) {
+                    locationEntry = {
+                        ...location,
+                        evses: new Map(),
+                        partner: location.partner,
+                    };
+                    locationsMap.set(location.id, locationEntry);
+                }
+
+                // Get or create EVSE entry in location's evses map
+                let evseEntry = locationEntry.evses.get(evse.id);
+                if (!evseEntry) {
+                    evseEntry = {
+                        ...evse,
+                        connectors: [],
+                    };
+                    locationEntry.evses.set(evse.id, evseEntry);
+                }
+
+                // Add this specific connector
+                evseEntry.connectors.push(connector);
+            }
+
+            logger.info(`Built location map with ${locationsMap.size} locations for ${payload.connector_ids.length} connector_ids`);
+            const firstConnector = connectors[0];
+            return { locationsMap, partner: firstConnector?.evse?.location?.partner || null };
+        }
+
+        throw new Error('No valid input provided');
     }
 
     /**
@@ -667,129 +934,31 @@ export default class PublishActionService {
     }
 
     /**
-     * Builds catalogs from multiple locations fetched from database
-     * Combines all items and offers from all locations into a single catalog
+     * Builds catalogs from a pre-built locations map
+     * The map already contains only the specific EVSEs/connectors to be published
      */
-    private static async getCatalogsFromLocations(
-        locations: Array<Location & { evses: (EVSE & { evse_connectors: EVSEConnector[] })[]; partner: OCPIPartner | null }>,
+    private static async getCatalogsFromLocationsMap(
+        locationsMap: Map<string, LocationMapEntry>,
         partner: OCPIPartner,
         acceptedPaymentMethods?: string[],
         validity?: { start_date: string; end_date: string },
         availabilityWindows?: Array<{ start_time: string; end_time: string }>,
         isActive?: boolean,
         reservationTime?: number,
-        connectorId?: string,
         bpp_id?: string,
         bpp_uri?: string,
     ): Promise<BecknCatalog[]> {
         bpp_id = bpp_id || Utils.getBppId();
         bpp_uri = bpp_uri || Utils.getBppUri();
+        
         // Default accepted payment methods if not provided
         const paymentMethods = acceptedPaymentMethods && acceptedPaymentMethods.length > 0
             ? acceptedPaymentMethods as AcceptedPaymentMethod[]
             : [AcceptedPaymentMethod.UPI, AcceptedPaymentMethod.BANK_TRANSFER];
 
-        // Build a map structure: {location_id: location & {evses: {evse_id: evse & {connectors: [...]}}}}
-        type LocationMapEntry = Location & {
-            evses: Map<string, EVSE & {
-                connectors: EVSEConnector[];
-            }>;
-            partner: OCPIPartner | null;
-        };
-        const locationsMap = new Map<string, LocationMapEntry>();
-
-        // If connectorId is provided, parse it and query the specific location/evse/connector
-        if (connectorId) {
-            try {
-                const parsed = LocationDbService.parseBecknConnectorId(connectorId);
-                const ocpiLocationId = parsed.csId;
-                const evseUid = parsed.cpId;
-                const connectorIdValue = parsed.connectorId;
-
-                // Query the specific location with the matching EVSE and connector
-                const specificLocation = await databaseService.prisma.location.findFirst({
-                    where: {
-                        ocpi_location_id: ocpiLocationId,
-                        deleted: false,
-                    },
-                    include: {
-                        evses: {
-                            where: {
-                                uid: evseUid,
-                                deleted: false,
-                            },
-                            include: {
-                                evse_connectors: {
-                                    where: {
-                                        connector_id: connectorIdValue,
-                                        deleted: false,
-                                    },
-                                },
-                            },
-                        },
-                        partner: true,
-                    },
-                });
-
-                if (!specificLocation) {
-                    logger.warn(`🟡 Location not found for connector ID: ${connectorId}`);
-                    return this.buildEmptyCatalog(bpp_id, bpp_uri);
-                }
-
-                if (specificLocation.evses.length === 0) {
-                    logger.warn(`🟡 EVSE not found for connector ID: ${connectorId} (evse_uid: ${evseUid})`);
-                    return this.buildEmptyCatalog(bpp_id, bpp_uri);
-                }
-
-                if (specificLocation.evses[0].evse_connectors.length === 0) {
-                    logger.warn(`🟡 Connector not found for connector ID: ${connectorId} (connector_id: ${connectorIdValue})`);
-                    return this.buildEmptyCatalog(bpp_id, bpp_uri);
-                }
-
-                // Build map structure for the single location
-                const evsesMap = new Map<string, EVSE & { connectors: EVSEConnector[] }>();
-                const evse = specificLocation.evses[0];
-                evsesMap.set(evse.id, {
-                    ...evse,
-                    connectors: evse.evse_connectors,
-                });
-
-                locationsMap.set(specificLocation.id, {
-                    ...specificLocation,
-                    evses: evsesMap,
-                    partner: specificLocation.partner,
-                });
-            }
-            catch (e: any) {
-                logger.error(`🔴 Error parsing connector ID ${connectorId}: ${e?.toString()}`, e);
-                return this.buildEmptyCatalog(bpp_id, bpp_uri);
-            }
-        }
-        else {
-            // No connector filter - build map from all provided locations
-            for (const location of locations) {
-                const evsesMap = new Map<string, EVSE & { connectors: EVSEConnector[] }>();
-                
-                for (const evse of location.evses) {
-                    if (evse.deleted) continue;
-                    
-                    const connectors = evse.evse_connectors.filter(c => !c.deleted);
-                    if (connectors.length > 0) {
-                        evsesMap.set(evse.id, {
-                            ...evse,
-                            connectors: connectors,
-                        });
-                    }
-                }
-
-                if (evsesMap.size > 0) {
-                    locationsMap.set(location.id, {
-                        ...location,
-                        evses: evsesMap,
-                        partner: location.partner,
-                    });
-                }
-            }
+        if (locationsMap.size === 0) {
+            logger.warn('🟡 No locations in map, returning empty catalog');
+            return this.buildEmptyCatalog(bpp_id, bpp_uri);
         }
 
         // Build items from the map structure
@@ -831,7 +1000,11 @@ export default class PublishActionService {
             for (const [, evse] of location.evses.entries()) {
                 for (const connector of evse.connectors) {
                     // Use beckn_connector_id from connector record if available, otherwise generate (for backwards compatibility)
-                    const builtConnectorId = connector.beckn_connector_id || `IND*TPC*${location.ocpi_location_id}*${evse.uid}*${connector.connector_id}`;
+                    const builtConnectorId = connector.beckn_connector_id;
+
+                    if (!builtConnectorId) {
+                        continue;
+                    }
                     
                     // Collect tariff IDs from connector
                     if (connector.tariff_ids && connector.tariff_ids.length > 0) {

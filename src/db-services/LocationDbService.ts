@@ -1,4 +1,4 @@
-import { Location, EVSE, EVSEConnector, Prisma } from '@prisma/client';
+import { Location, EVSE, EVSEConnector, Prisma, OCPIPartner } from '@prisma/client';
 import { databaseService } from '../services/database.service';
 import Utils from '../utils/Utils';
 import {
@@ -28,6 +28,7 @@ import { EvseConnectorDbService } from './EvseConnectorDbService';
 
 export type LocationWithRelations = Location & {
     evses: (EVSE & { evse_connectors: EVSEConnector[] })[];
+    partner: OCPIPartner | null;
 };
 
 export type EVSEWithRelations = EVSE & {
@@ -205,6 +206,7 @@ export class LocationDbService {
                         evse_connectors: true,
                     },
                 },
+                partner: true,
             },
         }) as Promise<LocationWithRelations>;
     }
@@ -324,7 +326,42 @@ export class LocationDbService {
     }
 
     /**
-     * Parses the formatted Beckn connector ID
+     * Fetches connector from database using beckn_connector_id
+     * Returns connector with related EVSE and location data
+     */
+    public static async getConnectorByBecknId(becknConnectorId: string): Promise<{
+        connector: EVSEConnector;
+        evse: EVSE;
+        location: Location;
+    } | null> {
+        const connector = await databaseService.prisma.eVSEConnector.findFirst({
+            where: {
+                beckn_connector_id: becknConnectorId,
+                deleted: false,
+            },
+            include: {
+                evse: {
+                    include: {
+                        location: true,
+                    },
+                },
+            },
+        });
+
+        if (!connector || !connector.evse || !connector.evse.location) {
+            return null;
+        }
+
+        return {
+            connector: connector,
+            evse: connector.evse,
+            location: connector.evse.location,
+        };
+    }
+
+    /**
+     * @deprecated Use getConnectorByBecknId instead for database lookup
+     * Parses the formatted Beckn connector ID (string parsing only, no DB lookup)
      * Format: IND*${sellerId}*${csId}*${cpId}*${connectorId}
      * Returns: { countryCode, sellerId, csId, cpId, connectorId }
      */

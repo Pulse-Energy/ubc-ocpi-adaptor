@@ -190,25 +190,19 @@ export default class ConfirmActionHandler {
         
         if (orderedItem) {
             try {
-                // Find EVSE by Beckn connector ID
-                const evse = await LocationDbService.findEVSEByBecknConnectorId(orderedItem);
+                // Fetch connector directly from DB using beckn_connector_id
+                const connectorData = await LocationDbService.getConnectorByBecknId(orderedItem);
                 
-                if (evse) {
-                    // Parse connector ID to get connector ID part
-                    const parsedConnectorId = LocationDbService.parseBecknConnectorId(orderedItem);
-                    const evseConnector = evse.evse_connectors.find(
-                        connector => connector.connector_id === parsedConnectorId.connectorId && !connector.deleted
-                    );
-                    
-                    if (evseConnector) {
-                        connectorType = evseConnector.standard || undefined;
-                        // Convert max_electric_power from W to kW
-                        if (evseConnector.max_electric_power) {
-                            maxPowerKW = Number(evseConnector.max_electric_power) / 1000;
-                        }
+                if (connectorData) {
+                    const evseConnector = connectorData.connector;
+                    connectorType = evseConnector.standard || undefined;
+                    // Convert max_electric_power from W to kW
+                    if (evseConnector.max_electric_power) {
+                        maxPowerKW = Number(evseConnector.max_electric_power) / 1000;
                     }
                 }
-            } catch (error) {
+            }
+            catch (error) {
                 logger.debug(`🟡 Could not fetch connector details for on_confirm`, {
                     data: { orderedItem, error: error instanceof Error ? error.message : String(error) }
                 });
