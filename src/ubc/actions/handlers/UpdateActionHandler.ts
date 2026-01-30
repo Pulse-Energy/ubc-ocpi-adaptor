@@ -312,7 +312,7 @@ export default class UpdateActionHandler {
                     partner_id: evse.partner_id ?? '',
                     location_id: location.ocpi_location_id,
                     evse_uid: evse.uid,
-                    connector_id: parsedConnectorId.connectorId,
+                    connector_id: connectorData.connector.connector_id,
                     authorization_reference: beckn_order_id,
                 };
                 
