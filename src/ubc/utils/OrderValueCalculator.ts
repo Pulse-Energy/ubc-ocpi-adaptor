@@ -99,9 +99,18 @@ export function buildOrderValueFromFinalAmount(
         description: 'GST',
     });
 
+    const feeAmount = Math.ceil(0.2 * (finalAmount.total*100) / 100) + 2 * Math.round(9 * Math.ceil(0.2 * (finalAmount.total*100) / 100) / 100);
+
+    components.push({
+        type: OrderValueComponentsType.FEE,
+        value: feeAmount,
+        currency: currency,
+        description: 'Payment processing fee',
+    });
+
     return {
         currency: currency,
-        value: finalAmount.total,
+        value: finalAmount.total + feeAmount,
         components: components,
     };
 }
