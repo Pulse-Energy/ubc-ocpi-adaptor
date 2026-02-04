@@ -50,11 +50,11 @@ export function calculateFinalAmount(
     const total = chargingSessionCost + gst + buyerFinderCost + networkFinderFee;
 
     return {
-        charging_session_cost: chargingSessionCost,
-        gst: gst,
-        buyer_finder_fee: buyerFinderCost,
-        network_finder_fee: networkFinderFee,
-        total: total,
+        charging_session_cost: Number(chargingSessionCost.toFixed(2)),
+        gst: Number(gst.toFixed(2)),
+        buyer_finder_fee: Number(buyerFinderCost.toFixed(2)),
+        network_finder_fee: Number(networkFinderFee.toFixed(2)),
+        total: Number(total.toFixed(2)),
     };
 }
 
@@ -99,9 +99,19 @@ export function buildOrderValueFromFinalAmount(
         description: 'GST',
     });
 
+    const feeAmountInPaise = Math.ceil(0.2 * (finalAmount.total*100) / 100) + 2 * Math.round(9 * Math.ceil(0.2 * (finalAmount.total*100) / 100) / 100);
+    const feeAmount = Number((feeAmountInPaise / 100).toFixed(2));
+
+    components.push({
+        type: OrderValueComponentsType.FEE,
+        value: feeAmount,
+        currency: currency,
+        description: 'Payment processing fee',
+    });
+
     return {
         currency: currency,
-        value: finalAmount.total,
+        value: finalAmount.total + feeAmount,
         components: components,
     };
 }

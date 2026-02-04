@@ -30,6 +30,8 @@ import OnStatusActionHandler from "../../../actions/handlers/OnStatusActionHandl
 import { BecknPaymentStatus } from "../../../schema/v2.0.0/enums/PaymentStatus";
 import { PaymentTxnAdditionalProps } from "../../../../types/PaymentTxn";
 import Utils from "../../../../utils/Utils";
+import { BecknOrderValueComponents } from "../../../schema/v2.0.0/types/OrderValue";
+import { OrderValueComponentsType } from "../../../schema/v2.0.0/enums/OrderValueComponentsType";
 
 // Helper function to extract error message
 const getErrorMessage = (error: unknown): string => {
@@ -1085,7 +1087,9 @@ export default class RazorpayPaymentService {
         try {
             const amount = paymentTxn.amount;
             const partnerId = paymentTxn.partner_id;
-
+            const payment_breakdown = (paymentTxn.payment_breakdown as any).breakdown as BecknOrderValueComponents[];
+            
+            const feeAmount = payment_breakdown.find(component => component.type === OrderValueComponentsType.FEE && component.description === 'Payment processing fee')?.value || 0;
             if (!partnerId) {
                 logger.error('Razorpay: Partner ID not found in payment txn', undefined, { paymentTxn });
                 return {
@@ -1118,7 +1122,7 @@ export default class RazorpayPaymentService {
             }
 
             // Convert Decimal to number (amount in paise)
-            const amountInPaise = Math.round(Number(amount) * 100);
+            const amountInPaise = Math.round(Number(amount) * 100) - feeAmount * 100;
 
             // Generate receipt
             const receipt = 'rcpt_' + Utils.generateRandomString(10);
