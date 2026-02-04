@@ -964,6 +964,7 @@ export default class PublishActionService {
         // Build items from the map structure
         const items: BecknItem[] = [];
         const allTariffIds = new Set<string>();
+        const ocpiTariffBecknIdsMap: Record<string, string[]> = {};
 
         for (const [, location] of locationsMap.entries()) {
             // Determine availability windows for this location
@@ -1009,6 +1010,13 @@ export default class PublishActionService {
                     // Collect tariff IDs from connector
                     if (connector.tariff_ids && connector.tariff_ids.length > 0) {
                         connector.tariff_ids.forEach(id => allTariffIds.add(id));
+                        
+                        connector.tariff_ids.forEach(id => {
+                            if (!ocpiTariffBecknIdsMap[id]) {
+                                ocpiTariffBecknIdsMap[id] = [];
+                            }
+                            ocpiTariffBecknIdsMap[id].push(builtConnectorId);
+                        });
                     }
                     
                     const locationName = location.name || location.ocpi_location_id;
@@ -1044,8 +1052,6 @@ export default class PublishActionService {
                 }
             }
         }
-
-        const itemIds = items.map((item) => item['beckn:id']);
 
         // Fetch all tariffs referenced by connectors
         const tariffsMap = new Map<string, any>();
@@ -1094,6 +1100,8 @@ export default class PublishActionService {
                 endDate = this.formatValidityDate(defaultEnd, false);
             }
 
+            const itemIds = ocpiTariffBecknIdsMap[ocpiTariff.id] || [];
+
             return {
                 "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
                 "beckn:provider": `${partner.country_code}*${partner.party_id}`,
@@ -1103,7 +1111,7 @@ export default class PublishActionService {
                     "@type": ObjectType.descriptor,
                     "schema:name": `Tariff ${tariff.ocpi_tariff_id}`,
                 },
-                "beckn:items": [...itemIds],
+                "beckn:items": itemIds,
                 "beckn:price": {
                     "currency": tariff.currency,
                     "value": priceValue,
