@@ -881,6 +881,8 @@ export default class PublishActionService {
         // Convert OCPI connector standard to normal ConnectorType
         const connectorType = convertOcpiStandardToConnectorType(connector.standard);
 
+        const { externalChargingStationId, externalChargePointId } = this.getExternalChargingStationAndChargePointId(connector);
+
         const attributes: BecknChargingServiceAttributes = {
             "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/EvChargingService/v1/context.jsonld",
             "@type": "ChargingService",
@@ -889,7 +891,7 @@ export default class PublishActionService {
             "minPowerKW": minPowerKW,
             "reservationSupported": false,
             "chargingStation": {
-                "id": location.ocpi_location_id,
+                "id": externalChargingStationId,
                 "serviceLocation": {
                     "@type": "beckn:Location",
                     "geo": {
@@ -925,12 +927,28 @@ export default class PublishActionService {
         attributes.vehicleType = vehicleType;
 
         // Only include optional fields if they have values (avoid undefined in JSON)
-        if (evse.uid) attributes.evseId = evse.uid;
+        if (evse.uid) attributes.evseId = externalChargePointId;
         if (location.parking_type) attributes.parkingType = location.parking_type;
         if (connector.power_type) attributes.powerType = connector.power_type;
         if (connector.format) attributes.connectorFormat = connector.format;
 
         return attributes;
+    }
+
+    public static getExternalChargingStationAndChargePointId(connector: EVSEConnector): { externalChargingStationId: string, externalChargePointId: string } {
+        const becknConnectorId = connector.beckn_connector_id;
+        
+        if (!becknConnectorId) {
+            throw new Error('Beckn connector ID is required');
+        }
+
+        const splitByStar = becknConnectorId.split('*');
+        const externalChargingStationId = splitByStar[2];
+        const externalChargePointId = splitByStar[3];
+        return {
+            externalChargingStationId: externalChargingStationId,
+            externalChargePointId: externalChargePointId,
+        };
     }
 
     /**
