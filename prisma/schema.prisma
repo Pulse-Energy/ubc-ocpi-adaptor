@@ -43,6 +43,7 @@ model Location {
   deleted_at           DateTime?
   created_at           DateTime  @default(now())
   updated_at           DateTime  @updatedAt
+  external_object_id   String? 
 
   // Relations
   evses      EVSE[]
@@ -82,6 +83,7 @@ model EVSE {
   created_at              DateTime  @default(now())
   updated_at              DateTime  @updatedAt
   partner_id              String
+  external_object_id      String? 
 
   // Relations
   evse_connectors EVSEConnector[]
