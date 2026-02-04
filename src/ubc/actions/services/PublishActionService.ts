@@ -21,6 +21,7 @@ import { EVSEConnector, Location, EVSE, OCPIPartner } from '@prisma/client';
 import { databaseService } from '../../../services/database.service';
 import GLOBAL_VARS from '../../../constants/global-vars';
 import { OCPIHours, OCPIRegularHours } from '../../../ocpi/schema/modules/locations/types';
+import { OCPIPartnerAdditionalProps } from '../../../types/OCPIPartner';
 
 /**
  * Map entry type for locations with EVSEs and connectors
@@ -509,11 +510,11 @@ export default class PublishActionService {
         }
         else if (isDC) {
             if (maxPower >= 50) {
-                return `Fast DC charging station supporting ${connectorType} connector type with ${maxPower}kW maximum power output. Features advanced thermal management and smart charging capabilities for rapid charging.`;
+                return `Fast DC charging station supporting ${connectorType} connector type with ${maxPower}kW maximum power output.`;
             }
-            return `DC charging station supporting ${connectorType} connector type with ${maxPower}kW maximum power output. Features advanced thermal management and smart charging capabilities.`;
+            return `DC charging station supporting ${connectorType} connector type with ${maxPower}kW maximum power output.`;
         }
-        return `Charging station supporting ${connectorType} connector type with ${maxPower}kW maximum power output. Features advanced thermal management and smart charging capabilities.`;
+        return `Charging station supporting ${connectorType} connector type with ${maxPower}kW maximum power output.`;
     }
     /**
      * Translates app publish payload to UBC format
@@ -876,7 +877,7 @@ export default class PublishActionService {
         location: LocationWithRelations
     ): BecknChargingServiceAttributes {
         const maxPowerKW = connector.max_electric_power ? Number(connector.max_electric_power) / 1000 : 0; // Convert W to kW
-        const minPowerKW = maxPowerKW; // Make min and max the same
+        const minPowerKW = 1; // Minimum power is 1 kW
 
         // Convert OCPI connector standard to normal ConnectorType
         const connectorType = convertOcpiStandardToConnectorType(connector.standard);
@@ -974,9 +975,10 @@ export default class PublishActionService {
             ? acceptedPaymentMethods as AcceptedPaymentMethod[]
             : [AcceptedPaymentMethod.UPI, AcceptedPaymentMethod.BANK_TRANSFER];
 
+        const catalogId = (partner?.additional_props as OCPIPartnerAdditionalProps)?.catalog_id || "Tata Power";
         if (locationsMap.size === 0) {
             logger.warn('🟡 No locations in map, returning empty catalog');
-            return this.buildEmptyCatalog(bpp_id, bpp_uri);
+            return this.buildEmptyCatalog(bpp_id, bpp_uri, catalogId);
         }
 
         // Build items from the map structure
@@ -1187,7 +1189,7 @@ export default class PublishActionService {
             {
                 "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
                 "@type": "beckn:Catalog",
-                "beckn:id": `pulse-energy-catalog-v1`,
+                "beckn:id": catalogId,
                 "beckn:descriptor": {
                     "@type": ObjectType.descriptor,
                     "schema:name": `${Utils.getBppId()} Charging Network`,
@@ -1206,14 +1208,14 @@ export default class PublishActionService {
     /**
      * Builds an empty catalog (used when connector is not found)
      */
-    private static buildEmptyCatalog(bpp_id: string, bpp_uri: string): BecknCatalog[] {
+    private static buildEmptyCatalog(bpp_id: string, bpp_uri: string, catalogId: string): BecknCatalog[] {
         bpp_id = bpp_id || Utils.getBppId();
         bpp_uri = bpp_uri || Utils.getBppUri();
         return [
             {
                 "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
                 "@type": "beckn:Catalog",
-                "beckn:id": `pulse-energy-catalog-v1`,
+                "beckn:id": catalogId,
                 "beckn:descriptor": {
                     "@type": ObjectType.descriptor,
                     "schema:name": `${Utils.getBppId()} Charging Network`,
