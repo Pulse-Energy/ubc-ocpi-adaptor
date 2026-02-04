@@ -7,6 +7,30 @@ import PublishActionService from '../services/PublishActionService';
 import RequestsStoreService from '../../../utils/RequestsStoreService';
 import { UBCPublishRequestPayload } from '../../schema/v2.0.0/actions/publish/types/PublishPayload';
 import Utils from '../../../utils/Utils';
+import { databaseService } from '../../../services/database.service';
+
+/** Batch size for processing locations */
+const BATCH_SIZE = 20;
+/** Sleep time between batches in milliseconds */
+const BATCH_SLEEP_MS = 1000;
+
+/**
+ * Helper function to sleep for specified milliseconds
+ */
+function sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Helper function to split array into chunks
+ */
+function chunkArray<T>(array: T[], chunkSize: number): T[][] {
+    const chunks: T[][] = [];
+    for (let i = 0; i < array.length; i += chunkSize) {
+        chunks.push(array.slice(i, i + chunkSize));
+    }
+    return chunks;
+}
 
 /**
  * Handler for publish action
@@ -15,6 +39,7 @@ export default class PublishActionHandler {
     /**
      * Handles publish request - waits for stitched response from on_publish callback
      * Does not use requestWrapper because we need to wait for the callback before responding
+     * Processes locations in batches of 20 with 1 second delay between batches
      */
     public static async handleBppPublishRequest(
         req: Request
@@ -28,16 +53,19 @@ export default class PublishActionHandler {
         });
 
         try {
-            // Wait for stitched response (on_publish callback)
-            const stitchedResponse = await PublishActionHandler.handleEVChargingUBCBppPublishAction(payload);
+            // Process publish in batches
+            const responses = await PublishActionHandler.handleBatchedPublish(payload);
 
-            logger.debug(`🟢 Returning stitched publish response in handleBppPublishRequest`, {
-                data: stitchedResponse,
+            logger.debug(`🟢 Returning batched publish response in handleBppPublishRequest`, {
+                totalBatches: responses.length,
             });
 
             return {
                 httpStatus: 200,
-                payload: stitchedResponse,
+                payload: {
+                    batchesProcessed: responses.length,
+                    responses: responses,
+                } as any,
             };
         }
         catch (e: any) {
@@ -46,6 +74,116 @@ export default class PublishActionHandler {
             });
             throw e;
         }
+    }
+
+    /**
+     * Handles batched publishing - processes locations in batches of 20 with 1 second delay
+     * Supports partner_id (fetches all location IDs), ocpi_location_ids, evse_ids, or connector_ids
+     */
+    private static async handleBatchedPublish(
+        payload: PostAppPublishRequestPayload
+    ): Promise<AppPublishResponsePayload[]> {
+        const reqId = Utils.generateUUID();
+        const responses: AppPublishResponsePayload[] = [];
+
+        // Determine what to batch based on payload type
+        if (payload.partner_id) {
+            // Fetch all location IDs for the partner first
+            const locationIds = await PublishActionHandler.getLocationIdsForPartner(payload.partner_id);
+            
+            if (locationIds.length === 0) {
+                throw new Error(`No locations found for partner_id: ${payload.partner_id}`);
+            }
+
+            logger.info(`🟡 [${reqId}] Processing ${locationIds.length} locations for partner ${payload.partner_id} in batches of ${BATCH_SIZE}`);
+
+            // Split into batches
+            const batches = chunkArray(locationIds, BATCH_SIZE);
+
+            for (let i = 0; i < batches.length; i++) {
+                const batch = batches[i];
+                logger.info(`🟡 [${reqId}] Processing batch ${i + 1}/${batches.length} with ${batch.length} locations`);
+
+                const batchPayload: PostAppPublishRequestPayload = {
+                    ...payload,
+                    ocpi_location_ids: batch,
+                    partner_id: undefined, // Clear partner_id since we're using location_ids
+                };
+
+                try {
+                    const response = await PublishActionHandler.handleEVChargingUBCBppPublishAction(batchPayload);
+                    responses.push(response);
+                    logger.info(`🟢 [${reqId}] Batch ${i + 1}/${batches.length} completed successfully`);
+                }
+                catch (e: any) {
+                    logger.error(`🔴 [${reqId}] Batch ${i + 1}/${batches.length} failed: ${e?.toString()}`, e);
+                    // Continue with next batch even if one fails
+                }
+
+                // Sleep between batches (except after the last one)
+                if (i < batches.length - 1) {
+                    logger.debug(`🟡 [${reqId}] Sleeping ${BATCH_SLEEP_MS}ms before next batch`);
+                    await sleep(BATCH_SLEEP_MS);
+                }
+            }
+        }
+        else if (payload.ocpi_location_ids && payload.ocpi_location_ids.length > BATCH_SIZE) {
+            // Batch the location IDs
+            const batches = chunkArray(payload.ocpi_location_ids, BATCH_SIZE);
+
+            logger.info(`🟡 [${reqId}] Processing ${payload.ocpi_location_ids.length} locations in ${batches.length} batches of ${BATCH_SIZE}`);
+
+            for (let i = 0; i < batches.length; i++) {
+                const batch = batches[i];
+                logger.info(`🟡 [${reqId}] Processing batch ${i + 1}/${batches.length} with ${batch.length} locations`);
+
+                const batchPayload: PostAppPublishRequestPayload = {
+                    ...payload,
+                    ocpi_location_ids: batch,
+                };
+
+                try {
+                    const response = await PublishActionHandler.handleEVChargingUBCBppPublishAction(batchPayload);
+                    responses.push(response);
+                    logger.info(`🟢 [${reqId}] Batch ${i + 1}/${batches.length} completed successfully`);
+                }
+                catch (e: any) {
+                    logger.error(`🔴 [${reqId}] Batch ${i + 1}/${batches.length} failed: ${e?.toString()}`, e);
+                    // Continue with next batch even if one fails
+                }
+
+                // Sleep between batches (except after the last one)
+                if (i < batches.length - 1) {
+                    logger.debug(`🟡 [${reqId}] Sleeping ${BATCH_SLEEP_MS}ms before next batch`);
+                    await sleep(BATCH_SLEEP_MS);
+                }
+            }
+        }
+        else {
+            // Small request or evse_ids/connector_ids - process directly without batching
+            logger.info(`🟡 [${reqId}] Processing single batch (small request or evse_ids/connector_ids)`);
+            const response = await PublishActionHandler.handleEVChargingUBCBppPublishAction(payload);
+            responses.push(response);
+        }
+
+        return responses;
+    }
+
+    /**
+     * Fetches all location IDs for a given partner
+     */
+    private static async getLocationIdsForPartner(partnerId: string): Promise<string[]> {
+        const locations = await databaseService.prisma.location.findMany({
+            where: {
+                partner_id: partnerId,
+                deleted: false,
+            },
+            select: {
+                ocpi_location_id: true,
+            },
+        });
+
+        return locations.map(l => l.ocpi_location_id);
     }
 
     public static async handleEVChargingUBCBppPublishAction(
