@@ -1106,7 +1106,7 @@ export default class PublishActionService {
                 "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
                 "beckn:provider": `${partner.country_code}*${partner.party_id}`,
                 "@type": ObjectType.offer,
-                "beckn:id": `${tariff.ocpi_tariff_id}_${index}`,
+                "beckn:id": tariff.ocpi_tariff_id,
                 "beckn:descriptor": {
                     "@type": ObjectType.descriptor,
                     "schema:name": `Tariff ${tariff.ocpi_tariff_id}`,
