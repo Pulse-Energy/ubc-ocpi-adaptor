@@ -26,6 +26,7 @@ import { Tariff } from '@prisma/client';
 import { TariffDbService } from '../../../db-services/TariffDbService';
 import { LocationDbService } from '../../../db-services/LocationDbService';
 import { calculateFinalAmount, buildOrderValueFromFinalAmount } from '../../utils/OrderValueCalculator';
+import { ChargingMetricsUnitCode } from '../../schema/v2.0.0/enums/ChargingMetricsUnitCode';
 
 /**
  * Handler for select action
@@ -162,6 +163,23 @@ export default class SelectActionHandler {
             }
         }
 
+
+        let unitQuantity = orderItem['beckn:quantity']['unitQuantity'];
+        const unitCode = orderItem['beckn:quantity']['unitCode'];
+
+        let chargingOptionUnit = unitQuantity.toString();
+        let chargingOptionType = UBCChargingMethod.Units;
+        if(unitCode === ChargingMetricsUnitCode.KWH) {
+            chargingOptionUnit = (unitQuantity * 1000).toString();
+            chargingOptionType = UBCChargingMethod.Units;
+
+        }
+
+        if(unitCode === ChargingMetricsUnitCode.INR) {
+            chargingOptionType = UBCChargingMethod.Amount;
+        }
+
+
         const backendSelectPayload: ExtractedSelectRequestBody = {
             metadata: {
                 domain: BecknDomain.EVChargingUBC,
@@ -174,8 +192,8 @@ export default class SelectActionHandler {
             payload: {
                 seller_id: order['beckn:seller'],
                 charge_point_connector_id: orderItem['beckn:orderedItem'],
-                charging_option_type: UBCChargingMethod.Units,
-                charging_option_unit: (orderItem['beckn:quantity']['unitQuantity'] * 1000).toString(),
+                charging_option_type: chargingOptionType,
+                charging_option_unit: chargingOptionUnit,
                 buyer_details: Object.keys(buyer_details).length > 0 ? buyer_details : undefined,
                 preferences: Object.keys(preferences).length > 0 ? preferences : undefined,
                 buyerFinderFee: Object.keys(buyerFinderFee).length > 0 ? buyerFinderFee : undefined,
@@ -198,8 +216,15 @@ export default class SelectActionHandler {
             power_rating,
             buyerFinderFee,
         } = reqPayload;
-        const chargingOptionUnit = Number(charging_option_unit)/1000; // Convert kWh to Wh
-        
+        let chargingOptionUnit = Number(charging_option_unit);
+
+        if(charging_option_type === UBCChargingMethod.Units) {
+            chargingOptionUnit = Number(chargingOptionUnit)/1000; // Convert kWh to Wh
+        }
+        if(charging_option_type === UBCChargingMethod.Amount) {
+            chargingOptionUnit = Number(chargingOptionUnit);
+        }
+
         // Fetch connector directly from DB using beckn_connector_id
         const connectorData = await LocationDbService.getConnectorByBecknId(charge_point_connector_id);
         
@@ -214,7 +239,7 @@ export default class SelectActionHandler {
             throw new Error('Tariff not found for EVSE Connector');
         }
 
-        const orderValue = SelectActionHandler.buildOrderValue(ocpiTariff, chargingOptionUnit, buyerFinderFee);
+        const orderValue = SelectActionHandler.buildOrderValue(ocpiTariff, chargingOptionUnit, charging_option_type, buyerFinderFee);
 
         const response: ExtractedOnSelectResponseBody = {
             payload: {
@@ -304,7 +329,8 @@ export default class SelectActionHandler {
     private static buildOrderValue(
         tariff: Tariff, 
         chargingOptionUnit: number,
-        buyerFinderFee?: { feeType?: string; feeValue?: number }
+        chargingOptionType: UBCChargingMethod,
+        buyerFinderFee?: { feeType?: string; feeValue?: number },
     ): BecknOrderValueResponse {
         const tariffElement = {
             ocpi_tariff_element: tariff.ocpi_tariff_element as any as OCPIv211TariffElement[],
@@ -315,15 +341,21 @@ export default class SelectActionHandler {
         const priceComponents = ocpiTariffElement.price_components as OCPIv211PriceComponent[];
 
         // Calculate charging session cost excl VAT (base price only)
-        const chargingSessionCostExclVat = priceComponents.reduce((acc: number, curr: OCPIv211PriceComponent) => {
-            return acc + (curr.price * chargingOptionUnit);
-        }, 0);
+        let chargingSessionCostExclVat = 0;
+        if(chargingOptionType === UBCChargingMethod.Units) {
+            chargingSessionCostExclVat = priceComponents.reduce((acc: number, curr: OCPIv211PriceComponent) => {
+                return acc + (curr.price * chargingOptionUnit);
+            }, 0);
+        }
+        if(chargingOptionType === UBCChargingMethod.Amount) {
+            chargingSessionCostExclVat = chargingOptionUnit;
+        }
 
         // Calculate GST from VAT in price components
         // VAT is in percentage, so we calculate per component (in case different components have different VAT rates)
         // Then sum them up
         const gst = priceComponents.reduce((acc: number, curr: OCPIv211PriceComponent) => {
-            const basePrice = curr.price * chargingOptionUnit;
+            const basePrice = chargingSessionCostExclVat;
             // VAT is in percentage, so: basePrice * (vat / 100)
             const vatAmount = curr.vat ? (basePrice * (curr.vat / 100)) : 0;
             return acc + vatAmount;

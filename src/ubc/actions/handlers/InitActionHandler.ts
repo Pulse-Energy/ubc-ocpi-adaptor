@@ -33,6 +33,7 @@ import PublishActionService from '../services/PublishActionService';
 import { UBCSelectRequestPayload } from '../../schema/v2.0.0/actions/select/types/SelectPayload';
 import OnStatusActionHandler from './OnStatusActionHandler';
 import { CreateUPIPaymentWithRazorpayResponse } from '../../../types/Razorpay';
+import { ChargingMetricsUnitCode } from '../../schema/v2.0.0/enums/ChargingMetricsUnitCode';
 
 export default class InitActionHandler {
     public static async handleBppInitAction(
@@ -263,6 +264,22 @@ export default class InitActionHandler {
     ): ExtractedInitRequestBody {
         const buyer = payload.message.order['beckn:buyer'];
         const orderItem = payload.message.order['beckn:orderItems'][0];
+
+        let unitQuantity = orderItem['beckn:quantity']?.['unitQuantity'] ?? 0;
+        const unitCode = orderItem['beckn:quantity']?.['unitCode'];
+
+        let chargingOptionUnit = unitQuantity?.toString();
+        let chargingOptionType = UBCChargingMethod.Units;
+        if(unitCode && unitCode === ChargingMetricsUnitCode.KWH) {
+            chargingOptionUnit = (unitQuantity * 1000).toString();
+            chargingOptionType = UBCChargingMethod.Units;
+
+        }
+
+        if(unitCode === ChargingMetricsUnitCode.INR) {
+            chargingOptionType = UBCChargingMethod.Amount;
+            chargingOptionUnit = unitQuantity.toString();
+        }
         
         const backendInitPayload: ExtractedInitRequestBody = {
             metadata: {
@@ -277,12 +294,8 @@ export default class InitActionHandler {
                 amount: payload.message.order['beckn:orderValue']['value'],
                 orderValueComponents: payload.message.order['beckn:orderValue']['components'],
                 charge_point_connector_id: orderItem['beckn:orderedItem'],
-                charging_option_type: UBCChargingMethod.Units,
-                charging_option_unit: (
-                    (orderItem['beckn:quantity']?.['unitQuantity'] ?? 0) *
-                    1000
-                ).toString(),
-                // v0.9: Updated field names (displayName, telephone, taxID)
+                charging_option_type: chargingOptionType,
+                charging_option_unit: chargingOptionUnit,
                 buyer_details: {
                     id: buyer['beckn:id'],
                     name: buyer['beckn:displayName'], // v0.9: renamed from beckn:name
