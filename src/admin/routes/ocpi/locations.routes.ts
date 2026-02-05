@@ -16,6 +16,11 @@ router.get('/generate-beckn-connector-ids', adminAuth, async (req: Request, res:
     handleRequest(req, res, next, AdminLocationsModule.generateBecknConnectorIds)
 );
 
+router.get('/generate-beckn-ids', adminAuth, async (req: Request, res: Response, next: NextFunction) =>
+    handleRequest(req, res, next, AdminLocationsModule.generateBecknIds)
+);
+
+
 router.get('/', adminAuth, async (req: Request, res: Response, next: NextFunction) =>
     handleRequest(req, res, next, AdminLocationsModule.sendGetLocations)
 );

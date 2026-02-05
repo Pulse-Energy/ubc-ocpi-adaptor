@@ -45,15 +45,16 @@ export class LocationDbService {
      */
     public static generateBecknConnectorId(
         ubcPartyId: string,
+        csExternalId: string,
+        cpExternalId: string,
         connectorId: string,
     ): string {
-        const ocpiLocationId = Utils.generateNanoId(9);
-        const evseUid = Utils.generateNanoId(9);
-        return `IND*${ubcPartyId}*${ocpiLocationId}*${evseUid}*${connectorId}`;
+        return `IND*${ubcPartyId}*${csExternalId}*${cpExternalId}*${connectorId}`;
     }
 
     /**
-     * Bulk generate and store beckn_connector_id for all connectors of a partner
+     * Bulk regenerate beckn_connector_id for all connectors of a partner
+     * Format: IND*{ubcPartyId}*{location.external_object_id}*{evse.external_object_id}*{connector_id}
      * @param partnerId - Partner ID
      * @param ubcPartyId - UBC party ID (default: TPC)
      * @returns Number of connectors updated
@@ -69,7 +70,6 @@ export class LocationDbService {
             where: {
                 partner_id: partnerId,
                 deleted: false,
-                beckn_connector_id: null,
             },
             include: {
                 evse: {
@@ -87,8 +87,11 @@ export class LocationDbService {
                 continue;
             }
 
+            // Generate beckn_connector_id using location and EVSE external_object_id
             const becknConnectorId = this.generateBecknConnectorId(
                 ubcPartyId,
+                connector.evse.location.external_object_id,
+                connector.evse.external_object_id,
                 connector.connector_id,
             );
 
@@ -107,6 +110,17 @@ export class LocationDbService {
             updated: updatedConnectors.length,
             connectors: updatedConnectors,
         };
+    }
+
+    /**
+     * @deprecated Use generateBecknConnectorIdsForPartner instead
+     * Kept for backwards compatibility
+     */
+    public static async generateBecknIdsForPartner(
+        partnerId: string,
+        ubcPartyId: string = 'TPC',
+    ): Promise<{ updated: number; connectors: Array<{ id: string; beckn_connector_id: string }> }> {
+        return this.generateBecknConnectorIdsForPartner(partnerId, ubcPartyId);
     }
 
     public static async findByOcpiLocationId(
@@ -168,6 +182,7 @@ export class LocationDbService {
             locationRecord = await prisma.location.create({
                 data: {
                     ...locationData,
+                    external_object_id: Utils.generateNanoId(9),
                     partner: {
                         connect: { id: partnerId },
                     },
@@ -192,6 +207,8 @@ export class LocationDbService {
                             partnerId,
                             connector,
                             ubcPartyId,
+                            locationRecord.external_object_id,
+                            evseRecord.external_object_id,
                         );
                     }
                 }
@@ -564,9 +581,12 @@ export class LocationDbService {
             });
         }
         else {
-            // Create new EVSE
+            // Create new EVSE with external_object_id
             return prisma.eVSE.create({
-                data: evseData,
+                data: {
+                    ...evseData,
+                    external_object_id: Utils.generateNanoId(9),
+                },
             });
         }
     }
@@ -575,18 +595,20 @@ export class LocationDbService {
         evseId: string,
         partnerId: string,
         connector: OCPIConnector,
-        ubcPartyId?: string,
+        ubcPartyId: string,
+        locationExternalObjectId: string,
+        evseExternalObjectId: string,
     ): Promise<EVSEConnector> {
         const prisma = databaseService.prisma;
 
-        // Generate beckn_connector_id if ubcPartyId is provided
-        let becknConnectorId: string | null = null;
-        if (ubcPartyId) {
-            becknConnectorId = this.generateBecknConnectorId(
-                ubcPartyId,
-                connector.id,
-            );
-        }
+        // Generate beckn_connector_id - required field
+        // Format: IND*{ubcPartyId}*{location.external_object_id}*{evse.external_object_id}*{connector_id}
+        const becknConnectorId = this.generateBecknConnectorId(
+            ubcPartyId,
+            locationExternalObjectId,
+            evseExternalObjectId,
+            connector.id,
+        );
 
         // Filter out null/undefined values from tariff_ids array
         const tariffIds = Array.isArray(connector.tariff_ids)

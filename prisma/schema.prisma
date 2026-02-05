@@ -43,7 +43,7 @@ model Location {
   deleted_at           DateTime?
   created_at           DateTime  @default(now())
   updated_at           DateTime  @updatedAt
-  external_object_id   String? 
+  external_object_id   String    @unique 
 
   // Relations
   evses      EVSE[]
@@ -83,7 +83,7 @@ model EVSE {
   created_at              DateTime  @default(now())
   updated_at              DateTime  @updatedAt
   partner_id              String
-  external_object_id      String? 
+  external_object_id      String    @unique 
 
   // Relations
   evse_connectors EVSEConnector[]
@@ -119,7 +119,7 @@ model EVSEConnector {
   partner_id           String
   partner              OCPIPartner @relation(fields: [partner_id], references: [id], onDelete: Cascade)
   ocpilogs             OCPILog[]
-  beckn_connector_id   String?  @unique // Beckn connector ID (format: IND*TPC*{ocpi_location_id}*{evse_uid}*{connector_id}). If provided, only this connector will be published.
+  beckn_connector_id   String      @unique // Beckn connector ID (format: IND*TPC*{ocpi_location_id}*{evse_uid}*{connector_id}). If provided, only this connector will be published.
 
   @@unique([evse_id, connector_id])
   @@index([evse_id])

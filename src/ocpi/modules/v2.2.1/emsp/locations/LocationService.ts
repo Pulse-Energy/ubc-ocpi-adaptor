@@ -7,6 +7,7 @@ import {
 import { isEqual } from 'lodash';
 import { logger } from '../../../../../services/logger.service';
 import { LocationDbService } from '../../../../../db-services/LocationDbService';
+import Utils from '../../../../../utils/Utils';
 
 /**
  * Service for building create and update fields from OCPI payloads
@@ -26,6 +27,9 @@ export class LocationService {
         try {
             logger.debug(`🟡 [${reqId}] Starting buildLocationCreateFields in LocationService`, { data: logData });
 
+            // Generate external_object_id for beckn_connector_id generation
+            const externalObjectId = Utils.generateNanoId(9);
+
             const locationCreateFields: Prisma.LocationUncheckedCreateInput = {
             partner_id: partnerId,
             ocpi_location_id: payload.id,
@@ -39,6 +43,7 @@ export class LocationService {
             longitude: payload.coordinates.longitude,
             last_updated: new Date(payload.last_updated),
             deleted: false,
+            external_object_id: externalObjectId,
         };
 
         if (payload.publish !== undefined) locationCreateFields.publish = payload.publish;
@@ -198,6 +203,9 @@ export class LocationService {
         try {
             logger.debug(`🟡 [${reqId}] Starting buildEVSECreateFields in LocationService`, { data: logData });
 
+            // Generate external_object_id for beckn_connector_id generation
+            const externalObjectId = Utils.generateNanoId(9);
+
             const evseCreateFields: Prisma.EVSEUncheckedCreateInput = {
             location_id: locationId,
             partner_id: partnerId,
@@ -205,6 +213,7 @@ export class LocationService {
             status: payload.status,
             last_updated: new Date(payload.last_updated),
             deleted: false,
+            external_object_id: externalObjectId,
         };
 
         if (payload.evse_id !== undefined) evseCreateFields.evse_id = payload.evse_id;
@@ -327,17 +336,17 @@ export class LocationService {
      * @param payload - OCPI connector payload
      * @param evseId - Internal EVSE ID
      * @param partnerId - Partner ID
-     * @param ocpiLocationId - OCPI location ID (for beckn_connector_id generation)
-     * @param evseUid - EVSE UID (for beckn_connector_id generation)
+     * @param locationExternalObjectId - Location's external_object_id (required for beckn_connector_id generation)
+     * @param evseExternalObjectId - EVSE's external_object_id (required for beckn_connector_id generation)
      * @param ubcPartyId - UBC party ID (default: TPC)
      */
     public static buildConnectorCreateFields(
         payload: OCPIConnector & { connector_id?: string },
         evseId: string,
         partnerId: string,
-        ocpiLocationId?: string,
-        evseUid?: string,
-        ubcPartyId?: string,
+        locationExternalObjectId: string,
+        evseExternalObjectId: string,
+        ubcPartyId: string = 'TPC',
     ): Prisma.EVSEConnectorUncheckedCreateInput {
         const reqId = 'internal';
         const connectorId = (payload as any).connector_id ?? payload.id;
@@ -346,14 +355,14 @@ export class LocationService {
         try {
             logger.debug(`🟡 [${reqId}] Starting buildConnectorCreateFields in LocationService`, { data: logData });
 
-            // Generate beckn_connector_id if ubcPartyId is provided
-            let becknConnectorId: string | undefined;
-            if (ubcPartyId) {
-                becknConnectorId = LocationDbService.generateBecknConnectorId(
-                    ubcPartyId,
-                    connectorId,
-                );
-            }
+            // Generate beckn_connector_id - required field
+            // Format: IND*{ubcPartyId}*{location.external_object_id}*{evse.external_object_id}*{connector_id}
+            const becknConnectorId = LocationDbService.generateBecknConnectorId(
+                ubcPartyId,
+                locationExternalObjectId,
+                evseExternalObjectId,
+                connectorId,
+            );
 
             const connectorCreateFields: Prisma.EVSEConnectorUncheckedCreateInput = {
             evse_id: evseId,
@@ -366,7 +375,7 @@ export class LocationService {
             max_amperage: BigInt(payload.max_amperage),
             last_updated: new Date(payload.last_updated),
             deleted: false,
-            beckn_connector_id: becknConnectorId ?? null,
+            beckn_connector_id: becknConnectorId,
         };
 
         if (payload.qr_code !== undefined) connectorCreateFields.qr_code = payload.qr_code;

@@ -490,12 +490,13 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
                             }
                             else {
                                 // Create connector if it doesn't exist - only include fields present in payload
+                                // Use external_object_id from location and EVSE for beckn_connector_id
                                 const connectorCreateFields = LocationService.buildConnectorCreateFields(
                                     connector as OCPIConnector & { connector_id?: string },
                                     evseRecord.id,
                                     partnerCredentials.partner_id,
-                                    location_id,
-                                    evse.uid,
+                                    locationRecord.external_object_id,
+                                    evseRecord.external_object_id,
                                     ubcPartyId,
                                 );
                                 await databaseService.prisma.eVSEConnector.create({
@@ -659,12 +660,13 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
                 }
                 else {
                     // Create connector if it doesn't exist - only include fields present in payload
+                    // Use external_object_id from location and EVSE for beckn_connector_id
                     const connectorCreateFields = LocationService.buildConnectorCreateFields(
                         connector as OCPIConnector & { connector_id?: string },
                         evseRecord.id,
                         partnerCredentials.partner_id,
-                        location_id,
-                        evse_uid,
+                        prismaLocation.external_object_id,
+                        evseRecord.external_object_id,
                         ubcPartyId,
                     );
                     await databaseService.prisma.eVSEConnector.create({
@@ -812,12 +814,13 @@ export default class OCPIv221LocationsModuleIncomingRequestService {
             const ubcPartyId = await this.getUbcPartyId(partnerCredentials.partner_id);
 
             // Create connector if it doesn't exist - only include fields present in payload
+            // Use external_object_id from location and EVSE for beckn_connector_id
             const connectorCreateFields = LocationService.buildConnectorCreateFields(
                 payload,
                 evseRecord.id,
                 partnerCredentials.partner_id,
-                location_id,
-                evse_uid,
+                prismaLocation.external_object_id,
+                evseRecord.external_object_id,
                 ubcPartyId,
             );
             await databaseService.prisma.eVSEConnector.create({
