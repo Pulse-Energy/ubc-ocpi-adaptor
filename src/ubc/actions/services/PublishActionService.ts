@@ -274,8 +274,8 @@ enum ConnectorType {
     Type1 = 'Type1',
     IEC60309 = 'IEC60309',
     WallSocket15A = 'WallSocket15A',
-    AC001 = 'AC001',
-    DC001 = 'DC001',
+    AC001 = 'AC-001',
+    DC001 = 'DC-001',
 }
 
 /**
