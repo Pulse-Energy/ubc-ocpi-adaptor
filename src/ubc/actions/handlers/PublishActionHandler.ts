@@ -10,7 +10,7 @@ import Utils from '../../../utils/Utils';
 import { databaseService } from '../../../services/database.service';
 
 /** Batch size for processing locations */
-const BATCH_SIZE = 50;
+const BATCH_SIZE = 15;
 /** Sleep time between batches in milliseconds */
 const BATCH_SLEEP_MS = 5000;
 
