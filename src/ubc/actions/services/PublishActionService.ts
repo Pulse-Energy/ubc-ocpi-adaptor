@@ -868,6 +868,18 @@ export default class PublishActionService {
     }
 
     /**
+     * Normalizes power type for catalog publishing
+     * If power type starts with AC (AC_1_PHASE, AC_2_PHASE, etc.), returns AC_3_PHASE
+     * Otherwise returns the original power type
+     */
+    private static getNormalizedPowerType(powerType: string): string {
+        if (powerType?.toUpperCase().startsWith('AC')) {
+            return 'AC_3_PHASE';
+        }
+        return powerType;
+    }
+
+    /**
      * Builds item attributes for a single connector from database models
      * Item attributes contain connector-level information
      */
@@ -930,7 +942,7 @@ export default class PublishActionService {
         // Only include optional fields if they have values (avoid undefined in JSON)
         if (evse.uid) attributes.evseId = externalChargePointId;
         if (location.parking_type) attributes.parkingType = location.parking_type;
-        if (connector.power_type) attributes.powerType = connector.power_type;
+        if (connector.power_type) attributes.powerType = this.getNormalizedPowerType(connector.power_type);
         if (connector.format) attributes.connectorFormat = connector.format;
 
         return attributes;
