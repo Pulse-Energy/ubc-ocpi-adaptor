@@ -127,6 +127,10 @@ router.post(`/${BecknAction.on_publish}`, ubcAuth, async (req: Request, res: Res
     handleRequest(req, res, next, OnPublishActionHandler.handleBppOnPublishRequest)
 );
 
+router.post(`/${BecknAction.publish}/beckn`, ubcAuth, async (req: Request, res: Response, next: NextFunction) =>
+    handleRequest(req, res, next, PublishActionHandler.handleEVChargingUBCBppPublishActionForBecknPayload)
+);
+
 
 router.use(errorHandler);
 

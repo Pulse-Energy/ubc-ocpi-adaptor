@@ -233,5 +233,50 @@ export default class PublishActionHandler {
             throw e;
         }
     }
+
+    public static async handleEVChargingUBCBppPublishActionForBecknPayload(
+        req: Request
+    ): Promise<HttpResponse<AppPublishResponsePayload>> {
+        const reqPayload = req.body as UBCPublishRequestPayload;
+        const reqId = Utils.generateUUID();
+        const logData = { action: 'publish', transactionId: reqPayload.context?.transaction_id };
+
+        try {
+            // Send publish request to CDS/ONIX and wait for stitched on_catalog_publish callback
+            logger.debug(
+                `🟡 [${reqId}] Sending publish call to CDS in handleEVChargingUBCBppPublishActionForBecknPayload`,
+                { data: { reqPayload } }
+            );
+
+            const stitchedResponse: AppPublishResponsePayload = await RequestsStoreService.getStitchedResponse({
+                /**
+                 * Using transaction_id to match the on_publish callback
+                 */
+                reqId: reqPayload.context.transaction_id,
+                data: reqPayload,
+                asyncFn: () => PublishActionService.sendPublishCallToBecknONIX(reqPayload),
+            });
+
+            logger.debug(
+                `🟢 [${reqId}] Received stitched on_catalog_publish response in handleEVChargingUBCBppPublishActionForBecknPayload`,
+                { data: { stitchedResponse } }
+            );
+
+            return {
+                httpStatus: 200,
+                payload: stitchedResponse,
+            };
+        }
+        catch (e: any) {
+            logger.error(
+                `🔴 [${reqId}] Error in PublishActionHandler.handleEVChargingUBCBppPublishActionForBecknPayload: ${e?.toString()}`,
+                e,
+                {
+                    data: logData,
+                }
+            );
+            throw e;
+        }
+    }
 }
 
