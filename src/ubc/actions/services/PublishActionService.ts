@@ -788,7 +788,7 @@ export default class PublishActionService {
             // Fetch connectors with their EVSE and location
             const connectors = await databaseService.prisma.eVSEConnector.findMany({
                 where: {
-                    connector_id: {
+                    id: {
                         in: payload.connector_ids,
                     },
                     deleted: false,
