@@ -1270,7 +1270,14 @@ export default class RazorpayPaymentService {
                 upiOptionsObject.expiry_time = upiOptions.expiry_time || 5;
             }
 
-            const feeAmount = Math.ceil(0.2 * amountInPaise / 100) + 2 * Math.round(9 * Math.ceil(0.2 * amountInPaise / 100) / 100);
+            const razorpayCredentials = await RazorpayPaymentGatewayService.getCredentials(partnerId);
+            if (!razorpayCredentials) {
+                throw new Error('Razorpay credentials not found for partner');
+            }
+            const { fee_percentage: feePercentage = 0.2 } = razorpayCredentials.credentials;
+
+
+            const feeAmount = Math.ceil(feePercentage * amountInPaise / 100) + 2 * Math.round(9 * Math.ceil(feePercentage * amountInPaise / 100) / 100);
             const createPaymentResponse = await RazorpayPaymentGatewayService.createUPIPayment(
                 {
                     amount: amountInPaise + feeAmount,

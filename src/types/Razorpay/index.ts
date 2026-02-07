@@ -66,6 +66,9 @@ export interface RazorpayCredentials {
     API_URL?: string;
     /** Webhook Secret for verifying webhook signatures */
     WEBHOOK_SECRET?: string;
+
+    /** Fee percentage (default: 0.2) */
+    FEE_PERCENTAGE?: number;
 }
 
 // ============ Additional Info / Notes ============

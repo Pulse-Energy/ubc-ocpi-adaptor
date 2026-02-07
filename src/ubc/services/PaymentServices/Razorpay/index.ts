@@ -69,13 +69,14 @@ export default class RazorpayPaymentGatewayService {
      * Get credentials from partner configuration
      * @param partnerId - Partner ID to get credentials from
      */
-    private static async getCredentials(partnerId: string): Promise<{
+    public static async getCredentials(partnerId: string): Promise<{
         external_integration_id: string;
         credentials: {
             key_id: string;
             key_secret: string;
             api_url: string;
             webhook_secret?: string;
+            fee_percentage?: number;
         };
     } | null> {
         const razorpayCredentials = await RazorpayInitializerService.getRazorpayCredentials(partnerId);
@@ -94,6 +95,7 @@ export default class RazorpayPaymentGatewayService {
                 key_secret: credentials.KEY_SECRET || '',
                 api_url: credentials.API_URL || 'https://api.razorpay.com/v1',
                 webhook_secret: credentials.WEBHOOK_SECRET,
+                fee_percentage: credentials.FEE_PERCENTAGE,
             },
         };
     }
@@ -285,7 +287,7 @@ export default class RazorpayPaymentGatewayService {
             }
             // Fee parameter for CFB (Customer Fee Bearer) - required when CFB is enabled
 
-            cleanRequest.fee = Math.ceil(0.2 * request.amount / 100) + 2 * Math.round(9 * Math.ceil(0.2 * request.amount / 100) / 100);            
+            cleanRequest.fee = request.fee;
 
             logger.info('Razorpay: Creating UPI payment', {
                 amount: request.amount,

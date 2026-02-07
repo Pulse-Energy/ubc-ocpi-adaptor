@@ -70,14 +70,16 @@ export default class RazorpayInitializerService {
                 KEY_SECRET: razorpayConfig.KEY_SECRET,
                 API_URL: razorpayConfig.API_URL || 'https://api.razorpay.com/v1',
                 WEBHOOK_SECRET: razorpayConfig.WEBHOOK_SECRET,
+                FEE_PERCENTAGE: razorpayConfig.FEE_PERCENTAGE || 0.2,
             };
 
             // Validate that we have all required credentials
-            if (!credentials.KEY_ID || !credentials.KEY_SECRET) {
+            if (!credentials.KEY_ID || !credentials.KEY_SECRET || !credentials.FEE_PERCENTAGE) {
                 logger.error(`Razorpay: Missing required credentials in partner config`, undefined, {
                     partnerId,
                     hasKeyId: !!credentials.KEY_ID,
                     hasKeySecret: !!credentials.KEY_SECRET,
+                    hasFeePercentage: !!credentials.FEE_PERCENTAGE,
                 });
                 return null;
             }
