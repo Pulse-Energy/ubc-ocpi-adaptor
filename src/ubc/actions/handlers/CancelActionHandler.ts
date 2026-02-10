@@ -9,12 +9,13 @@ import { UBCOnCancelRequestPayload } from "../../schema/v2.0.0/actions/cancel/ty
 import { BecknDomain } from "../../schema/v2.0.0/enums/BecknDomain";
 import { OrderStatus } from "../../schema/v2.0.0/enums/OrderStatus";
 import { ChargingSessionStatus } from "../../schema/v2.0.0/enums/ChargingSessionStatus";
-import { ObjectType } from "../../schema/v2.0.0/enums/ObjectType";
 import { BecknPaymentStatus } from "../../schema/v2.0.0/enums/PaymentStatus";
 import Utils from "../../../utils/Utils";
 import BppOnixRequestService from "../../services/BppOnixRequestService";
 import BecknLogDbService from "../../../db-services/BecknLogDbService";
 import { Prisma } from "@prisma/client";
+import UpdateActionHandler from "./UpdateActionHandler";
+import { ChargingAction } from "../../schema/v2.0.0/enums/ChargingAction";
 
 /**
  * Handler for cancel action
@@ -79,33 +80,8 @@ export default class CancelActionHandler {
         return false;
     }
 
-    /**
-     * Fetches on_confirm order - single source for all on_cancel fields per spec
-     */
-    private static async fetchOnConfirmOrder(transactionId: string): Promise<Record<string, unknown> | null> {
-        const becknLogs = await BecknLogDbService.getByFilters({
-            where: {
-                transaction_id: transactionId,
-                action: `bpp.out.request.${BecknAction.on_confirm}`,
-                domain: BecknDomain.EVChargingUBC,
-            },
-            select: {
-                payload: true,
-            },
-            orderBy: {
-                created_on: Prisma.SortOrder.desc,
-            },
-            take: 1,
-        });
 
-        if (becknLogs?.records && becknLogs.records.length > 0) {
-            const orderLog = becknLogs.records[0].payload as Record<string, unknown>;
-            const message = orderLog.message as Record<string, unknown> | undefined;
-            return (message?.order as Record<string, unknown>) || null;
-        }
-        return null;
-    }
-
+  
     /**
      * Builds on_cancel response based on cancellation eligibility
      * Per spec: All fields come from on_confirm exactly as shown
@@ -120,10 +96,13 @@ export default class CancelActionHandler {
         });
 
         // Fetch on_confirm order - single source per spec
-        const onConfirmOrder = await this.fetchOnConfirmOrder(transactionId);
+        const onInitResponse = await UpdateActionHandler.fetchExistingBppOnInitResponse(transactionId);
+
+        const onOrderObject = onInitResponse?.message?.order;
+
         
         // If confirm/on_confirm not present, return REJECTED status
-        if (!onConfirmOrder) {
+        if (!onOrderObject) {
             logger.debug(`Cancel rejected for transaction ${transactionId}: confirm/on_confirm not found`);
             
             const onCancelOrder: Record<string, unknown> = {
@@ -150,27 +129,19 @@ export default class CancelActionHandler {
         let orderStatus: OrderStatus;
 
         if (chargingStarted) {
-            // Cannot cancel - charging has started or completed
-            orderStatus = OrderStatus.REJECTED;
-            logger.debug(`Cancel rejected for transaction ${transactionId}: charging already started`);
-            
-            // For REJECTED, return minimal order from on_confirm
-            const onCancelOrder: Record<string, unknown> = {
-                '@context': onConfirmOrder['@context'],
-                '@type': onConfirmOrder['@type'],
-                'beckn:id': onConfirmOrder['beckn:id'],
-                'beckn:orderStatus': orderStatus,
-                'beckn:seller': onConfirmOrder['beckn:seller'],
-                'beckn:buyer': onConfirmOrder['beckn:buyer'],
-                'beckn:orderItems': onConfirmOrder['beckn:orderItems'],
-            };
-
-            return {
-                context: context,
-                message: {
-                    order: onCancelOrder as UBCOnCancelRequestPayload['message']['order'],
+            await UpdateActionHandler.sendUpdateCallToBackend({
+                metadata: {
+                    domain: BecknDomain.EVChargingUBC,
+                    bpp_id: cancelRequest.context.bpp_id,
+                    bpp_uri: cancelRequest.context.bpp_uri,
+                    beckn_transaction_id: cancelRequest.context.transaction_id,
                 },
-            };
+                payload: {
+                    charge_point_connector_id: onOrderObject['beckn:orderItems'][0]['beckn:orderedItem'],
+                    beckn_order_id: onOrderObject['beckn:id'],
+                    charging_action: ChargingAction.StopCharging,
+                },
+            }, 'BPP');
         } 
         
         // Can cancel - charging has not started
@@ -180,9 +151,9 @@ export default class CancelActionHandler {
         // Build on_cancel order from on_confirm per spec
         // orderItems: only orderedItem, quantity, price (NO acceptedOffer)
         // payment: specific fields only (NO paymentAttributes.settlementAccounts)
-        const sourceOrderItems = onConfirmOrder['beckn:orderItems'] as Array<Record<string, unknown>>;
-        const sourceBuyer = onConfirmOrder['beckn:buyer'] as Record<string, unknown>;
-        const sourcePayment = onConfirmOrder['beckn:payment'] as Record<string, unknown>;
+        const sourceOrderItems = onOrderObject['beckn:orderItems'] as Array<Record<string, unknown>>;
+        const sourceBuyer = onOrderObject['beckn:buyer'] as Record<string, unknown>;
+        const sourcePayment = onOrderObject['beckn:payment'] as Record<string, unknown>;
         
         // Build orderItems without acceptedOffer
         const orderItems = sourceOrderItems.map(item => ({
@@ -231,14 +202,14 @@ export default class CancelActionHandler {
         }
         
         const onCancelOrder: Record<string, unknown> = {
-            '@context': onConfirmOrder['@context'],
-            '@type': onConfirmOrder['@type'],
-            'beckn:id': onConfirmOrder['beckn:id'],
+            '@context': onOrderObject['@context'],
+            '@type': onOrderObject['@type'],
+            'beckn:id': onOrderObject['beckn:id'],
             'beckn:orderStatus': orderStatus,
-            'beckn:seller': onConfirmOrder['beckn:seller'],
+            'beckn:seller': onOrderObject['beckn:seller'],
             'beckn:buyer': buyer,
             'beckn:orderItems': orderItems,
-            'beckn:orderValue': onConfirmOrder['beckn:orderValue'],
+            'beckn:orderValue': onOrderObject['beckn:orderValue'],
             'beckn:payment': paymentObject,
         };
 
