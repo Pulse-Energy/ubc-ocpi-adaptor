@@ -17,6 +17,8 @@ import { Prisma } from "@prisma/client";
 import UpdateActionHandler from "./UpdateActionHandler";
 import { ChargingAction } from "../../schema/v2.0.0/enums/ChargingAction";
 import { Context } from "../../schema/v2.0.0/types/Context";
+import { OCPISessionStatus } from "../../../ocpi/schema/modules/sessions/enums";
+import { SessionDbService } from "../../../db-services/SessionDbService";
 
 /**
  * Handler for cancel action
@@ -98,9 +100,19 @@ export default class CancelActionHandler {
 
         // Fetch on_confirm order - single source per spec
         const onInitResponse = await UpdateActionHandler.fetchExistingBppOnInitResponse(transactionId);
-
         const onOrderObject = onInitResponse?.message?.order;
 
+        const authorizationReference = onInitResponse?.message?.order?.['beckn:id'];
+        const session = await SessionDbService.getByAuthorizationReference(authorizationReference);
+        if (!session) {
+            logger.debug(`Session not found for transaction ${transactionId}`);
+            return {
+                context: context,
+                message: {
+                    order: onOrderObject as UBCOnCancelRequestPayload['message']['order'],
+                },
+            };
+        }
         
         // If confirm/on_confirm not present, return REJECTED status
         if (!onOrderObject) {
@@ -143,6 +155,12 @@ export default class CancelActionHandler {
                 },
             }, 'BPP');
         } 
+
+        else {
+            await SessionDbService.update(session.id, {
+                status: OCPISessionStatus.CANCELLED,
+            });
+        }
         
         const ubcOnCancelPayload = this.buildOnCancelRequestBody(context, onOrderObject, transactionId);
 
