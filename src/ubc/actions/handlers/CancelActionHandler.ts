@@ -19,6 +19,8 @@ import { ChargingAction } from "../../schema/v2.0.0/enums/ChargingAction";
 import { Context } from "../../schema/v2.0.0/types/Context";
 import { OCPISessionStatus } from "../../../ocpi/schema/modules/sessions/enums";
 import { SessionDbService } from "../../../db-services/SessionDbService";
+import ChargingService from "../services/ChargingService";
+import PaymentTxnDbService from "../../../db-services/PaymentTxnDbService";
 
 /**
  * Handler for cancel action
@@ -160,6 +162,16 @@ export default class CancelActionHandler {
             await SessionDbService.update(session.id, {
                 status: OCPISessionStatus.CANCELLED,
             });
+            const paymentTxn = await PaymentTxnDbService.getFirstByFilter({
+                where: {
+                    authorization_reference: authorizationReference,
+                },
+            });
+            if (!paymentTxn) {
+                logger.debug(`Payment transaction not found for transaction ${transactionId}`);
+                throw new Error(`Payment transaction not found for transaction ${transactionId}`);
+            }
+            await ChargingService.processRefundIfRequired(null, paymentTxn?.id, session, authorizationReference, 'CancelCharging');
         }
         
         const ubcOnCancelPayload = this.buildOnCancelRequestBody(context, onOrderObject, transactionId);

@@ -226,7 +226,7 @@ export default class ChargingService {
             // Process refund if there's excess payment
             // Refund amount = payment_txn.amount - session.total_cost
             if (paymentTxn && session && storedCdr) {
-                await ChargingService.processRefundIfRequired(storedCdr, paymentTxn.id, session, authorization_reference);
+                await ChargingService.processRefundIfRequired(storedCdr, paymentTxn.id, session, authorization_reference, 'StopCharging');
             }
         } 
         catch (error: any) {
@@ -249,12 +249,21 @@ export default class ChargingService {
      * @param authorization_reference - Authorization reference for logging
      */
     public static async processRefundIfRequired(
-        cdr: CDR,
+        cdr: CDR | null,
         paymentTxnId: string,
         session: Session,
-        authorization_reference: string
+        authorization_reference: string,
+        returnType: 'CancelCharging' | 'StopCharging' = 'StopCharging'
     ): Promise<void> {
         try {
+            if (!cdr && returnType === 'StopCharging') {
+                logger.warn(
+                    `🟡 ${authorization_reference} Refund: CDR not found`,
+                    { data: { authorization_reference } }
+                );
+                return;
+            }
+
             // Get the payment transaction
             const paymentTxn = await PaymentTxnDbService.getById(paymentTxnId);
             
