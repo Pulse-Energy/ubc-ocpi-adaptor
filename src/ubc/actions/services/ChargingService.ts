@@ -279,7 +279,7 @@ export default class ChargingService {
                 finalAmount = calculateFinalAmountFromCDR(totalCost, serviceCharge);
 
                 // Add this to DB
-                if (cdr.session_id) {
+                if (cdr.session_id && finalAmount) {
                     const session = await SessionDbService.getByCpoSessionId(cdr.session_id);
                     if (session) {
                         await SessionDbService.update(session.id, {
@@ -287,12 +287,13 @@ export default class ChargingService {
                         });
                     }
                 }
-
-                logger.warn(
-                    `🟡 ${authorization_reference} Refund: Session final_amount not available`,
-                    { data: { authorization_reference, sessionId: session.id } }
-                );
-                return;
+                else {
+                    logger.warn(
+                        `🟡 ${authorization_reference} Refund: Session final_amount not available`,
+                        { data: { authorization_reference, sessionId: session.id } }
+                    );
+                    return;
+                }
             }
 
             // Calculate refund amount = payment_txn.amount - session.final_amount.total
