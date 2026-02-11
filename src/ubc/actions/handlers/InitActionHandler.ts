@@ -34,6 +34,8 @@ import { UBCSelectRequestPayload } from '../../schema/v2.0.0/actions/select/type
 import OnStatusActionHandler from './OnStatusActionHandler';
 import { CreateUPIPaymentWithRazorpayResponse } from '../../../types/Razorpay';
 import { ChargingMetricsUnitCode } from '../../schema/v2.0.0/enums/ChargingMetricsUnitCode';
+import { SessionDbService } from '../../../db-services/SessionDbService';
+import { OCPISessionStatus } from '../../../ocpi/schema/modules/sessions/enums';
 
 export default class InitActionHandler {
     public static async handleBppInitAction(
@@ -426,6 +428,22 @@ export default class InitActionHandler {
                 amount: finalAmount,
             },
         };
+
+        const sessionData: Prisma.SessionUncheckedCreateInput = {
+            country_code: 'IN',
+            partner_id: evseConnector.partner_id ?? '',
+            location_id: connectorData.location.ocpi_location_id,
+            evse_uid: connectorData.evse.uid,
+            connector_id: connectorData.connector.connector_id,
+            authorization_reference: paymentTxn.authorization_reference,
+            requested_energy_units: paymentTxn.requested_energy_units,
+            status: OCPISessionStatus.PENDING,
+        };
+        
+        SessionDbService.create({
+            data: sessionData,
+        });
+
         return extractedOnInitResponseBody;
     }
 
