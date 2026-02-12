@@ -120,6 +120,10 @@ model EVSEConnector {
   partner              OCPIPartner @relation(fields: [partner_id], references: [id], onDelete: Cascade)
   ocpilogs             OCPILog[]
   beckn_connector_id   String      @unique // Beckn connector ID (format: IND*TPC*{ocpi_location_id}*{evse_uid}*{connector_id}). If provided, only this connector will be published.
+  ubc_catalog_id       String?     /// the catalog id used during published the cpc
+  ubc_publish_enabled  String?     @default("true")  /// Determines if a cpc should be published or not
+  ubc_publish_info     Json?       @default("{}") @db.Json /// Information about the publication of the cpc like last published_at, published, etc.
+
 
   @@unique([evse_id, connector_id])
   @@index([evse_id])
