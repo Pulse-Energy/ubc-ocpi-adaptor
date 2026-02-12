@@ -22,6 +22,7 @@ export enum OCPISessionStatus {
     INVALID = 'INVALID',
     PENDING = 'PENDING',
     RESERVATION = 'RESERVATION',
+    CANCELLED = 'CANCELLED',
 }
 
 // #OCPIv2.1.1

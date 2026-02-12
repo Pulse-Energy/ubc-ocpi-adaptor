@@ -63,7 +63,8 @@ export function calculateFinalAmount(
  */
 export function buildOrderValueFromFinalAmount(
     finalAmount: FinalAmount,
-    currency: string
+    currency: string,
+    feePercentage: number = 0.2
 ): BecknOrderValueResponse {
     const components: BecknOrderValueComponents[] = [];
 
@@ -99,7 +100,7 @@ export function buildOrderValueFromFinalAmount(
         description: 'GST',
     });
 
-    const feeAmountInPaise = Math.ceil(0.2 * (finalAmount.total*100) / 100) + 2 * Math.round(9 * Math.ceil(0.2 * (finalAmount.total*100) / 100) / 100);
+    const feeAmountInPaise = Math.ceil(feePercentage * (finalAmount.total*100) / 100) + 2 * Math.round(9 * Math.ceil(feePercentage * (finalAmount.total*100) / 100) / 100);
     const feeAmount = Number((feeAmountInPaise / 100).toFixed(2));
 
     components.push({

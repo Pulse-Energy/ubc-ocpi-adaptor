@@ -21,6 +21,7 @@ import { calculateFinalAmountFromCDR, buildOrderValueFromFinalAmount } from '../
 import { FinalAmount } from '../../types/FinalAmount';
 import { ServiceCharge } from '../../types/ServiceCharge';
 import { PaymentTxn } from '@prisma/client';
+import RazorpayPaymentGatewayService from '../../services/PaymentServices/Razorpay';
 // Import OCPIPrice type - using direct type definition to avoid path issues
 type OCPIPrice = {
     excl_vat: number;
@@ -229,6 +230,16 @@ export default class OnUpdateActionHandler {
         // Calculate final amount using shared logic with service charge percentages
         const finalAmount: FinalAmount = calculateFinalAmountFromCDR(totalCost, serviceCharge);
 
+        const partnerId = paymentTxn?.partner_id;
+        if (!partnerId) {
+            throw new Error('Partner ID not found in payment_txn');
+        }
+        const razorpayCredentials = await RazorpayPaymentGatewayService.getCredentials(partnerId);
+        if (!razorpayCredentials) {
+            throw new Error('Razorpay credentials not found for partner');
+        }
+        const { fee_percentage: feePercentage = 0.2 } = razorpayCredentials.credentials;
+
         // Add this to DB
         if (cdr.session_id) {
             const session = await SessionDbService.getByCpoSessionId(cdr.session_id);
@@ -240,7 +251,7 @@ export default class OnUpdateActionHandler {
         }
 
         // Build order value from final amount
-        return buildOrderValueFromFinalAmount(finalAmount, currency);
+        return buildOrderValueFromFinalAmount(finalAmount, currency, feePercentage);
     }
 
     /**

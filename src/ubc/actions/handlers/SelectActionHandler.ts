@@ -27,6 +27,7 @@ import { TariffDbService } from '../../../db-services/TariffDbService';
 import { LocationDbService } from '../../../db-services/LocationDbService';
 import { calculateFinalAmount, buildOrderValueFromFinalAmount } from '../../utils/OrderValueCalculator';
 import { ChargingMetricsUnitCode } from '../../schema/v2.0.0/enums/ChargingMetricsUnitCode';
+import RazorpayPaymentGatewayService from '../../services/PaymentServices/Razorpay';
 
 /**
  * Handler for select action
@@ -239,7 +240,7 @@ export default class SelectActionHandler {
             throw new Error('Tariff not found for EVSE Connector');
         }
 
-        const orderValue = SelectActionHandler.buildOrderValue(ocpiTariff, chargingOptionUnit, charging_option_type, buyerFinderFee);
+        const orderValue = await SelectActionHandler.buildOrderValue(ocpiTariff, chargingOptionUnit, charging_option_type, buyerFinderFee);
 
         const response: ExtractedOnSelectResponseBody = {
             payload: {
@@ -326,12 +327,12 @@ export default class SelectActionHandler {
         );
     }
 
-    private static buildOrderValue(
+    private static async buildOrderValue(
         tariff: Tariff, 
         chargingOptionUnit: number,
         chargingOptionType: UBCChargingMethod,
         buyerFinderFee?: { feeType?: string; feeValue?: number },
-    ): BecknOrderValueResponse {
+    ): Promise<BecknOrderValueResponse> {
         const tariffElement = {
             ocpi_tariff_element: tariff.ocpi_tariff_element as any as OCPIv211TariffElement[],
             max_price: tariff.max_price,
@@ -339,6 +340,14 @@ export default class SelectActionHandler {
         };
         const ocpiTariffElement = tariffElement.ocpi_tariff_element[0];
         const priceComponents = ocpiTariffElement.price_components as OCPIv211PriceComponent[];
+
+        const partnerId = tariff.partner_id;
+
+        const razorpayCredentials = await RazorpayPaymentGatewayService.getCredentials(partnerId);
+        if (!razorpayCredentials) {
+            throw new Error('Razorpay credentials not found for partner');
+        }
+        const { fee_percentage: feePercentage = 0.2} = razorpayCredentials.credentials;
 
         // Calculate charging session cost excl VAT (base price only)
         let chargingSessionCostExclVat = 0;
@@ -369,6 +378,6 @@ export default class SelectActionHandler {
         );
 
         // Build order value from final amount
-        return buildOrderValueFromFinalAmount(finalAmount, tariffElement.currency);
+        return buildOrderValueFromFinalAmount(finalAmount, tariffElement.currency, feePercentage);
     }   
 }
