@@ -280,8 +280,7 @@ export default class OnStatusActionHandler {
 
         const paymentStatus = mapGenericToBecknStatus(paymentTxn.status);
         
-        if ((paymentStatus === BecknPaymentStatus.COMPLETED || paymentStatus === BecknPaymentStatus.REFUNDED) &&
-            (oldPaymentStatus !== (paymentStatus as unknown as GenericPaymentTxnStatus))) {
+        if (oldPaymentStatus !== (paymentStatus as unknown as GenericPaymentTxnStatus)) {
             const becknTransactionId = paymentTxn.beckn_transaction_id;
 
             // Fetch existing responses to formulate on_status payload
