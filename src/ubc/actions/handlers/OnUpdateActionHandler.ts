@@ -241,17 +241,28 @@ export default class OnUpdateActionHandler {
         const { fee_percentage: feePercentage = 0.2 } = razorpayCredentials.credentials;
 
         // Add this to DB
+       
+
+        // Build order value from final amount
+        const orderValue = buildOrderValueFromFinalAmount(finalAmount, currency, feePercentage);
+
         if (cdr.session_id) {
             const session = await SessionDbService.getByCpoSessionId(cdr.session_id);
             if (session) {
                 await SessionDbService.update(session.id, {
                     final_amount: finalAmount,
+                    additional_props: {
+                        order_value: orderValue,
+                    },
                 });
             }
         }
 
-        // Build order value from final amount
-        return buildOrderValueFromFinalAmount(finalAmount, currency, feePercentage);
+        return {
+            currency: currency,
+            value: orderValue.value,
+            components: orderValue.components,
+        };
     }
 
     /**

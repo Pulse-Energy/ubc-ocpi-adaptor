@@ -36,6 +36,8 @@ import { CreateUPIPaymentWithRazorpayResponse } from '../../../types/Razorpay';
 import { ChargingMetricsUnitCode } from '../../schema/v2.0.0/enums/ChargingMetricsUnitCode';
 import { SessionDbService } from '../../../db-services/SessionDbService';
 import { OCPISessionStatus } from '../../../ocpi/schema/modules/sessions/enums';
+import { BuyerFinderFee } from '../../schema/v2.0.0/types/BuyerFinderFee';
+import { BuyerFinderFeeEnum } from '../../schema/v2.0.0/enums/buyerFinderFeeEnum';
 
 export default class InitActionHandler {
     public static async handleBppInitAction(
@@ -102,14 +104,14 @@ export default class InitActionHandler {
 
             // Fetch select request to get buyerFinderFee
             const selectRequest = await InitActionHandler.fetchExistingBppSelectRequest(reqPayload.context.transaction_id);
-            let buyerFinderFee: { feeType?: string; feeValue?: number } | undefined;
+            let buyerFinderFee: BuyerFinderFee | undefined;
             if (selectRequest) {
                 const orderAttributes = selectRequest.message?.order?.['beckn:orderAttributes'];
                 const orderAttributesRecord = orderAttributes as Record<string, unknown>;
-                const buyerFinderFeeObj = orderAttributesRecord?.['buyerFinderFee'] as { feeType?: string; feeValue?: number } | undefined;
+                const buyerFinderFeeObj = orderAttributesRecord?.['buyerFinderFee'] as BuyerFinderFee | undefined;
                 if (buyerFinderFeeObj) {
                     buyerFinderFee = {
-                        feeType: buyerFinderFeeObj.feeType,
+                        feeType: buyerFinderFeeObj.feeType as BuyerFinderFeeEnum,
                         feeValue: buyerFinderFeeObj.feeValue,
                     };
                 }
@@ -370,9 +372,12 @@ export default class InitActionHandler {
         const orderValueComponents = payload.payload.orderValueComponents;
         
         // Extract buyer finder fee from select request and prepare service_charge
-        const serviceCharge: { buyer_finder_fee?: { feeType?: string; feeValue?: number }; network_fee?: number } = {};
+        const serviceCharge: { buyer_finder_fee?: BuyerFinderFee; network_fee?: number } = {};
         if (buyerFinderFee) {
-            serviceCharge.buyer_finder_fee = buyerFinderFee;
+            serviceCharge.buyer_finder_fee = {
+                feeType: buyerFinderFee.feeType as BuyerFinderFeeEnum,
+                feeValue: buyerFinderFee.feeValue ?? 0,
+            };
         }
         // network_fee defaults to 0.3, but we can set it here if needed in the future
         

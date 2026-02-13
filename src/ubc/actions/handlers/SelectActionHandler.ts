@@ -28,6 +28,8 @@ import { LocationDbService } from '../../../db-services/LocationDbService';
 import { calculateFinalAmount, buildOrderValueFromFinalAmount } from '../../utils/OrderValueCalculator';
 import { ChargingMetricsUnitCode } from '../../schema/v2.0.0/enums/ChargingMetricsUnitCode';
 import RazorpayPaymentGatewayService from '../../services/PaymentServices/Razorpay';
+import { BuyerFinderFee } from '../../schema/v2.0.0/types/BuyerFinderFee';
+import { BuyerFinderFeeEnum } from '../../schema/v2.0.0/enums/buyerFinderFeeEnum';
 
 /**
  * Handler for select action
@@ -153,15 +155,13 @@ export default class SelectActionHandler {
         }
 
         // Initialize buyerFinderFee object
-        const buyerFinderFee: { feeType?: string; feeValue?: number } = {};
-        const buyerFinderFeeObj = orderAttributesRecord?.['buyerFinderFee'] as { feeType?: string; feeValue?: number } | undefined;
+        let buyerFinderFee: BuyerFinderFee = {
+            feeType: BuyerFinderFeeEnum.PERCENTAGE,
+            feeValue: 0,
+        };
+        const buyerFinderFeeObj = orderAttributesRecord?.['buyerFinderFee'] as BuyerFinderFee | undefined;
         if (buyerFinderFeeObj) {
-            if (buyerFinderFeeObj.feeType) {
-                buyerFinderFee.feeType = buyerFinderFeeObj.feeType;
-            }
-            if (buyerFinderFeeObj.feeValue !== undefined) {
-                buyerFinderFee.feeValue = buyerFinderFeeObj.feeValue;
-            }
+            buyerFinderFee = buyerFinderFeeObj;
         }
 
 
@@ -331,7 +331,7 @@ export default class SelectActionHandler {
         tariff: Tariff, 
         chargingOptionUnit: number,
         chargingOptionType: UBCChargingMethod,
-        buyerFinderFee?: { feeType?: string; feeValue?: number },
+        buyerFinderFee?: BuyerFinderFee,
     ): Promise<BecknOrderValueResponse> {
         const tariffElement = {
             ocpi_tariff_element: tariff.ocpi_tariff_element as any as OCPIv211TariffElement[],
@@ -378,6 +378,11 @@ export default class SelectActionHandler {
         );
 
         // Build order value from final amount
-        return buildOrderValueFromFinalAmount(finalAmount, tariffElement.currency, feePercentage);
+        const orderValue = buildOrderValueFromFinalAmount(finalAmount, tariffElement.currency, feePercentage);
+        return {
+            currency: tariffElement.currency,
+            value: orderValue.value,
+            components: orderValue.components,
+        };
     }   
 }

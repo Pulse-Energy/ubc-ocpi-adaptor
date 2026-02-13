@@ -1,5 +1,6 @@
 import { BecknDomain } from "../../../enums/BecknDomain";
 import { UBCChargingMethod } from "../../../enums/UBCChargingMethod";
+import { BuyerFinderFee } from "../../../types/BuyerFinderFee";
 
 export type BecknRequestMetadata = {
     domain: BecknDomain,
@@ -29,10 +30,7 @@ export type ExtractedSelectRequestPayload = {
         startTime?: string, // used in case of reservation
         endTime?: string,
     },
-    buyerFinderFee?: {
-        feeType?: string, // e.g., 'PERCENTAGE'
-        feeValue?: number, // e.g., 2.5
-    },
+    buyerFinderFee?: BuyerFinderFee,
 };
 
 export type ExtractedSelectRequestBody = {
