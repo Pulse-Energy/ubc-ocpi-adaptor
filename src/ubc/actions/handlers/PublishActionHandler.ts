@@ -54,10 +54,11 @@ export default class PublishActionHandler {
 
         try {
             // Process publish in batches
-            const responses = await PublishActionHandler.handleBatchedPublish(payload);
+            const { responses, totalCount } = await PublishActionHandler.handleBatchedPublish(payload);
 
             logger.debug(`🟢 Returning batched publish response in handleBppPublishRequest`, {
                 totalBatches: responses.length,
+                totalCount: totalCount,
             });
 
             return {
@@ -65,6 +66,7 @@ export default class PublishActionHandler {
                 payload: {
                     batchesProcessed: responses.length,
                     responses: responses,
+                    totalCount: totalCount,
                 } as any,
             };
         }
@@ -82,9 +84,10 @@ export default class PublishActionHandler {
      */
     private static async handleBatchedPublish(
         payload: PostAppPublishRequestPayload
-    ): Promise<AppPublishResponsePayload[]> {
+    ): Promise<{ responses: AppPublishResponsePayload[], totalCount: number }> {
         const reqId = Utils.generateUUID();
         const responses: AppPublishResponsePayload[] = [];
+        let allPublishedCount = 0;
 
         // Determine what to batch based on payload type
         if (payload.partner_id) {
@@ -111,8 +114,9 @@ export default class PublishActionHandler {
                 };
 
                 try {
-                    const response = await PublishActionHandler.handleEVChargingUBCBppPublishAction(batchPayload);
+                    const {response, totalCount} = await PublishActionHandler.handleEVChargingUBCBppPublishAction(batchPayload);
                     responses.push(response);
+                    allPublishedCount += totalCount;
                     logger.info(`🟢 [${reqId}] Batch ${i + 1}/${batches.length} completed successfully`);
                 }
                 catch (e: any) {
@@ -143,7 +147,8 @@ export default class PublishActionHandler {
                 };
 
                 try {
-                    const response = await PublishActionHandler.handleEVChargingUBCBppPublishAction(batchPayload);
+                    const {response, totalCount} = await PublishActionHandler.handleEVChargingUBCBppPublishAction(batchPayload);
+                    allPublishedCount += totalCount;
                     responses.push(response);
                     logger.info(`🟢 [${reqId}] Batch ${i + 1}/${batches.length} completed successfully`);
                 }
@@ -162,11 +167,14 @@ export default class PublishActionHandler {
         else {
             // Small request or evse_ids/connector_ids - process directly without batching
             logger.info(`🟡 [${reqId}] Processing single batch (small request or evse_ids/connector_ids)`);
-            const response = await PublishActionHandler.handleEVChargingUBCBppPublishAction(payload);
+            const {response, totalCount} = await PublishActionHandler.handleEVChargingUBCBppPublishAction(payload);
+            allPublishedCount += totalCount;
             responses.push(response);
         }
 
-        return responses;
+        logger.info(`🟢 [${reqId}] Publish action completed. Total published count: ${allPublishedCount}`);
+
+        return { responses, totalCount: allPublishedCount };
     }
 
     /**
@@ -188,7 +196,7 @@ export default class PublishActionHandler {
 
     public static async handleEVChargingUBCBppPublishAction(
         reqPayload: PostAppPublishRequestPayload
-    ): Promise<AppPublishResponsePayload> {
+    ): Promise<{ response: AppPublishResponsePayload, totalCount: number }> {
         const reqId = Utils.generateUUID();
         const logData = { action: 'publish', locationIds: reqPayload.ocpi_location_ids };
 
@@ -220,15 +228,17 @@ export default class PublishActionHandler {
             if ('isActive' in reqPayload && reqPayload.isActive !== undefined) {
                 isActive = reqPayload.isActive;
             }
-            
-            await PublishActionService.updateConnectorsAfterPublish(locations, stitchedResponse, isActive);
+
+            const { totalCount } = await PublishActionService.updateConnectorsAfterPublish(locations, stitchedResponse, isActive);
+
+            logger.info(`🟢 [${reqId}] Updated ${totalCount} connectors after publish`);
 
             logger.debug(
                 `🟢 [${reqId}] Received stitched on_catalog_publish response in handleEVChargingUBCBppPublishAction`,
                 { data: { stitchedResponse } }
             );
 
-            return stitchedResponse;
+            return { response: stitchedResponse, totalCount: totalCount };
         }
         catch (e: any) {
             logger.error(
