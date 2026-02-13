@@ -37,7 +37,7 @@ import { ChargingMetricsUnitCode } from '../../schema/v2.0.0/enums/ChargingMetri
 import { SessionDbService } from '../../../db-services/SessionDbService';
 import { OCPISessionStatus } from '../../../ocpi/schema/modules/sessions/enums';
 import { BuyerFinderFee } from '../../schema/v2.0.0/types/BuyerFinderFee';
-import { BuyerFinderFeeEnum } from '../../schema/v2.0.0/enums/buyerFinderFeeEnum';
+import { BuyerFinderFeeEnum } from '../../schema/v2.0.0/enums/BuyerFinderFeeEnum';
 import { BecknOrderValueComponents, GSTBreakup, PaymentBreakdown } from '../../schema/v2.0.0/types/OrderValue';
 import { OrderValueComponentsType } from '../../schema/v2.0.0/enums/OrderValueComponentsType';
 

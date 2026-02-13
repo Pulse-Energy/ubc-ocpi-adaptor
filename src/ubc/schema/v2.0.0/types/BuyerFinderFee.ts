@@ -1,4 +1,4 @@
-import { BuyerFinderFeeEnum } from "../enums/buyerFinderFeeEnum";
+import { BuyerFinderFeeEnum } from "../enums/BuyerFinderFeeEnum";
 
 export type BuyerFinderFee = {
     feeType: BuyerFinderFeeEnum;

@@ -29,7 +29,7 @@ import { calculateFinalAmount, buildOrderValueFromFinalAmount } from '../../util
 import { ChargingMetricsUnitCode } from '../../schema/v2.0.0/enums/ChargingMetricsUnitCode';
 import RazorpayPaymentGatewayService from '../../services/PaymentServices/Razorpay';
 import { BuyerFinderFee } from '../../schema/v2.0.0/types/BuyerFinderFee';
-import { BuyerFinderFeeEnum } from '../../schema/v2.0.0/enums/buyerFinderFeeEnum';
+import { BuyerFinderFeeEnum } from '../../schema/v2.0.0/enums/BuyerFinderFeeEnum';
 
 /**
  * Handler for select action

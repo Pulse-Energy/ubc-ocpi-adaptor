@@ -2,7 +2,7 @@ import { BecknOrderValueResponse, BecknOrderValueComponents, GSTBreakup } from '
 import { OrderValueComponentsType } from '../schema/v2.0.0/enums/OrderValueComponentsType';
 import { FinalAmount } from '../types/FinalAmount';
 import { ServiceCharge } from '../types/ServiceCharge';
-import { BuyerFinderFeeEnum } from '../schema/v2.0.0/enums/buyerFinderFeeEnum';
+import { BuyerFinderFeeEnum } from '../schema/v2.0.0/enums/BuyerFinderFeeEnum';
 import RazorpayPaymentGatewayService from '../services/PaymentServices/Razorpay';
 import { BuyerFinderFee } from '../schema/v2.0.0/types/BuyerFinderFee';
 
