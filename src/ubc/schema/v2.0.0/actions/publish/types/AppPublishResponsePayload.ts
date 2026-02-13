@@ -11,6 +11,11 @@ export type AppPublishResponsePayload = {
                 code: string;
                 message: string;
             }[];
+            errors?: {
+                code: string;
+                message: string;
+                paths?: string[];
+            }[];
         }[];
     };
 };

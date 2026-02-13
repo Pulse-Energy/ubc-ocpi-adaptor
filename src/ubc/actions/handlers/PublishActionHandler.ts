@@ -198,7 +198,7 @@ export default class PublishActionHandler {
                 `🟡 [${reqId}] Translating app payload to UBC format in handleEVChargingUBCBppPublishAction`,
                 { data: { logData, reqPayload } }
             );
-            const ubcPublishPayload: UBCPublishRequestPayload = await PublishActionService.translateAppPayloadToUBC(reqPayload);
+            const { payload: ubcPublishPayload, locations } = await PublishActionService.translateAppPayloadToUBC(reqPayload);
 
             // Send publish request to CDS/ONIX and wait for stitched on_catalog_publish callback
             logger.debug(
@@ -214,6 +214,14 @@ export default class PublishActionHandler {
                 data: ubcPublishPayload,
                 asyncFn: () => PublishActionService.sendPublishCallToBecknONIX(ubcPublishPayload),
             });
+
+            // Update the ubc information in the connectors
+            let isActive = true;
+            if ('isActive' in reqPayload && reqPayload.isActive !== undefined) {
+                isActive = reqPayload.isActive;
+            }
+            
+            await PublishActionService.updateConnectorsAfterPublish(locations, stitchedResponse, isActive);
 
             logger.debug(
                 `🟢 [${reqId}] Received stitched on_catalog_publish response in handleEVChargingUBCBppPublishAction`,

@@ -16,12 +16,15 @@ import { BecknChargingServiceAttributes } from '../../schema/v2.0.0/types/Chargi
 import { ObjectType } from '../../schema/v2.0.0/enums/ObjectType';
 import { AcceptedPaymentMethod } from '../../schema/v2.0.0/enums/AcceptedPaymentMethod';
 import { LocationWithRelations } from '../../../db-services/LocationDbService';
-import { TariffDbService } from '../../../db-services/TariffDbService';
-import { EVSEConnector, Location, EVSE, OCPIPartner } from '@prisma/client';
+import { TariffDbService, TariffWithRelations } from '../../../db-services/TariffDbService';
+import { EVSEConnector, Location, EVSE, OCPIPartner, Prisma } from '@prisma/client';
 import { databaseService } from '../../../services/database.service';
 import GLOBAL_VARS from '../../../constants/global-vars';
 import { OCPIHours, OCPIRegularHours } from '../../../ocpi/schema/modules/locations/types';
 import { OCPIPartnerAdditionalProps } from '../../../types/OCPIPartner';
+import { EvseConnectorDbService } from '../../../db-services/EvseConnectorDbService';
+import { AppPublishResponsePayload } from '../../schema/v2.0.0/actions/publish/types/AppPublishResponsePayload';
+import { ISODateTime } from '../../../ocpi/schema/general/types';
 
 /**
  * Map entry type for locations with EVSEs and connectors
@@ -32,6 +35,26 @@ export type LocationMapEntry = Location & {
         connectors: EVSEConnector[];
     }>;
     partner: OCPIPartner | null;
+};
+
+export type UBCPublishInfo = {
+    last_successfully_published_at?: ISODateTime; // The timestamp when the connector was last successfully published
+    currently_is_active?: boolean; // Current status of the connector, if it is active or not
+    last_published_item_info: {
+        is_active?: boolean; // Sent by BPP to indicate if the connector is active or not
+        updated_on?: ISODateTime; // The timestamp when the connector was last updated
+        status?: 'ACCEPTED' | 'REJECTED'; // The status of the last publish
+        item_count?: number; // The number of items published
+        warnings?: {
+            code: string,
+            message: string
+        }[];
+        error?: {
+            code: string,
+            message: string
+            paths: string[]
+        };
+    }
 };
 
 /**
@@ -461,7 +484,7 @@ export default class PublishActionService {
                 reservationTime: reservationTime,
             };
 
-            const ubcPublishPayload = await this.translateAppPayloadToUBC(publishPayload);
+            const { payload: ubcPublishPayload } = await this.translateAppPayloadToUBC(publishPayload);
             await this.sendPublishCallToBecknONIX(ubcPublishPayload);
 
             logger.debug(`🟢 Published catalog with reservation for connector ${connectorId}`, {
@@ -521,7 +544,7 @@ export default class PublishActionService {
      * Fetches location data from database using one of: ocpi_location_ids, evse_ids, connector_ids, or partner_id
      * Exactly one of these must be provided.
      */
-    public static async translateAppPayloadToUBC(payload: PostAppPublishRequestPayload): Promise<UBCPublishRequestPayload> {
+    public static async translateAppPayloadToUBC(payload: PostAppPublishRequestPayload): Promise<{payload: UBCPublishRequestPayload, locations: LocationMapEntry[]}> {
         if (!payload) {
             throw new Error('Payload is required');
         }
@@ -590,7 +613,7 @@ export default class PublishActionService {
             },
         };
 
-        return ubcPublishPayload;
+        return { payload: ubcPublishPayload, locations: Array.from(locationsMap.values()) };
     }
 
     /**
@@ -987,16 +1010,16 @@ export default class PublishActionService {
             ? acceptedPaymentMethods as AcceptedPaymentMethod[]
             : [AcceptedPaymentMethod.UPI, AcceptedPaymentMethod.BANK_TRANSFER];
 
-        const catalogId = (partner?.additional_props as OCPIPartnerAdditionalProps)?.catalog_id || "Tata Power";
         if (locationsMap.size === 0) {
             logger.warn('🟡 No locations in map, returning empty catalog');
-            return this.buildEmptyCatalog(bpp_id, bpp_uri, catalogId);
+            throw new Error('No locations in map');
         }
 
-        // Build items from the map structure
-        const items: BecknItem[] = [];
-        const allTariffIds = new Set<string>();
-        const ocpiTariffBecknIdsMap: Record<string, string[]> = {};
+        const catalogs: BecknCatalog[] = [];
+
+        const allTariffIdsSet = new Set<string>(Array.from(locationsMap.values()).flatMap(location => Array.from(location.evses.values()).flatMap(evse => evse.connectors.flatMap(connector => connector.tariff_ids || []))));
+        const tariffs = await TariffDbService.getByOcpiTariffIds(Array.from(allTariffIdsSet));
+        const tariffsMap = new Map<string, TariffWithRelations>(tariffs.map(tariff => [tariff.ocpi_tariff_id, tariff]));
 
         for (const [, location] of locationsMap.entries()) {
             // Determine availability windows for this location
@@ -1033,31 +1056,19 @@ export default class PublishActionService {
             for (const [, evse] of location.evses.entries()) {
                 for (const connector of evse.connectors) {
                     // Use beckn_connector_id from connector record if available, otherwise generate (for backwards compatibility)
-                    const builtConnectorId = connector.beckn_connector_id;
+                    const becknConnectorId = connector.beckn_connector_id;
 
-                    if (!builtConnectorId) {
+                    if (!becknConnectorId) {
                         continue;
-                    }
-                    
-                    // Collect tariff IDs from connector
-                    if (connector.tariff_ids && connector.tariff_ids.length > 0) {
-                        connector.tariff_ids.forEach(id => allTariffIds.add(id));
-                        
-                        connector.tariff_ids.forEach(id => {
-                            if (!ocpiTariffBecknIdsMap[id]) {
-                                ocpiTariffBecknIdsMap[id] = [];
-                            }
-                            ocpiTariffBecknIdsMap[id].push(builtConnectorId);
-                        });
                     }
                     
                     const locationName = location.name || location.ocpi_location_id;
                     const connectorType = convertOcpiStandardToConnectorType(connector.standard);
 
-                    items.push({
+                    const item: BecknItem = {
                         "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
                         "@type": ObjectType.item,
-                        "beckn:id": builtConnectorId,
+                        "beckn:id": becknConnectorId,
                         "beckn:descriptor": {
                             "@type": ObjectType.descriptor,
                             "schema:name": `${locationName} - ${connectorType}`,
@@ -1080,188 +1091,123 @@ export default class PublishActionService {
                             },
                         },
                         "beckn:itemAttributes": this.getItemAttributesFromConnector(connector, evse, locationWithRelations),
-                    });
-                }
-            }
-        }
+                    };
 
-        // Fetch all tariffs referenced by connectors
-        const tariffsMap = new Map<string, any>();
-        for (const tariffId of allTariffIds) {
-            try {
-                const tariff = await TariffDbService.getByOcpiTariffId(tariffId);
-                if (tariff) {
-                    tariffsMap.set(tariffId, tariff);
-                }
-            }
-            catch (error) {
-                logger.warn(`Failed to fetch tariff ${tariffId}: ${error}`);
-            }
-        }
+                    const tariff = tariffsMap.get(connector.tariff_ids[0]);
 
-        // Build offers from tariffs
-        // Each tariff becomes an offer, and each offer includes ALL itemIds
-        const offers: BecknCatalogOffer[] = Array.from(tariffsMap.values()).map((tariff, index): BecknCatalogOffer => {
-            const ocpiTariff = TariffDbService.mapPrismaTariffToOcpi(tariff);
+                    if (!tariff) {
+                        logger.warn(`🟡 No tariff found for connector ${becknConnectorId}`);
+                        continue;
+                    }
+
+                    const ocpiTariff = TariffDbService.mapPrismaTariffToOcpi(tariff);
             
-            // Extract price from tariff elements (OCPI structure)
-            let priceValue = 0;
-            const tariffElements = ocpiTariff.elements || [];
-            if (tariffElements.length > 0) {
-                // Get first price component (usually energy price)
-                const firstElement = tariffElements[0];
-                if (firstElement.price_components && firstElement.price_components.length > 0) {
-                    priceValue = firstElement.price_components[0].price || 0;
-                }
-            }
+                    // Extract price from tariff elements (OCPI structure)
+                    let priceValue = 0;
+                    const tariffElements = ocpiTariff.elements || [];
+                    if (tariffElements.length > 0) {
+                        // Get first price component (usually energy price)
+                        const firstElement = tariffElements[0];
+                        if (firstElement.price_components && firstElement.price_components.length > 0) {
+                            priceValue = firstElement.price_components[0].price || 0;
+                        }
+                    }
 
-            // Determine validity dates - ensure ISO 8601 datetime format with timezone
-            let startDate: string;
-            let endDate: string;
-            
-            if (validity?.start_date && validity?.end_date) {
-                // Use provided validity dates
-                startDate = this.formatValidityDate(validity.start_date, true); // start of day
-                endDate = this.formatValidityDate(validity.end_date, false); // end of day
-            } 
-            else {
-                // Use tariff validity dates or defaults
-                const defaultStart = ocpiTariff.start_date_time || new Date().toISOString();
-                const defaultEnd = ocpiTariff.end_date_time || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(); // 1 year from now
-                startDate = this.formatValidityDate(defaultStart, true);
-                endDate = this.formatValidityDate(defaultEnd, false);
-            }
+                    // Determine validity dates - ensure ISO 8601 datetime format with timezone
+                    let startDate: string;
+                    let endDate: string;
+                    
+                    if (validity?.start_date && validity?.end_date) {
+                        // Use provided validity dates
+                        startDate = this.formatValidityDate(validity.start_date, true); // start of day
+                        endDate = this.formatValidityDate(validity.end_date, false); // end of day
+                    } 
+                    else {
+                        // Use tariff validity dates or defaults
+                        const defaultStart = ocpiTariff.start_date_time || new Date().toISOString();
+                        const defaultEnd = ocpiTariff.end_date_time || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(); // 1 year from now
+                        startDate = this.formatValidityDate(defaultStart, true);
+                        endDate = this.formatValidityDate(defaultEnd, false);
+                    }
 
-            const itemIds = ocpiTariffBecknIdsMap[ocpiTariff.id] || [];
-
-            return {
-                "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
-                "beckn:provider": `${partner.country_code}*${partner.party_id}`,
-                "@type": ObjectType.offer,
-                "beckn:id": tariff.ocpi_tariff_id,
-                "beckn:descriptor": {
-                    "@type": ObjectType.descriptor,
-                    "schema:name": `Tariff ${tariff.ocpi_tariff_id}`,
-                },
-                "beckn:items": itemIds,
-                "beckn:price": {
-                    "currency": tariff.currency,
-                    "value": priceValue,
-                    "applicableQuantity": {
-                        "unitText": "Kilowatt Hour",
-                        "unitCode": "KWH",
-                        "unitQuantity": 1,
-                    },
-                },
-                "beckn:validity": {
-                    "@type": ObjectType.timePeriod,
-                    "schema:startDate": startDate,
-                    "schema:endDate": endDate,
-                },
-                "beckn:acceptedPaymentMethod": paymentMethods,
-                "beckn:offerAttributes": {
-                    "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/EvChargingOffer/v1/context.jsonld",
-                    "@type": ObjectType.chargingOffer,
-                    "idleFeePolicy": {
-                        "applicableQuantity": {
-                            unitCode: "MIN",
-                            unitQuantity: 10,
-                            unitText: "minutes",
+                    const offer: BecknCatalogOffer = {
+                        "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
+                        "beckn:provider": `${partner.country_code}*${partner.party_id}`,
+                        "@type": ObjectType.offer,
+                        "beckn:id": tariff.ocpi_tariff_id,
+                        "beckn:descriptor": {
+                            "@type": ObjectType.descriptor,
+                            "schema:name": `Tariff ${tariff.ocpi_tariff_id}`,
                         },
-                        "currency": tariff.currency,
-                        value: 0
-                    },
-                    tariffModel: "PER_KWH"
-                },
-            };
-        });
+                        "beckn:items": [becknConnectorId],
+                        "beckn:price": {
+                            "currency": tariff.currency,
+                            "value": priceValue,
+                            "applicableQuantity": {
+                                "unitText": "Kilowatt Hour",
+                                "unitCode": "KWH",
+                                "unitQuantity": 1,
+                            },
+                        },
+                        "beckn:validity": {
+                            "@type": ObjectType.timePeriod,
+                            "schema:startDate": startDate,
+                            "schema:endDate": endDate,
+                        },
+                        "beckn:acceptedPaymentMethod": paymentMethods,
+                        "beckn:offerAttributes": {
+                            "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/EvChargingOffer/v1/context.jsonld",
+                            "@type": ObjectType.chargingOffer,
+                            "idleFeePolicy": {
+                                "applicableQuantity": {
+                                    unitCode: "MIN",
+                                    unitQuantity: 10,
+                                    unitText: "minutes",
+                                },
+                                "currency": tariff.currency,
+                                value: 0
+                            },
+                            tariffModel: "PER_KWH"
+                        },
+                    };
 
-        // Determine catalog validity dates
-        let catalogStartDate = validity?.start_date;
-        let catalogEndDate = validity?.end_date;
-        if (!catalogStartDate || !catalogEndDate) {
-            // Use earliest tariff start and latest tariff end, or defaults
-            const tariffDates = Array.from(tariffsMap.values())
-                .map(t => TariffDbService.mapPrismaTariffToOcpi(t))
-                .filter(t => t.start_date_time || t.end_date_time);
-            
-            if (tariffDates.length > 0) {
-                const starts = tariffDates.map(t => t.start_date_time).filter(Boolean) as string[];
-                const ends = tariffDates.map(t => t.end_date_time).filter(Boolean) as string[];
-                catalogStartDate = starts.length > 0 ? starts.sort()[0].split('T')[0] : new Date().toISOString().split('T')[0];
-                catalogEndDate = ends.length > 0 ? ends.sort().reverse()[0].split('T')[0] : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-            }
-            else {
-                catalogStartDate = new Date().toISOString().split('T')[0];
-                catalogEndDate = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+                    if (!connector.ubc_catalog_id) {
+                        try {
+                            const catalogId = Utils.generateUUID();
+                            const updatedConnector = await EvseConnectorDbService.updateUBCCatalogId(connector.id, catalogId);
+                            if (!updatedConnector || !updatedConnector.ubc_catalog_id) {
+                                logger.error(`🟡 Error updating UBC catalog id for connector ${becknConnectorId}`);
+                                continue;
+                            }
+                            connector.ubc_catalog_id = updatedConnector.ubc_catalog_id;
+                        }
+                        catch (error) {
+                            logger.error(`🟡 Error generating UBC catalog id for connector ${becknConnectorId}`, error as Error);
+                            continue;
+                        }
+                    }
+
+                    const catalog: BecknCatalog = {
+                        "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
+                        "@type": "beckn:Catalog",
+                        "beckn:id": connector.ubc_catalog_id,
+                        "beckn:descriptor": {
+                            "@type": ObjectType.descriptor,
+                            "schema:name": `${Utils.getBppId()} Charging Network`,
+                            "beckn:shortDesc": "Comprehensive network of charging stations",
+                        },
+                        "beckn:bppId": Utils.getBppId(),
+                        "beckn:bppUri": Utils.getBppUri(),
+                        "beckn:items": [item],
+                        "beckn:offers": [offer],
+                    };
+
+                    catalogs.push(catalog);
+                }
             }
         }
-
-        const catalogs: BecknCatalog[] = [
-            {
-                "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
-                "@type": "beckn:Catalog",
-                "beckn:id": catalogId,
-                "beckn:descriptor": {
-                    "@type": ObjectType.descriptor,
-                    "schema:name": `${Utils.getBppId()} Charging Network`,
-                    "beckn:shortDesc": "Comprehensive network of charging stations",
-                },
-                "beckn:bppId": Utils.getBppId(),
-                "beckn:bppUri": Utils.getBppUri(),
-                "beckn:items": items,
-                "beckn:offers": offers,
-            },
-        ];
 
         return catalogs;
-    }
-
-    /**
-     * Builds an empty catalog (used when connector is not found)
-     */
-    private static buildEmptyCatalog(bpp_id: string, bpp_uri: string, catalogId: string): BecknCatalog[] {
-        bpp_id = bpp_id || Utils.getBppId();
-        bpp_uri = bpp_uri || Utils.getBppUri();
-        return [
-            {
-                "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
-                "@type": "beckn:Catalog",
-                "beckn:id": catalogId,
-                "beckn:descriptor": {
-                    "@type": ObjectType.descriptor,
-                    "schema:name": `${Utils.getBppId()} Charging Network`,
-                    "beckn:shortDesc": "Comprehensive network of charging stations",
-                },
-                "beckn:bppId": bpp_id,
-                "beckn:bppUri": bpp_uri,
-                "beckn:items": [],
-                "beckn:offers": [],
-            },
-        ];
-    }
-
-    /**
-     * Sends publish request to CDS (ONIX)
-     * BPP Provider → CDS
-     */
-    public static async sendPublishCallToCDS(payload: UBCPublishRequestPayload): Promise<UBCPublishResponsePayload> {
-        const cdsHost = `${appConfig.cds.baseUrl}/beckn/v2`;
-        
-        logger.debug(`🟡 Sending publish request to CDS`, { 
-            url: `${cdsHost}/${BecknAction.publish}`,
-            transaction_id: payload.context.transaction_id 
-        });
-
-        // Send to CDS endpoint
-        const response = await axios.post(`${cdsHost}/${BecknAction.publish}`, payload, {
-            headers: {
-                'Content-Type': 'application/json',
-                ...(appConfig.cds.apiKey ? { Authorization: `Bearer ${appConfig.cds.apiKey}` } : {}),
-            },
-        });
-
-        return response.data;
     }
 
     /**
@@ -1280,6 +1226,78 @@ export default class PublishActionService {
             url: `${bppHost}/${BecknAction.publish}`,
             data: payload,
         }, BecknDomain.EVChargingUBC);
+    }
+
+    public static async updateConnectorsAfterPublish(locations: LocationMapEntry[], response: AppPublishResponsePayload, isActive: boolean): Promise<{
+        totalCount: number,
+    }> {
+        try {
+            // Update the charge point connector for published items with fields: ubc_publish_enabled, ubc_publish_info
+            let totalCount = 0;
+            const { results } = response.message;
+            const catalogIdChargePointConnectorMap: Record<string, EVSEConnector> = {};
+
+            locations.forEach((location) => {
+                location.evses.forEach((evse) => {
+                    evse.connectors.forEach((connector) => {
+                        if (connector.ubc_catalog_id) {
+                            catalogIdChargePointConnectorMap[connector.ubc_catalog_id] = connector;
+                        }
+                    });
+                });
+            });   
+
+            for (let i = 0; i < results.length; i++) {
+                const result = results[i];
+                const { catalog_id, status, item_count } = result;
+                
+                // Update the charge point connector
+                const connector = catalogIdChargePointConnectorMap[catalog_id];
+
+                if (connector) {
+                    const ubcPublishInfo = (connector.ubc_publish_info || {}) as UBCPublishInfo;
+                    const updateFields: Prisma.EVSEConnectorUpdateInput = {
+                        ubc_publish_enabled: 'true',
+                    };
+
+                    ubcPublishInfo.last_published_item_info = {
+                        updated_on: new Date().toISOString(),
+                        is_active: isActive,
+                        ...result,
+                    };
+
+                    let currentlyActive = ubcPublishInfo?.currently_is_active || false;
+
+                    if (status === 'ACCEPTED') {
+                        ubcPublishInfo.last_successfully_published_at = new Date().toISOString();
+                        totalCount += item_count;
+
+                        currentlyActive = isActive;
+                    }
+
+                    ubcPublishInfo.currently_is_active = currentlyActive;
+                    updateFields.ubc_publish_info = ubcPublishInfo;
+        
+                    // eslint-disable-next-line no-await-in-loop
+                    await EvseConnectorDbService.updateEVSEConnector(connector.id, updateFields);
+
+                    // eslint-disable-next-line no-await-in-loop
+                    await Utils.sleep(100);
+                }
+            }
+
+            return {
+                totalCount: totalCount,
+            };
+
+        }
+        catch (error) {
+            logger.error(`Failed to update connectors after publish`, error as Error);
+
+            return {
+                totalCount: 0,
+            };
+        }
     }
 }
 

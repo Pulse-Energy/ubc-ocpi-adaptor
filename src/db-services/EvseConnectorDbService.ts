@@ -79,4 +79,20 @@ export class EvseConnectorDbService {
         return evseConnector;
     }
 
+    public static async updateUBCCatalogId(evseConnectorId: string, ubcCatalogId: string): Promise<EVSEConnector> {
+        const evseConnector = await databaseService.prisma.eVSEConnector.update({
+            where: { id: evseConnectorId },
+            data: { ubc_catalog_id: ubcCatalogId },
+        }) as EVSEConnector;
+        return evseConnector;
+    }
+
+    public static async updateEVSEConnector(evseConnectorId: string, data: Prisma.EVSEConnectorUpdateInput): Promise<EVSEConnector> {
+        const evseConnector = await databaseService.prisma.eVSEConnector.update({
+            where: { id: evseConnectorId },
+            data,
+        }) as EVSEConnector;
+        return evseConnector;
+    }
+
 }
