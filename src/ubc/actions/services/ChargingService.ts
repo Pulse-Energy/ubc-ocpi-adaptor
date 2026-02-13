@@ -279,7 +279,7 @@ export default class ChargingService {
             let finalAmount = session.final_amount as FinalAmount;
             
             if (!finalAmount || finalAmount.total === undefined) {
-                const totalCost = cdr.total_cost as unknown as OCPIPrice;
+                const totalCost = cdr?.total_cost as unknown as OCPIPrice;
 
                 // Get service charge from payment_txn if available
                 const serviceCharge = paymentTxn?.service_charge as ServiceCharge | null | undefined;
@@ -288,8 +288,8 @@ export default class ChargingService {
                 finalAmount = calculateFinalAmountFromCDR(totalCost, serviceCharge);
 
                 // Add this to DB
-                if (cdr.session_id && finalAmount) {
-                    const session = await SessionDbService.getByCpoSessionId(cdr.session_id);
+                if (cdr?.session_id && finalAmount) {
+                    const session = await SessionDbService.getByCpoSessionId(cdr?.session_id);
                     if (session) {
                         await SessionDbService.update(session.id, {
                             final_amount: finalAmount,
