@@ -290,7 +290,7 @@ export default class SelectActionHandler {
         const selectBuyer = selectOrder["beckn:buyer"] as Record<string, unknown> | undefined;
         const buyerWithMainContext = selectBuyer ? {
             ...selectBuyer,
-            "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
+            "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-v2/refs/heads/core-v2.0.0-rc/schema/core/v2/context.jsonld",
         } : undefined;
         
         const ubcOnSelectPayload: UBCOnSelectRequestPayload = {

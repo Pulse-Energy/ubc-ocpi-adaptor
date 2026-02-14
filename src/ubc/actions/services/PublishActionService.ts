@@ -920,7 +920,7 @@ export default class PublishActionService {
         const { externalChargingStationId, externalChargePointId } = this.getExternalChargingStationAndChargePointId(connector);
 
         const attributes: BecknChargingServiceAttributes = {
-            "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/EvChargingService/v1/context.jsonld",
+            "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-v2/refs/heads/core-v2.0.0-rc/schema/EvChargingService/v1/context.jsonld",
             "@type": "ChargingService",
             "connectorType": connectorType,
             "maxPowerKW": maxPowerKW,
@@ -1066,7 +1066,7 @@ export default class PublishActionService {
                     const connectorType = convertOcpiStandardToConnectorType(connector.standard);
 
                     const item: BecknItem = {
-                        "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
+                        "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-v2/refs/heads/core-v2.0.0-rc/schema/core/v2/context.jsonld",
                         "@type": ObjectType.item,
                         "beckn:id": becknConnectorId,
                         "beckn:descriptor": {
@@ -1131,7 +1131,7 @@ export default class PublishActionService {
                     }
 
                     const offer: BecknCatalogOffer = {
-                        "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
+                        "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-v2/refs/heads/core-v2.0.0-rc/schema/core/v2/context.jsonld",
                         "beckn:provider": `${partner.country_code}*${partner.party_id}`,
                         "@type": ObjectType.offer,
                         "beckn:id": tariff.ocpi_tariff_id,
@@ -1156,7 +1156,7 @@ export default class PublishActionService {
                         },
                         "beckn:acceptedPaymentMethod": paymentMethods,
                         "beckn:offerAttributes": {
-                            "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/EvChargingOffer/v1/context.jsonld",
+                            "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-v2/refs/heads/core-v2.0.0-rc/schema/EvChargingOffer/v1/context.jsonld",
                             "@type": ObjectType.chargingOffer,
                             "idleFeePolicy": {
                                 "applicableQuantity": {
@@ -1188,7 +1188,7 @@ export default class PublishActionService {
                     }
 
                     const catalog: BecknCatalog = {
-                        "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
+                        "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-v2/refs/heads/core-v2.0.0-rc/schema/core/v2/context.jsonld",
                         "@type": "beckn:Catalog",
                         "beckn:id": connector.ubc_catalog_id,
                         "beckn:descriptor": {
