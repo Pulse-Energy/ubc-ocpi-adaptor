@@ -3,7 +3,7 @@ import { ChargingSessionStatus } from "../enums/ChargingSessionStatus";
 
 // v0.9: Delivery attributes for on_confirm (simple session status)
 export type DeliveryAttributesOnConfirm = {
-    "@context": string; // e.g. "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/EvChargingSession/v1/context.jsonld"
+    "@context": string; // e.g. "https://raw.githubusercontent.com/beckn/protocol-specifications-v2/refs/heads/core-v2.0.0-rc/schema/EvChargingSession/v1/context.jsonld"
     "@type": "ChargingSession";
     connectorType?: string;
     maxPowerKW?: number;
@@ -34,7 +34,7 @@ export type ChargingTelemetryEvent = {
 
 // v0.9: Delivery attributes for on_track (with chargingTelemetry)
 export type DeliveryAttributesOnTrack = {
-    "@context": string; // e.g. "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/EvChargingService/v1/context.jsonld"
+    "@context": string; // e.g. "https://raw.githubusercontent.com/beckn/protocol-specifications-v2/refs/heads/core-v2.0.0-rc/schema/EvChargingService/v1/context.jsonld"
     "@type": "ChargingSession";
     chargingTelemetry: ChargingTelemetryEvent[];
 };

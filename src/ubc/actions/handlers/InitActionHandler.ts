@@ -592,7 +592,7 @@ export default class InitActionHandler {
         
         const paymentObject: any = {
             '@context':
-                'https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld',
+                'https://raw.githubusercontent.com/beckn/protocol-specifications-v2/refs/heads/core-v2.0.0-rc/schema/core/v2/context.jsonld',
             '@type': ObjectType.payment,
             'beckn:id': backendOnInitResponsePayload.payload.becknPaymentId || Utils.generateUUID(),
             'beckn:amount': {

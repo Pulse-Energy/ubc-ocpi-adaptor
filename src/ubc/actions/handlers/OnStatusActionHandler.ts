@@ -176,7 +176,7 @@ export default class OnStatusActionHandler {
             value: amount,
         } : initPaymentData['beckn:amount'] as BecknPayment['beckn:amount'];
         const paymentObject: Partial<BecknPayment> = {
-            "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
+            "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-v2/refs/heads/core-v2.0.0-rc/schema/core/v2/context.jsonld",
             "@type": ObjectType.payment,
             "beckn:id": initPaymentData['beckn:id'] as string,
             "beckn:amount": becknAmount,
@@ -228,9 +228,9 @@ export default class OnStatusActionHandler {
         const selectBuyer = selectOrder['beckn:buyer'] as Record<string, unknown> | undefined;
         const fullBuyer = selectBuyer ? {
             ...selectBuyer,
-            "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
+            "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-v2/refs/heads/core-v2.0.0-rc/schema/core/v2/context.jsonld",
         } : {
-            "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
+            "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-v2/refs/heads/core-v2.0.0-rc/schema/core/v2/context.jsonld",
             "@type": "beckn:Buyer",
             "beckn:id": "", // Fallback if buyer not found
         };

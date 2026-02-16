@@ -15,7 +15,7 @@ export type SettlementAccount = {
 
 // Payment settlement attributes (v0.9)
 export type PaymentSettlement = {
-    "@context": string; // e.g. "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/PaymentSettlement/v1/context.jsonld"
+    "@context": string; // e.g. "https://raw.githubusercontent.com/beckn/protocol-specifications-v2/refs/heads/core-v2.0.0-rc/schema/PaymentSettlement/v1/context.jsonld"
     "@type": "PaymentSettlement";
     settlementAccounts: SettlementAccount[];
 };
@@ -32,7 +32,7 @@ export type BecknPaymentInit = {
 
 // Full payment response (v0.9) - for on_init response
 export type BecknPayment = {
-    "@context": string; // e.g. "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld"
+    "@context": string; // e.g. "https://raw.githubusercontent.com/beckn/protocol-specifications-v2/refs/heads/core-v2.0.0-rc/schema/core/v2/context.jsonld"
     "@type": ObjectType.payment;
     "beckn:id": string;
     "beckn:amount": BecknAmount;

@@ -185,7 +185,7 @@ export default class TrackActionService {
             message: {
                 order: {
                     "@context":
-                        "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
+                        "https://raw.githubusercontent.com/beckn/protocol-specifications-v2/refs/heads/core-v2.0.0-rc/schema/core/v2/context.jsonld",
                     "@type": trackOrder["@type"],
                     "beckn:id": backendOnTrackResponsePayload.order_id,
                     "beckn:orderStatus": backendOnTrackResponsePayload.order_status,
@@ -199,7 +199,7 @@ export default class TrackActionService {
                     ],
                     "beckn:fulfillment": {
                         "@context":
-                            "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
+                            "https://raw.githubusercontent.com/beckn/protocol-specifications-v2/refs/heads/core-v2.0.0-rc/schema/core/v2/context.jsonld",
                         "@type": "beckn:Fulfillment",
                         "beckn:id": "fulfillment-001",
                         "beckn:mode": "RESERVATION",
@@ -214,7 +214,7 @@ export default class TrackActionService {
                         // v0.9: deliveryAttributes with sessionStatus and chargingTelemetry
                         "beckn:deliveryAttributes": {
                             "@context":
-                                "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/EvChargingSession/v1/context.jsonld",
+                                "https://raw.githubusercontent.com/beckn/protocol-specifications-v2/refs/heads/core-v2.0.0-rc/schema/EvChargingSession/v1/context.jsonld",
                             "@type": "ChargingSession",
                             sessionStatus: sessionStatus,
                             chargingTelemetry: [
