@@ -3,4 +3,6 @@ export enum ChargingSessionStatus {
     ACTIVE = 'ACTIVE',
     COMPLETED = 'COMPLETED',
     INTERRUPTED = 'INTERRUPTED',
+    CANCELLED = 'CANCELLED',
+    AUTO_CANCELLED = 'AUTO_CANCELLED',
 }

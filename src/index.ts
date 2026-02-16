@@ -17,6 +17,7 @@ import healthRoutes from './api/health/routes';
 import ocpiOutgoingRoutes from './api/ocpi/ocpi-outgoing-routes';
 import ocpiIncomingRoutes from './ocpi/ocpi-incoming-routes';
 import appRoutes from './api/app/routes';
+import { CronService } from './ubc/services/cron/CronService';
 
 const app: Express = express();
 
@@ -115,6 +116,9 @@ const shutdown = async () => {
     logger.info('Shutting down gracefully...');
 
     try {
+        // Stop cron jobs
+        CronService.stop();
+        
         await databaseService.disconnect();
         process.exit(0);
     }
@@ -132,6 +136,9 @@ const startServer = async () => {
     try {
         // Connect to database
         await databaseService.connect();
+
+        // Start cron jobs
+        CronService.start();
 
         app.listen(appConfig.port, () => {
             logger.info(`Server started on port ${appConfig.port}`, {

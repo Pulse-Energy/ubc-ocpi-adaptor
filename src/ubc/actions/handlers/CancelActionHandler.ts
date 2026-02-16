@@ -17,7 +17,6 @@ import { Prisma } from "@prisma/client";
 import UpdateActionHandler from "./UpdateActionHandler";
 import { ChargingAction } from "../../schema/v2.0.0/enums/ChargingAction";
 import { Context } from "../../schema/v2.0.0/types/Context";
-import { OCPISessionStatus } from "../../../ocpi/schema/modules/sessions/enums";
 import { SessionDbService } from "../../../db-services/SessionDbService";
 import ChargingService from "../services/ChargingService";
 import PaymentTxnDbService from "../../../db-services/PaymentTxnDbService";
@@ -160,7 +159,7 @@ export default class CancelActionHandler {
 
         else {
             await SessionDbService.update(session.id, {
-                status: OCPISessionStatus.CANCELLED,
+                status: ChargingSessionStatus.CANCELLED,
             });
             const paymentTxn = await PaymentTxnDbService.getFirstByFilter({
                 where: {
