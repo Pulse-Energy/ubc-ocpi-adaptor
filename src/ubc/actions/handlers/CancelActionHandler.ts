@@ -314,6 +314,27 @@ export default class CancelActionHandler {
             // Build on_cancel response based on charging status
             const onCancelResponse = await this.buildOnCancelRequestBody(context, onOrderObject, becknTransactionId);
 
+            const authorizationReference = onInitResponse?.message?.order?.['beckn:id'];
+            const session = await SessionDbService.getByAuthorizationReference(authorizationReference);
+            if (!session) {
+                logger.debug(`Session not found for transaction ${becknTransactionId}`);
+                return;
+            }
+
+            await SessionDbService.update(session.id, {
+                status: ChargingSessionStatus.AUTO_CANCELLED,
+            });
+            const paymentTxn = await PaymentTxnDbService.getFirstByFilter({
+                where: {
+                    authorization_reference: authorizationReference,
+                },
+            });
+            if (!paymentTxn) {
+                logger.debug(`Payment transaction not found for transaction ${becknTransactionId}`);
+                throw new Error(`Payment transaction not found for transaction ${becknTransactionId}`);
+            }
+            await ChargingService.processRefundIfRequired(null, paymentTxn?.id, session, authorizationReference, 'CancelCharging');
+
             // Send on_cancel response to Beckn ONIX
             await this.sendOnCancelCallToBecknONIX(onCancelResponse);
 
