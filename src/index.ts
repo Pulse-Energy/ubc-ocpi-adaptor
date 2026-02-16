@@ -117,7 +117,9 @@ const shutdown = async () => {
 
     try {
         // Stop cron jobs
-        CronService.stop();
+        if(process.env.NODE_ENV === 'prod') {
+            CronService.stop();
+        }
         
         await databaseService.disconnect();
         process.exit(0);
@@ -138,7 +140,9 @@ const startServer = async () => {
         await databaseService.connect();
 
         // Start cron jobs
-        CronService.start();
+        if(process.env.NODE_ENV === 'prod') {
+            CronService.start();
+        }
 
         app.listen(appConfig.port, () => {
             logger.info(`Server started on port ${appConfig.port}`, {
