@@ -1090,6 +1090,8 @@ export default class RazorpayPaymentService {
             const payment_breakdown = (paymentTxn.payment_breakdown as any).breakdown as BecknOrderValueComponents[];
             
             const feeAmount = payment_breakdown.find(component => component.type === OrderValueComponentsType.FEE && component.description === 'Payment processing fee')?.value || 0;
+            const gstOnFeeAmount = feeAmount * 0.18
+            const totalProcessingFee = (feeAmount + gstOnFeeAmount) * 100;
             if (!partnerId) {
                 logger.error('Razorpay: Partner ID not found in payment txn', undefined, { paymentTxn });
                 return {
@@ -1122,7 +1124,7 @@ export default class RazorpayPaymentService {
             }
 
             // Convert Decimal to number (amount in paise)
-            const amountInPaise = Math.round(Number(amount) * 100) - feeAmount * 100;
+            const amountInPaise = Math.round(Number(amount) * 100) - totalProcessingFee;
 
             // Generate receipt
             const receipt = 'rcpt_' + Utils.generateRandomString(10);

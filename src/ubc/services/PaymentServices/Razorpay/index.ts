@@ -909,4 +909,17 @@ export default class RazorpayPaymentGatewayService {
     public static isOrderPaid(status: string): boolean {
         return status === 'paid';
     }
+
+    // amount is in paise
+    public static upiIntentFee(amount: number, feePercentage: number = 0.2): {
+        feeAmount: number,
+        gstOnFeeAmount: number,
+    } {
+        const feeAmount = Math.ceil(feePercentage * amount / 100);
+        const gstOnFeeAmount = 2 * Math.round(9 * feeAmount / 100);
+        return {
+            feeAmount,
+            gstOnFeeAmount,
+        };
+    }
 }

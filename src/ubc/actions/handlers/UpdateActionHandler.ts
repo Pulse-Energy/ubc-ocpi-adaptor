@@ -23,9 +23,6 @@ import { OCPICommandResponseResponse } from '../../../ocpi/schema/modules/comman
 import { OCPICommandResponseType } from '../../../ocpi/schema/modules/commands/enums';
 import PaymentTxnDbService from '../../../db-services/PaymentTxnDbService';
 import { BecknPaymentStatus } from '../../schema/v2.0.0/enums/PaymentStatus';
-import { databaseService } from '../../../services/database.service';
-import OCPIPartnerDbService from '../../../db-services/OCPIPartnerDbService';
-import { OCPIPartnerAdditionalProps } from '../../../types/OCPIPartner';
 import { mapGenericToBecknStatus } from '../../services/PaymentServices/Razorpay/RazorpayPaymentService';
 
 /**

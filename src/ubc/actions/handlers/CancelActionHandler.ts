@@ -17,7 +17,6 @@ import { Prisma } from "@prisma/client";
 import UpdateActionHandler from "./UpdateActionHandler";
 import { ChargingAction } from "../../schema/v2.0.0/enums/ChargingAction";
 import { Context } from "../../schema/v2.0.0/types/Context";
-import { OCPISessionStatus } from "../../../ocpi/schema/modules/sessions/enums";
 import { SessionDbService } from "../../../db-services/SessionDbService";
 import ChargingService from "../services/ChargingService";
 import PaymentTxnDbService from "../../../db-services/PaymentTxnDbService";
@@ -160,7 +159,7 @@ export default class CancelActionHandler {
 
         else {
             await SessionDbService.update(session.id, {
-                status: OCPISessionStatus.CANCELLED,
+                status: ChargingSessionStatus.CANCELLED,
             });
             const paymentTxn = await PaymentTxnDbService.getFirstByFilter({
                 where: {
@@ -314,6 +313,27 @@ export default class CancelActionHandler {
 
             // Build on_cancel response based on charging status
             const onCancelResponse = await this.buildOnCancelRequestBody(context, onOrderObject, becknTransactionId);
+
+            const authorizationReference = onInitResponse?.message?.order?.['beckn:id'];
+            const session = await SessionDbService.getByAuthorizationReference(authorizationReference);
+            if (!session) {
+                logger.debug(`Session not found for transaction ${becknTransactionId}`);
+                return;
+            }
+
+            await SessionDbService.update(session.id, {
+                status: ChargingSessionStatus.AUTO_CANCELLED,
+            });
+            const paymentTxn = await PaymentTxnDbService.getFirstByFilter({
+                where: {
+                    authorization_reference: authorizationReference,
+                },
+            });
+            if (!paymentTxn) {
+                logger.debug(`Payment transaction not found for transaction ${becknTransactionId}`);
+                throw new Error(`Payment transaction not found for transaction ${becknTransactionId}`);
+            }
+            await ChargingService.processRefundIfRequired(null, paymentTxn?.id, session, authorizationReference, 'CancelCharging');
 
             // Send on_cancel response to Beckn ONIX
             await this.sendOnCancelCallToBecknONIX(onCancelResponse);

@@ -1,13 +1,11 @@
 import { ObjectType } from "../enums/ObjectType";
+import { BuyerFinderFee } from "./BuyerFinderFee";
 
 // EV - OfferAttributes (ChargingOffer per provided context/type)
 export type BecknOfferAttributes = {
     "@context": string; // context URL
     "@type": ObjectType.chargingOffer;
-    buyerFinderFee?: {
-        feeType: string; // "PERCENTAGE" etc
-        feeValue: number;
-    };
+    buyerFinderFee?: BuyerFinderFee;
     idleFeePolicy?: {
         applicableQuantity: {
             unitCode: string;

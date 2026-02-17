@@ -1,7 +1,10 @@
-import { BecknOrderValueResponse, BecknOrderValueComponents } from '../schema/v2.0.0/types/OrderValue';
+import { BecknOrderValueResponse, BecknOrderValueComponents, GSTBreakup } from '../schema/v2.0.0/types/OrderValue';
 import { OrderValueComponentsType } from '../schema/v2.0.0/enums/OrderValueComponentsType';
 import { FinalAmount } from '../types/FinalAmount';
 import { ServiceCharge } from '../types/ServiceCharge';
+import { BuyerFinderFeeEnum } from '../schema/v2.0.0/enums/BuyerFinderFeeEnum';
+import RazorpayPaymentGatewayService from '../services/PaymentServices/Razorpay';
+import { BuyerFinderFee } from '../schema/v2.0.0/types/BuyerFinderFee';
 
 // OCPIPrice type for CDR total_cost
 type OCPIPrice = {
@@ -25,26 +28,16 @@ type OCPIPrice = {
 export function calculateFinalAmount(
     chargingSessionCost: number,
     gst: number,
-    buyerFinderFee?: {
-        feeType?: string;
-        feeValue?: number;
-    },
+    buyerFinderFee?: BuyerFinderFee,
     networkFinderFeePercent: number = 0.3
 ): FinalAmount {
-    let buyerFinderCost: number;
-    if (buyerFinderFee?.feeType === 'AMOUNT' && buyerFinderFee.feeValue !== undefined && buyerFinderFee.feeValue >=0 ) {
+    let buyerFinderCost: number = 0;
+    if (buyerFinderFee?.feeType === BuyerFinderFeeEnum.AMOUNT && buyerFinderFee.feeValue !== undefined && buyerFinderFee.feeValue >=0 ) {
         buyerFinderCost = buyerFinderFee.feeValue;
     } 
-    else if (buyerFinderFee?.feeType === 'PERCENTAGE' && buyerFinderFee.feeValue !== undefined && buyerFinderFee.feeValue>=0) {
+    else if (buyerFinderFee?.feeType === BuyerFinderFeeEnum.PERCENTAGE && buyerFinderFee.feeValue !== undefined && buyerFinderFee.feeValue>=0) {
         buyerFinderCost = chargingSessionCost * (buyerFinderFee.feeValue / 100);
     } 
-    else {
-        buyerFinderCost = chargingSessionCost * (0.9 / 100);
-    }   
-
-    if (!networkFinderFeePercent) {
-        networkFinderFeePercent = 0.3;
-    }
 
     const networkFinderFee = chargingSessionCost * (networkFinderFeePercent / 100);
     const total = chargingSessionCost + gst + buyerFinderCost + networkFinderFee;
@@ -65,9 +58,9 @@ export function buildOrderValueFromFinalAmount(
     finalAmount: FinalAmount,
     currency: string,
     feePercentage: number = 0.2
-): BecknOrderValueResponse {
+): BecknOrderValueResponse & { gst_breakup: GSTBreakup } {
     const components: BecknOrderValueComponents[] = [];
-
+    const gstBreakup: GSTBreakup = {};
     // Charging session cost
     components.push({
         type: OrderValueComponentsType.UNIT,
@@ -77,43 +70,58 @@ export function buildOrderValueFromFinalAmount(
     });
 
     // Buyer finder fee
+    if (finalAmount.buyer_finder_fee > 0) {
     components.push({
         type: OrderValueComponentsType.FEE,
         value: finalAmount.buyer_finder_fee,
-        currency: currency,
-        description: 'Buyer finder fee',
-    });
+            currency: currency,
+            description: 'Buyer finder fee',
+        });
+        gstBreakup.gst_on_buyer_finder_fee = Number((finalAmount.buyer_finder_fee).toFixed(2));
+    }
 
     // Network finder fee
+    if (finalAmount.network_finder_fee > 0) {
     components.push({
         type: OrderValueComponentsType.FEE,
         value: finalAmount.network_finder_fee,
         currency: currency,
         description: 'Network finder fee',
-    });
+        });
+
+        gstBreakup.gst_on_network_finder_fee = Number((finalAmount.network_finder_fee).toFixed(2));
+    }
 
     // GST
+
+    const { feeAmount, gstOnFeeAmount } = RazorpayPaymentGatewayService.upiIntentFee(finalAmount.total * 100, feePercentage);
+
+    const paymentProcessingFee = Number((feeAmount / 100).toFixed(2));
+    gstBreakup.gst_on_pg_processing_fee = Number((gstOnFeeAmount / 100).toFixed(2));
+    gstBreakup.gst_on_charging_session_cost = Number((finalAmount.gst).toFixed(2));
+
+    const combinedGST = (gstBreakup?.gst_on_charging_session_cost || 0) + (gstBreakup?.gst_on_buyer_finder_fee || 0) + (gstBreakup?.gst_on_network_finder_fee || 0) + (gstBreakup?.gst_on_pg_processing_fee || 0);
+    const GSTOnServices = (gstBreakup?.gst_on_buyer_finder_fee || 0) + (gstBreakup?.gst_on_network_finder_fee || 0) + (gstBreakup?.gst_on_pg_processing_fee || 0);
+
     components.push({
         type: OrderValueComponentsType.TAX,
-        value: finalAmount.gst,
+        value: combinedGST,
         currency: currency,
         description: 'GST',
     });
 
-    const feeAmountInPaise = Math.ceil(feePercentage * (finalAmount.total*100) / 100) + 2 * Math.round(9 * Math.ceil(feePercentage * (finalAmount.total*100) / 100) / 100);
-    const feeAmount = Number((feeAmountInPaise / 100).toFixed(2));
-
     components.push({
         type: OrderValueComponentsType.FEE,
-        value: feeAmount,
+        value: paymentProcessingFee,
         currency: currency,
         description: 'Payment processing fee',
     });
 
     return {
         currency: currency,
-        value: finalAmount.total + feeAmount,
+        value: finalAmount.total + paymentProcessingFee + GSTOnServices,
         components: components,
+        gst_breakup: gstBreakup as GSTBreakup,
     };
 }
 
