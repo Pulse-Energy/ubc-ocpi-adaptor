@@ -1066,7 +1066,7 @@ export default class PublishActionService {
                     const connectorType = convertOcpiStandardToConnectorType(connector.standard);
 
                     const item: BecknItem = {
-                        "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-v2/refs/heads/core-v2.0.0-rc/schema/core/v2/context.jsonld",
+                        "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
                         "@type": ObjectType.item,
                         "beckn:id": becknConnectorId,
                         "beckn:descriptor": {
@@ -1188,7 +1188,7 @@ export default class PublishActionService {
                     }
 
                     const catalog: BecknCatalog = {
-                        "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-v2/refs/heads/core-v2.0.0-rc/schema/core/v2/context.jsonld",
+                        "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
                         "@type": "beckn:Catalog",
                         "beckn:id": connector.ubc_catalog_id,
                         "beckn:descriptor": {
