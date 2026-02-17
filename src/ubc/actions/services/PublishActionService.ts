@@ -292,7 +292,7 @@ function applyReservationToWindows(
 enum ConnectorType {
     CCS2 = 'CCS2',
     CHAdeMO = 'CHAdeMO',
-    GBT = 'GBT',
+    GBT = 'GB_T',
     Type2 = 'Type2',
     Type1 = 'Type1',
     IEC60309 = 'IEC60309',
@@ -909,13 +909,11 @@ export default class PublishActionService {
     private static getItemAttributesFromConnector(
         connector: EVSEConnector,
         evse: { uid: string },
-        location: LocationWithRelations
+        location: LocationWithRelations,
+        connectorType: string
     ): BecknChargingServiceAttributes {
         const maxPowerKW = connector.max_electric_power ? Number(connector.max_electric_power) / 1000 : 0; // Convert W to kW
         const minPowerKW = 1; // Minimum power is 1 kW
-
-        // Convert OCPI connector standard to normal ConnectorType
-        const connectorType = convertOcpiStandardToConnectorType(connector.standard);
 
         const { externalChargingStationId, externalChargePointId } = this.getExternalChargingStationAndChargePointId(connector);
 
@@ -1063,7 +1061,18 @@ export default class PublishActionService {
                     }
                     
                     const locationName = location.name || location.ocpi_location_id;
-                    const connectorType = convertOcpiStandardToConnectorType(connector.standard);
+                    // Convert OCPI connector standard to normal ConnectorType
+                    const connectorType = convertOcpiStandardToConnectorType(connector.standard) as ConnectorType;
+
+                    if (!connectorType) {
+                        logger.warn(`🟡 No connector type found for connector ${becknConnectorId}`);
+                        continue;
+                    }
+
+                    if (![ConnectorType.CCS2, ConnectorType.CHAdeMO, ConnectorType.GBT, ConnectorType.Type2].includes(connectorType)) {
+                        logger.warn(`🟡 Invalid connector type found for connector ${becknConnectorId}, connector type: ${connectorType}`);
+                        continue;
+                    }
 
                     const item: BecknItem = {
                         "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
@@ -1090,7 +1099,7 @@ export default class PublishActionService {
                                 "schema:name": partner.name || `${partner.country_code}*${partner.party_id}`,
                             },
                         },
-                        "beckn:itemAttributes": this.getItemAttributesFromConnector(connector, evse, locationWithRelations),
+                        "beckn:itemAttributes": this.getItemAttributesFromConnector(connector, evse, locationWithRelations, connectorType),
                     };
 
                     const tariff = tariffsMap.get(connector.tariff_ids[0]);
