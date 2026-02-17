@@ -265,7 +265,7 @@ export default class RatingActionHandler {
         // Always include feedbackForm with hardcoded values and session id as submission_id
         const sessionId = backendOnRatingResponsePayload.payload.session_id || '';
         message.feedbackForm = {
-            "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
+            "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-v2/refs/heads/core-v2.0.0-rc/schema/core/v2/context.jsonld",
             "@type": "beckn:Form",
             "mime_type": "application/xml",
             "submission_id": sessionId,

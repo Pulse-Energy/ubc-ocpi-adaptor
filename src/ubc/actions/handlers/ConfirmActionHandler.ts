@@ -213,7 +213,7 @@ export default class ConfirmActionHandler {
         // v0.9: OnConfirm response - added fulfillment with deliveryAttributes (sessionStatus, connectorType, maxPowerKW)
         // v0.9: Removed orderNumber, orderAttributes
         const deliveryAttributes = {
-            '@context': 'https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/EvChargingSession/v1/context.jsonld',
+            '@context': 'https://raw.githubusercontent.com/beckn/protocol-specifications-v2/refs/heads/core-v2.0.0-rc/schema/EvChargingSession/v1/context.jsonld',
             '@type': 'ChargingSession' as const,
             sessionStatus: ChargingSessionStatus.PENDING, // Initial status, will change to ACTIVE when charging starts
             ...(connectorType && { connectorType }),
@@ -237,7 +237,7 @@ export default class ConfirmActionHandler {
                     'beckn:orderValue': confirmOrder['beckn:orderValue'],
                     // v0.9: Added fulfillment with deliveryAttributes (sessionStatus, connectorType, maxPowerKW)
                     'beckn:fulfillment': {
-                        '@context': 'https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld',
+                        '@context': 'https://raw.githubusercontent.com/beckn/protocol-specifications-v2/refs/heads/core-v2.0.0-rc/schema/core/v2/context.jsonld',
                         '@type': 'beckn:Fulfillment' as any,
                         'beckn:id': 'fulfillment-001',
                         'beckn:mode': 'RESERVATION',

@@ -423,7 +423,7 @@ export default class UpdateActionHandler {
         // Ensure these fields are preserved from update request or kept if already present
         const updatedDeliveryAttributes = {
             ...deliveryAttributes, // reuse everything from update request first (including connectorType and maxPowerKW if present)
-            "@context": (deliveryAttributes?.['@context'] as string) || "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/EvChargingSession/v1/context.jsonld",
+            "@context": (deliveryAttributes?.['@context'] as string) || "https://raw.githubusercontent.com/beckn/protocol-specifications-v2/refs/heads/core-v2.0.0-rc/schema/EvChargingSession/v1/context.jsonld",
             "@type": "ChargingSession" as const,
             'sessionStatus': sessionStatus, // only update sessionStatus
         };
@@ -446,7 +446,7 @@ export default class UpdateActionHandler {
                     "beckn:payment": order['beckn:payment'],
                     'beckn:fulfillment': {
                         ...fulfillment, // reuse everything from update request first
-                        "@context": fulfillment?.['@context'] || "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
+                        "@context": fulfillment?.['@context'] || "https://raw.githubusercontent.com/beckn/protocol-specifications-v2/refs/heads/core-v2.0.0-rc/schema/core/v2/context.jsonld",
                         "@type": fulfillment?.['@type'] || "beckn:Fulfillment",
                         "beckn:id": fulfillment?.['beckn:id'] || `fulfillment-${order['beckn:id']}`,
                         "beckn:mode": fulfillment?.['beckn:mode'] || "RESERVATION",

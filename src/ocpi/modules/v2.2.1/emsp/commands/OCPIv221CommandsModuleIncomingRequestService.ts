@@ -399,7 +399,7 @@ export default class OCPIv221CommandsModuleIncomingRequestService {
         // Per schema: on_update must include connectorType, maxPowerKW, and sessionStatus
         const updatedDeliveryAttributes = {
             ...deliveryAttributes,
-            "@context": (deliveryAttributes?.['@context'] as string) || "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/EvChargingSession/v1/context.jsonld",
+            "@context": (deliveryAttributes?.['@context'] as string) || "https://raw.githubusercontent.com/beckn/protocol-specifications-v2/refs/heads/core-v2.0.0-rc/schema/EvChargingSession/v1/context.jsonld",
             "@type": "ChargingSession" as const,
             'sessionStatus': sessionStatus,
         };
@@ -425,7 +425,7 @@ export default class OCPIv221CommandsModuleIncomingRequestService {
                     "beckn:payment": order['beckn:payment'],
                     'beckn:fulfillment': {
                         ...fulfillment,
-                        "@context": fulfillment?.['@context'] || "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
+                        "@context": fulfillment?.['@context'] || "https://raw.githubusercontent.com/beckn/protocol-specifications-v2/refs/heads/core-v2.0.0-rc/schema/core/v2/context.jsonld",
                         "@type": fulfillment?.['@type'] || "beckn:Fulfillment",
                         "beckn:id": fulfillment?.['beckn:id'] || `fulfillment-${order['beckn:id']}`,
                         "beckn:mode": fulfillment?.['beckn:mode'] || "RESERVATION",
