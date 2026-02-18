@@ -270,11 +270,11 @@ export default class PaymentGatewayService {
                 // For Razorpay, transactionId is the payment_id
                 const paymentId = transactionId;
                 // Convert refund amount to paise
-                const refundAmountInPaise = Math.round(refund_amount * 100);
+                const refundAmountInPaisa = Math.round(refund_amount * 100);
 
                 const refundResult = await RazorpayPaymentService.processRefund(
                     paymentId,
-                    refundAmountInPaise,
+                    refundAmountInPaisa,
                 );
 
                 if (refundResult.success) {

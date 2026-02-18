@@ -1090,8 +1090,9 @@ export default class RazorpayPaymentService {
             const payment_breakdown = (paymentTxn.payment_breakdown as any).breakdown as BecknOrderValueComponents[];
             
             const feeAmount = payment_breakdown.find(component => component.type === OrderValueComponentsType.FEE && component.description === 'Payment processing fee')?.value || 0;
-            const gstOnFeeAmount = feeAmount * 0.18
-            const totalProcessingFee = (feeAmount + gstOnFeeAmount) * 100;
+            const feeAmountInPaisa = Number(Math.round(feeAmount * 100).toFixed(0));
+            const gstOnFeeAmountInPaisa = Number(Math.round(feeAmountInPaisa * 0.18).toFixed(0));
+            const totalProcessingFeeInPaisa = (feeAmountInPaisa + gstOnFeeAmountInPaisa);
             if (!partnerId) {
                 logger.error('Razorpay: Partner ID not found in payment txn', undefined, { paymentTxn });
                 return {
@@ -1124,14 +1125,14 @@ export default class RazorpayPaymentService {
             }
 
             // Convert Decimal to number (amount in paise)
-            const amountInPaise = Math.round(Number(amount) * 100) - totalProcessingFee;
+            const amountInPaisa = Number(Math.round(Number(amount) * 100).toFixed(0)) - totalProcessingFeeInPaisa;
 
             // Generate receipt
             const receipt = 'rcpt_' + Utils.generateRandomString(10);
 
             const createOrderResponse = await RazorpayPaymentGatewayService.createOrder(
                 {
-                    amount: amountInPaise,
+                    amount: amountInPaisa,
                     currency: 'INR',
                     receipt: receipt,
                     notes: {
@@ -1252,7 +1253,7 @@ export default class RazorpayPaymentService {
             }
 
             const orderId = existingOrder.id;
-            const amountInPaise = existingOrder.amount;
+            const amountInPaisa = existingOrder.amount;
 
             // Validate VPA for collect flow
             if (upiOptions?.flow === RazorpayUPIFlow.Collect && !upiOptions?.vpa) {
@@ -1279,10 +1280,10 @@ export default class RazorpayPaymentService {
             const { fee_percentage: feePercentage = 0.2 } = razorpayCredentials.credentials;
 
 
-            const feeAmount = Math.ceil(feePercentage * amountInPaise / 100) + 2 * Math.round(9 * Math.ceil(feePercentage * amountInPaise / 100) / 100);
+            const feeAmount = Math.ceil(feePercentage * amountInPaisa / 100) + 2 * Math.round(9 * Math.ceil(feePercentage * amountInPaisa / 100) / 100);
             const createPaymentResponse = await RazorpayPaymentGatewayService.createUPIPayment(
                 {
-                    amount: amountInPaise + feeAmount,
+                    amount: amountInPaisa + feeAmount,
                     currency: 'INR',
                     order_id: orderId,
                     email: emailObject,
