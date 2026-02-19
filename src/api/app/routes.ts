@@ -1552,17 +1552,17 @@ router.post('/razorpay/create-upi-payment/:paymentTxnId', async (req: Request, r
         };
 
         // Create UPI payment with Razorpay
-        const result = await RazorpayPaymentService.createUPIPaymentWithRazorpayPaymentGateway(
-            {} as any,
+        const result = await RazorpayPaymentService.createUPIPaymentWithRazorpayPaymentGateway({
+            createOrderResponse: {} as any,
             paymentTxn,
-            {
+            upiOptions: {
                 flow: flow as RazorpayUPIFlow,
                 vpa,
                 expiry_time,
             },
-            { email, contact },
-            deviceProps
-        );
+            customerInfo: { email, contact },
+            deviceInfo: deviceProps,
+        } as any);
 
         if (result.success) {
             res.status(200).json({
