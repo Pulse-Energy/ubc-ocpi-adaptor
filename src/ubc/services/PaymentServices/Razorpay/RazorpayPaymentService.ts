@@ -1203,24 +1203,26 @@ export default class RazorpayPaymentService {
      * @param customerInfo - Customer info (email, contact)
      * @returns Created payment details with intent link (for intent flow)
      */
-    public static async createUPIPaymentWithRazorpayPaymentGateway(
-        createOrderResponse: CreateOrderWithRazorpayResponse,
-        paymentTxn: PaymentTxn,
-        upiOptions?: {
-            flow: RazorpayUPIFlow | string;
-            vpa?: string;
-            expiry_time?: number;
-        },
-        customerInfo?: {
-            email: string;
-            contact: string;
-        },
-        deviceInfo?: {
-            ip?: string;
-            user_agent?: string;
-            referer?: string;
+    public static async createUPIPaymentWithRazorpayPaymentGateway(params: {
+            createOrderResponse: CreateOrderWithRazorpayResponse,
+            paymentTxn: PaymentTxn,
+            upiOptions?: {
+                flow: RazorpayUPIFlow | string;
+                vpa?: string;
+                expiry_time?: number;
+            },
+            customerInfo?: {
+                email: string;
+                contact: string;
+            },
+            deviceInfo?: {
+                ip?: string;
+                user_agent?: string;
+                referer?: string;
+            }
         }
     ): Promise<CreateUPIPaymentWithRazorpayResponse> {
+        const { createOrderResponse, paymentTxn, upiOptions, customerInfo, deviceInfo } = params;
         try {
             const partnerId = paymentTxn.partner_id;
 

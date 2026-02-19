@@ -40,6 +40,7 @@ import { BuyerFinderFee } from '../../schema/v2.0.0/types/BuyerFinderFee';
 import { BuyerFinderFeeEnum } from '../../schema/v2.0.0/enums/BuyerFinderFeeEnum';
 import { BecknOrderValueComponents, GSTBreakup, PaymentBreakdown } from '../../schema/v2.0.0/types/OrderValue';
 import { OrderValueComponentsType } from '../../schema/v2.0.0/enums/OrderValueComponentsType';
+import { BuyerDetails } from '../../schema/v2.0.0/types/BuyerDetails';
 
 export default class InitActionHandler {
     public static async handleBppInitAction(
@@ -311,7 +312,7 @@ export default class InitActionHandler {
                     tax_id: buyer['beckn:taxID'], // v0.9: renamed from beckn:taxId
                     organization_name:
                         buyer['beckn:organization']?.['descriptor']?.['name'],
-                },
+                } as BuyerDetails,
             },
         };
         return backendInitPayload;
@@ -346,7 +347,7 @@ export default class InitActionHandler {
     public static async createPaymentTxnDetails(
         payload: ExtractedInitRequestBody,
         beneficiary: 'BPP' | 'BAP',
-        buyerFinderFee?: { feeType?: string; feeValue?: number }
+        buyerFinderFee?: { feeType?: string; feeValue?: number },
     ): Promise<ExtractedOnInitResponseBody> {
         const finalAmount = payload.payload.amount;
         
@@ -413,7 +414,8 @@ export default class InitActionHandler {
                     amount: finalAmount,
                     authorization_reference: authorizationReference,
                 },
-                paymentTxn
+                paymentTxn,
+                payload?.payload?.buyer_details as BuyerDetails
             );
 
             PaymentTxnDbService.update(paymentTxn.id, {
@@ -448,6 +450,7 @@ export default class InitActionHandler {
             authorization_reference: paymentTxn.authorization_reference,
             requested_energy_units: paymentTxn.requested_energy_units,
             status: OCPISessionStatus.PENDING,
+            buyer_info: payload?.payload?.buyer_details as BuyerDetails,
         };
         
         SessionDbService.create({
@@ -459,7 +462,8 @@ export default class InitActionHandler {
 
     public static async generatePaymentLink(
         payload: GeneratePaymentLinkRequestPayload,
-        paymentTxn: PaymentTxn
+        paymentTxn: PaymentTxn,
+        buyerDetails?: BuyerDetails
     ): Promise<GeneratePaymentLinkResponsePayload> {
         const ocpiPartner = await OCPIPartnerDbService.getById(paymentTxn.partner_id);
         if (!ocpiPartner) {
@@ -472,7 +476,7 @@ export default class InitActionHandler {
             return await this.sendGeneratePaymentLinkCallToBackend(payload, paymentTxn.partner_id);
         }
         else {
-            const paymentGatewayOrder = await PaymentGatewayService.createPaymentGatewayOrder(paymentTxn, ocpiPartner) as  CreateUPIPaymentWithRazorpayResponse;
+            const paymentGatewayOrder = await PaymentGatewayService.createPaymentGatewayOrder(paymentTxn, ocpiPartner, buyerDetails) as  CreateUPIPaymentWithRazorpayResponse;
             // const paymentSdk = PaymentSDK.Razorpay;
 
             // if (paymentSdk === PaymentSDK.BillDesk) {

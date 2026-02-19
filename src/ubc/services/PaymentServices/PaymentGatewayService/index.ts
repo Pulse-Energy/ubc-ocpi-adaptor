@@ -21,6 +21,7 @@ import {
 } from "../../../../types/Razorpay";
 import { OCPIPartnerAdditionalProps } from "../../../../types/OCPIPartner";
 import { PaymentTxnAdditionalProps } from "../../../../types/PaymentTxn";
+import { BuyerDetails } from "../../../schema/v2.0.0/types/BuyerDetails";
 
 // Types for payment gateway
 interface CreatePaymentGatewayOrderResponseType {
@@ -72,7 +73,8 @@ export default class PaymentGatewayService {
      */
     public static async createPaymentGatewayOrder(
         paymentTxn: PaymentTxn,
-        partner: OCPIPartner
+        partner: OCPIPartner,
+        buyerDetails?: BuyerDetails
     ): Promise<CreatePaymentGatewayOrderResponseType | CreateUPIPaymentWithRazorpayResponse> {
         const amount = paymentTxn.amount;
         const status = paymentTxn.status;
@@ -144,10 +146,12 @@ export default class PaymentGatewayService {
                 logger.debug('createOrderResponse', {
                     data: {createOrderResponse}
                 });
-                const createUPIPaymentWithRazorpayPaymentGatewayResponse = await RazorpayPaymentService.createUPIPaymentWithRazorpayPaymentGateway(
+                const createUPIPaymentWithRazorpayPaymentGatewayResponse = await RazorpayPaymentService.createUPIPaymentWithRazorpayPaymentGateway({
                     createOrderResponse,
                     paymentTxn,
-                );
+                    customerInfo: { email: buyerDetails?.email ?? 'info@pulseenergy.io', contact: buyerDetails?.phone ?? '9876543210' },
+                });
+                    
                 if (createUPIPaymentWithRazorpayPaymentGatewayResponse.success) {
                     return createUPIPaymentWithRazorpayPaymentGatewayResponse;
                 }
