@@ -301,6 +301,11 @@ export default class UpdateActionHandler {
 
             // Check if session already exists (update action can be called multiple times)
             let session = await SessionDbService.getByAuthorizationReference(beckn_order_id);
+            if (session) {
+                if(session.status !== ChargingSessionStatus.PENDING) {
+                    throw new Error('Session is not in pending state');
+                }
+            }
             if (!session) {
                 // Only create if it doesn't exist
                 // For BAP beneficiary, requested_energy_units may not be available
@@ -311,6 +316,7 @@ export default class UpdateActionHandler {
                     evse_uid: evse.uid,
                     connector_id: connectorData.connector.connector_id,
                     authorization_reference: beckn_order_id,
+                    status: ChargingSessionStatus.PENDING,
                 };
                 
                 // Only add requested_energy_units if paymentTxn exists (BPP beneficiary)
