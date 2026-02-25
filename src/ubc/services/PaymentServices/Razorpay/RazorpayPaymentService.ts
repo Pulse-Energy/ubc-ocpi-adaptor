@@ -32,6 +32,7 @@ import { PaymentTxnAdditionalProps } from "../../../../types/PaymentTxn";
 import Utils from "../../../../utils/Utils";
 import { BecknOrderValueComponents } from "../../../schema/v2.0.0/types/OrderValue";
 import { OrderValueComponentsType } from "../../../schema/v2.0.0/enums/OrderValueComponentsType";
+import GenericPaymentService from "../Generic";
 
 // Helper function to extract error message
 const getErrorMessage = (error: unknown): string => {
@@ -1091,7 +1092,7 @@ export default class RazorpayPaymentService {
             
             const feeAmount = payment_breakdown.find(component => component.type === OrderValueComponentsType.FEE && component.description === 'Payment processing fee')?.value || 0;
             const feeAmountInPaisa = Number(Math.round(feeAmount * 100).toFixed(0));
-            const gstOnFeeAmountInPaisa = Number(Math.round(feeAmountInPaisa * 0.18).toFixed(0));
+            const gstOnFeeAmountInPaisa = GenericPaymentService.calculateGSTOnAmount(feeAmountInPaisa);
             const totalProcessingFeeInPaisa = (feeAmountInPaisa + gstOnFeeAmountInPaisa);
             if (!partnerId) {
                 logger.error('Razorpay: Partner ID not found in payment txn', undefined, { paymentTxn });
@@ -1282,7 +1283,9 @@ export default class RazorpayPaymentService {
             const { fee_percentage: feePercentage = 0.2 } = razorpayCredentials.credentials;
 
 
-            const feeAmount = Math.ceil(feePercentage * amountInPaisa / 100) + 2 * Math.round(9 * Math.ceil(feePercentage * amountInPaisa / 100) / 100);
+            // const feeAmount = Math.ceil(feePercentage * amountInPaisa / 100) + 2 * Math.round(9 * Math.ceil(feePercentage * amountInPaisa / 100) / 100);
+            const { feeAmount: feeAmountWithOutGST, gstOnFeeAmount } = RazorpayPaymentGatewayService.upiIntentFee(amountInPaisa, feePercentage);
+            const feeAmount = feeAmountWithOutGST + gstOnFeeAmount;
             const createPaymentResponse = await RazorpayPaymentGatewayService.createUPIPayment(
                 {
                     amount: amountInPaisa + feeAmount,

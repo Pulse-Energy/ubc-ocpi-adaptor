@@ -8,5 +8,7 @@ export type FinalAmount = {
     buyer_finder_fee: number;
     network_finder_fee: number;
     total: number;
+    buyer_finder_cost_gst: number;
+    network_finder_cost_gst: number;
 };
 

@@ -5,6 +5,7 @@ import { ServiceCharge } from '../types/ServiceCharge';
 import { BuyerFinderFeeEnum } from '../schema/v2.0.0/enums/BuyerFinderFeeEnum';
 import RazorpayPaymentGatewayService from '../services/PaymentServices/Razorpay';
 import { BuyerFinderFee } from '../schema/v2.0.0/types/BuyerFinderFee';
+import GenericPaymentService from '../services/PaymentServices/Generic';
 
 // OCPIPrice type for CDR total_cost
 type OCPIPrice = {
@@ -32,15 +33,19 @@ export function calculateFinalAmount(
     networkFinderFeePercent: number = 0.3
 ): FinalAmount {
     let buyerFinderCost: number = 0;
+    let buyerFinderCostGST: number = 0;
     if (buyerFinderFee?.feeType === BuyerFinderFeeEnum.AMOUNT && buyerFinderFee.feeValue !== undefined && buyerFinderFee.feeValue >=0 ) {
         buyerFinderCost = buyerFinderFee.feeValue;
+        buyerFinderCostGST = GenericPaymentService.calculateGSTOnAmount(buyerFinderCost);
     } 
     else if (buyerFinderFee?.feeType === BuyerFinderFeeEnum.PERCENTAGE && buyerFinderFee.feeValue !== undefined && buyerFinderFee.feeValue>=0) {
         buyerFinderCost = chargingSessionCost * (buyerFinderFee.feeValue / 100);
+        buyerFinderCostGST = GenericPaymentService.calculateGSTOnAmount(buyerFinderCost);
     } 
 
     const networkFinderFee = chargingSessionCost * (networkFinderFeePercent / 100);
-    const total = chargingSessionCost + gst + buyerFinderCost + networkFinderFee;
+    const networkFinderCostGST = GenericPaymentService.calculateGSTOnAmount(networkFinderFee);
+    const total = chargingSessionCost + gst + buyerFinderCost + networkFinderFee + networkFinderCostGST;
 
     return {
         charging_session_cost: Number(chargingSessionCost.toFixed(2)),
@@ -48,6 +53,8 @@ export function calculateFinalAmount(
         buyer_finder_fee: Number(buyerFinderCost.toFixed(2)),
         network_finder_fee: Number(networkFinderFee.toFixed(2)),
         total: Number(total.toFixed(2)),
+        buyer_finder_cost_gst: Number(buyerFinderCostGST.toFixed(2)),
+        network_finder_cost_gst: Number(networkFinderCostGST.toFixed(2)),
     };
 }
 
@@ -77,7 +84,8 @@ export function buildOrderValueFromFinalAmount(
             currency: currency,
             description: 'Buyer finder fee',
         });
-        gstBreakup.gst_on_buyer_finder_fee = Number((finalAmount.buyer_finder_fee).toFixed(2));
+
+        gstBreakup.gst_on_buyer_finder_fee = Number((finalAmount.buyer_finder_cost_gst).toFixed(2));
     }
 
     // Network finder fee
@@ -89,7 +97,7 @@ export function buildOrderValueFromFinalAmount(
         description: 'Network finder fee',
         });
 
-        gstBreakup.gst_on_network_finder_fee = Number((finalAmount.network_finder_fee).toFixed(2));
+        gstBreakup.gst_on_network_finder_fee = Number((finalAmount.network_finder_cost_gst).toFixed(2));
     }
 
     // GST
@@ -98,9 +106,9 @@ export function buildOrderValueFromFinalAmount(
 
     const paymentProcessingFee = Number((feeAmount / 100).toFixed(2));
     gstBreakup.gst_on_pg_processing_fee = Number((gstOnFeeAmount / 100).toFixed(2));
-    gstBreakup.gst_on_charging_session_cost = Number((finalAmount.gst).toFixed(2));
+    gstBreakup.charging_session_cost = Number((finalAmount.gst).toFixed(2));
 
-    const combinedGST = (gstBreakup?.gst_on_charging_session_cost || 0) + (gstBreakup?.gst_on_buyer_finder_fee || 0) + (gstBreakup?.gst_on_network_finder_fee || 0) + (gstBreakup?.gst_on_pg_processing_fee || 0);
+    const combinedGST = (gstBreakup?.charging_session_cost || 0) + (gstBreakup?.gst_on_buyer_finder_fee || 0) + (gstBreakup?.gst_on_network_finder_fee || 0) + (gstBreakup?.gst_on_pg_processing_fee || 0);
     const GSTOnServices = (gstBreakup?.gst_on_buyer_finder_fee || 0) + (gstBreakup?.gst_on_network_finder_fee || 0) + (gstBreakup?.gst_on_pg_processing_fee || 0);
 
     components.push({

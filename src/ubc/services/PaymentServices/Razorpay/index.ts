@@ -34,6 +34,7 @@ import {
     RazorpayErrorResponse,
 } from '../../../../types/Razorpay';
 import PaymentTxnDbService from '../../../../db-services/PaymentTxnDbService';
+import GenericPaymentService from '../Generic';
 
 // Helper function to extract error message from unknown error
 const getErrorMessage = (error: unknown): string => {
@@ -916,7 +917,7 @@ export default class RazorpayPaymentGatewayService {
         gstOnFeeAmount: number,
     } {
         const feeAmount = Math.ceil(feePercentage * amount / 100);
-        const gstOnFeeAmount = 2 * Math.round(9 * feeAmount / 100);
+        const gstOnFeeAmount = GenericPaymentService.calculateGSTOnAmount(feeAmount);
         return {
             feeAmount,
             gstOnFeeAmount,
