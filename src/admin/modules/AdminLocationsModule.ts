@@ -304,35 +304,6 @@ export default class AdminLocationsModule {
                 throw new ValidationError('location_id path parameter is required');
             }
 
-            // First, try to fetch from DB cache
-            logger.debug(`🟡 [${reqId}] Checking for cached location in sendGetLocation`, { 
-                data: { ...logData, location_id: locationId } 
-            });
-            const cachedLocation = await LocationDbService.findByOcpiLocationId(locationId);
-            if (cachedLocation) {
-                logger.debug(`🟢 [${reqId}] Found cached location in sendGetLocation`, { 
-                    data: { ...logData, location_id: locationId } 
-                });
-                const ocpiLocation = LocationDbService.mapPrismaLocationToOcpi(cachedLocation);
-                const ocpiResponse = OCPIResponseService.success(ocpiLocation) as HttpResponse<OCPILocationResponse>;
-
-                logger.debug(`🟢 [${reqId}] Returning cached location in sendGetLocation`, { 
-                    data: { ...logData, location_id: locationId } 
-                });
-
-                return {
-                    httpStatus: ocpiResponse.httpStatus,
-                    headers: ocpiResponse.headers,
-                    payload: {
-                        data: ocpiResponse.payload,
-                    },
-                };
-            }
-
-            logger.debug(`🟡 [${reqId}] Location not in cache, fetching from CPO in sendGetLocation`, { 
-                data: { ...logData, location_id: locationId, partner_id: partnerId } 
-            });
-
             const prisma = databaseService.prisma;
 
             logger.debug(`🟡 [${reqId}] Finding partner in sendGetLocation`, { 

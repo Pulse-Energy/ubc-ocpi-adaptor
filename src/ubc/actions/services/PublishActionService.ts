@@ -499,46 +499,16 @@ export default class PublishActionService {
     /**
      * Gets appropriate charging description based on connector type and power
      */
-    private static getChargingDescription(connector: EVSEConnector): string {
-        const powerType = connector.power_type || '';
-        const isAC = powerType.toUpperCase() === 'AC';
-        const isDC = powerType.toUpperCase() === 'DC';
-        const maxPower = connector.max_electric_power ? Number(connector.max_electric_power) / 1000 : 0; // Convert W to kW
-        const connectorType = convertOcpiStandardToConnectorType(connector.standard);
-        
-        if (isAC) {
-            return `AC Charger - ${connectorType} (${maxPower}kW)`;
+    private static getPhysicalReference(evse: EVSE): string {
+        let physicalReference = evse.physical_reference || '';
+
+        if (!physicalReference && evse.evse_id) {
+            physicalReference = Utils.convertNumericSuffixToLetter(evse.evse_id);
         }
-        else if (isDC) {
-            if (maxPower >= 50) {
-                return `DC Fast Charger - ${connectorType} (${maxPower}kW)`;
-            }
-            return `DC Charger - ${connectorType} (${maxPower}kW)`;
-        }
-        return `${connectorType} Charger (${maxPower}kW)`;
+
+        return physicalReference;
     }
 
-    /**
-     * Gets appropriate long description based on connector type and power
-     */
-    private static getChargingLongDescription(connector: EVSEConnector): string {
-        const powerType = connector.power_type || '';
-        const isAC = powerType.toUpperCase() === 'AC';
-        const isDC = powerType.toUpperCase() === 'DC';
-        const maxPower = connector.max_electric_power ? Number(connector.max_electric_power) / 1000 : 0; // Convert W to kW
-        const connectorType = convertOcpiStandardToConnectorType(connector.standard);
-        
-        if (isAC) {
-            return `AC charging station supporting ${connectorType} connector type with ${maxPower}kW maximum power output. Suitable for overnight and extended charging sessions.`;
-        }
-        else if (isDC) {
-            if (maxPower >= 50) {
-                return `Fast DC charging station supporting ${connectorType} connector type with ${maxPower}kW maximum power output.`;
-            }
-            return `DC charging station supporting ${connectorType} connector type with ${maxPower}kW maximum power output.`;
-        }
-        return `Charging station supporting ${connectorType} connector type with ${maxPower}kW maximum power output.`;
-    }
     /**
      * Translates app publish payload to UBC format
      * Fetches location data from database using one of: ocpi_location_ids, evse_ids, connector_ids, or partner_id
@@ -1074,6 +1044,8 @@ export default class PublishActionService {
                         continue;
                     }
 
+                    const physicalReference = this.getPhysicalReference(evse);
+
                     const item: BecknItem = {
                         "@context": "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/main/schema/core/v2/context.jsonld",
                         "@type": ObjectType.item,
@@ -1081,8 +1053,8 @@ export default class PublishActionService {
                         "beckn:descriptor": {
                             "@type": ObjectType.descriptor,
                             "schema:name": `${locationName} - ${connectorType}`,
-                            "beckn:shortDesc": this.getChargingDescription(connector),
-                            "beckn:longDesc": this.getChargingLongDescription(connector),
+                            "beckn:shortDesc": physicalReference,
+                            "beckn:longDesc": `Look for ${physicalReference} Connector ${connector.connector_id}`,
                         },
                         "beckn:category": {
                             "@type": "schema:CategoryCode",

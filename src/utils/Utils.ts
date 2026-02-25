@@ -15,6 +15,30 @@ export default class Utils {
     }
 
     /**
+     * Convert a label with numeric suffix to alphabetic.
+     * Example: Charger_2 -> Charger B, Charger_1 -> Charger A
+     * Numbers 1-26 map to A-Z; 27+ use Excel-style (AA, AB, ...)
+     */
+    public static convertNumericSuffixToLetter(str: string): string {
+        const match = str.match(/^(.+)_(\d+)$/);
+        if (!match) return str;
+
+        const [, prefix, numStr] = match;
+        const num = parseInt(numStr, 10);
+        if (num < 1) return str;
+
+        let letter = '';
+        let n = num;
+        while (n > 0) {
+            n -= 1;
+            letter = String.fromCharCode(65 + (n % 26)) + letter;
+            n = Math.floor(n / 26);
+        }
+
+        return `${prefix} ${letter}`;
+    }
+
+    /**
      * Generic helper to fetch an OCPI endpoint URL by module identifier and role.
      * Optionally filter by partner_id when known.
      * Example: getOcpiEndpoint('locations', 'SENDER', partnerId)
