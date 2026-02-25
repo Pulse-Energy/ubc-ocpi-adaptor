@@ -127,7 +127,7 @@ export function buildOrderValueFromFinalAmount(
 
     return {
         currency: currency,
-        value: finalAmount.total + paymentProcessingFee + GSTOnServices,
+        value: (Math.round(finalAmount.total * 100) + Math.round(paymentProcessingFee * 100) + Math.round(GSTOnServices * 100)) / 100,
         components: components,
         gst_breakup: gstBreakup as GSTBreakup,
     };
