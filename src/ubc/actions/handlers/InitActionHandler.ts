@@ -699,11 +699,11 @@ export default class InitActionHandler {
 
     static buildGSTBreakup(orderValueComponents: BecknOrderValueComponents[]): GSTBreakup {
         const gstBreakup: GSTBreakup = {};
-        const gstOnChargingSessionCost = orderValueComponents.find(component => component.type === OrderValueComponentsType.UNIT && component.description === 'Charging session cost')?.value || 0;
+        const gstOnChargingSessionCost = (orderValueComponents.find(component => component.type === OrderValueComponentsType.UNIT && component.description === 'Charging session cost')?.value ?? 0);
         const gstOnPgProcessingFee = orderValueComponents.find(component => component.type === OrderValueComponentsType.FEE && component.description === 'Payment processing fee')?.value || 0;
         const gstOnBuyerFinderFee = orderValueComponents.find(component => component.type === OrderValueComponentsType.FEE && component.description === 'Buyer finder fee')?.value || 0;
         const gstOnNetworkFinderFee = orderValueComponents.find(component => component.type === OrderValueComponentsType.FEE && component.description === 'Network finder fee')?.value || 0;
-        gstBreakup.gst_on_charging_session_cost = Number(gstOnChargingSessionCost.toFixed(2));
+        gstBreakup.charging_session_cost = Number(gstOnChargingSessionCost.toFixed(2));
         gstBreakup.gst_on_pg_processing_fee = Number(gstOnPgProcessingFee.toFixed(2));
         gstBreakup.gst_on_buyer_finder_fee = Number(gstOnBuyerFinderFee.toFixed(2));
         gstBreakup.gst_on_network_finder_fee = Number(gstOnNetworkFinderFee.toFixed(2));
