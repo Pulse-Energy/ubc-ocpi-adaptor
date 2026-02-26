@@ -19,7 +19,7 @@ spec:
     spec:
       containers:
       - name: pulse-ubc-ocpi-adaptor-container
-        image: asia-south1-docker.pkg.dev/pulse-energy/pulse-ubc-ocpi-adaptor/pulse-ubc-ocpi-adaptor:afd7ba0 
+        image: asia-south1-docker.pkg.dev/pulse-energy/pulse-ubc-ocpi-adaptor/pulse-ubc-ocpi-adaptor:2eb9d64 
         ports:
           - containerPort: 6001
         resources:
@@ -42,6 +42,8 @@ spec:
             value: "prod-pulse-ubc-ocpi-adaptor"
           - name: LOG_TIMESTAMP
             value: "false"
+          - name: ENABLE_CATALOG_PUBLISH
+            value: "true"
         envFrom:
           - secretRef:
               name: prod-pulse-ubc-ocpi-adaptor-secret
