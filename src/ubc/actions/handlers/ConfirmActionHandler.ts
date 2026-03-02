@@ -19,6 +19,7 @@ import { EvseDbService } from '../../../db-services/EvseDbService';
 import { SessionDbService } from '../../../db-services/SessionDbService';
 import { LocationDbService } from '../../../db-services/LocationDbService';
 import { ChargingSessionStatus } from '../../schema/v2.0.0/enums/ChargingSessionStatus';
+import { convertOcpiStandardToConnectorType } from '../services/PublishActionService';
 
 /**
  * Handler for confirm action
@@ -195,7 +196,11 @@ export default class ConfirmActionHandler {
                 
                 if (connectorData) {
                     const evseConnector = connectorData.connector;
-                    connectorType = evseConnector.standard || undefined;
+                    connectorType = convertOcpiStandardToConnectorType(evseConnector.standard);
+
+                    if (!connectorType) {
+                        logger.warn(`🟡 No connector type found for connector ${connectorData?.connector?.id}`);
+                    }
                     // Convert max_electric_power from W to kW
                     if (evseConnector.max_electric_power) {
                         maxPowerKW = Number(evseConnector.max_electric_power) / 1000;

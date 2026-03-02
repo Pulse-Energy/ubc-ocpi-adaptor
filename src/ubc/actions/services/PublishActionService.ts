@@ -335,7 +335,7 @@ const typeMap: Record<string, ConnectorType> = {
  * @param ocpiStandard - OCPI connector standard (e.g., "IEC_62196_T2_COMBO")
  * @returns Normal connector type (e.g., "CCS2") or the original value if not found in map
  */
-function convertOcpiStandardToConnectorType(ocpiStandard: string | null | undefined): string {
+export function convertOcpiStandardToConnectorType(ocpiStandard: string | null | undefined): string {
     if (!ocpiStandard) {
         return 'UNKNOWN';
     }
