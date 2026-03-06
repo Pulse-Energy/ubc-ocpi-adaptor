@@ -279,29 +279,39 @@ export default class ChargingService {
             let finalAmount = session.final_amount as FinalAmount;
             
             if (!finalAmount || finalAmount.total === undefined) {
-                const totalCost = cdr?.total_cost as unknown as OCPIPrice;
-
-                // Get service charge from payment_txn if available
-                const serviceCharge = paymentTxn?.service_charge as ServiceCharge | null | undefined;
-
-                // Calculate final amount using shared logic with service charge percentages
-                finalAmount = calculateFinalAmountFromCDR(totalCost, serviceCharge);
-
-                // Add this to DB
-                if (cdr?.session_id && finalAmount) {
-                    const session = await SessionDbService.getByCpoSessionId(cdr?.session_id);
-                    if (session) {
-                        await SessionDbService.update(session.id, {
-                            final_amount: finalAmount,
-                        });
-                    }
-                }
-                else {
-                    logger.warn(
-                        `🟡 ${authorization_reference} Refund: Session final_amount not available`,
+                // For cancel scenarios (no CDR), refund the full payment amount
+                if (returnType === 'CancelCharging' || !cdr) {
+                    finalAmount = { total: 0 } as FinalAmount;
+                    logger.info(
+                        `🟡 ${authorization_reference} Refund: Cancel flow - full refund (no charging occurred)`,
                         { data: { authorization_reference, sessionId: session.id } }
                     );
-                    return;
+                }
+                else {
+                    const totalCost = cdr.total_cost as unknown as OCPIPrice;
+
+                    // Get service charge from payment_txn if available
+                    const serviceCharge = paymentTxn?.service_charge as ServiceCharge | null | undefined;
+
+                    // Calculate final amount using shared logic with service charge percentages
+                    finalAmount = calculateFinalAmountFromCDR(totalCost, serviceCharge);
+
+                    // Add this to DB
+                    if (cdr.session_id && finalAmount) {
+                        const session = await SessionDbService.getByCpoSessionId(cdr.session_id);
+                        if (session) {
+                            await SessionDbService.update(session.id, {
+                                final_amount: finalAmount,
+                            });
+                        }
+                    }
+                    else {
+                        logger.warn(
+                            `🟡 ${authorization_reference} Refund: Session final_amount not available`,
+                            { data: { authorization_reference, sessionId: session.id } }
+                        );
+                        return;
+                    }
                 }
             }
 
