@@ -275,13 +275,30 @@ export default class ChargingService {
                 return;
             }
 
+            // Idempotency guard: skip if already refunded
+            if (paymentTxn.status === GenericPaymentTxnStatus.Refunded || paymentTxn.status === GenericPaymentTxnStatus.PartiallyRefunded) {
+                logger.info(
+                    `🟢 ${authorization_reference} Refund: Already refunded (status: ${paymentTxn.status})`,
+                    { data: { paymentTxnId, status: paymentTxn.status } }
+                );
+                return;
+            }
+
             // Get the final amount from session (FinalAmount format)
             let finalAmount = session.final_amount as FinalAmount;
             
             if (!finalAmount || finalAmount.total === undefined) {
                 // For cancel scenarios (no CDR), refund the full payment amount
                 if (returnType === 'CancelCharging' || !cdr) {
-                    finalAmount = { total: 0 } as FinalAmount;
+                    finalAmount = {
+                        charging_session_cost: 0,
+                        gst: 0,
+                        buyer_finder_fee: 0,
+                        network_finder_fee: 0,
+                        total: 0,
+                        buyer_finder_cost_gst: 0,
+                        network_finder_cost_gst: 0,
+                    };
                     logger.info(
                         `🟡 ${authorization_reference} Refund: Cancel flow - full refund (no charging occurred)`,
                         { data: { authorization_reference, sessionId: session.id } }

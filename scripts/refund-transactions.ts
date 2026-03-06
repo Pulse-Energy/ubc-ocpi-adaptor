@@ -1,17 +1,18 @@
 /**
- * One-off script to manually refund two failed transactions.
+ * Generic script to manually refund payment transactions via Razorpay.
  *
- * Transaction 1: f18d2ea0-1e1b-42c3-aaa1-ccd6f9a8d968 (full charging / undercharge)
- *   - Paid: ₹42.18, Charged: ₹10.97, Refund: ₹31.23
- *   - Failed because RazorpayPaymentGatewayService.createRefund received Razorpay payment ID
- *     instead of internal UUID for DB lookup.
- *
- * Transaction 2: 1a89b42a-ea0c-4db7-9f40-e01338dffb2a (cancel)
- *   - Full refund of ₹42.18 (no charging occurred)
- *   - Failed due to TypeError accessing cdr.total_cost.excl_vat when cdr was null.
+ * Safety: Defaults to dry-run mode. Pass --execute to process real refunds.
  *
  * Usage:
- *   DATABASE_URL=<prod-db-url> npx ts-node scripts/refund-transactions.ts [--dry-run]
+ *   npx ts-node -P tsconfig.json scripts/refund-transactions.ts <txn_id_1> [txn_id_2] ...
+ *   npx ts-node -P tsconfig.json scripts/refund-transactions.ts --execute <txn_id_1> [txn_id_2] ...
+ *
+ * Arguments:
+ *   <txn_id>    One or more beckn_transaction_id values to refund
+ *   --execute   Actually process refunds (default is dry-run)
+ *
+ * Environment:
+ *   DATABASE_URL  Required. PostgreSQL connection string.
  */
 
 import { databaseService } from '../src/services/database.service';
@@ -19,22 +20,23 @@ import PaymentTxnDbService from '../src/db-services/PaymentTxnDbService';
 import RazorpayPaymentGatewayService from '../src/ubc/services/PaymentServices/Razorpay/index';
 import { GenericPaymentTxnStatus } from '../src/types/BillDesk';
 
-const TRANSACTIONS_TO_REFUND = [
-    {
-        beckn_transaction_id: 'f18d2ea0-1e1b-42c3-aaa1-ccd6f9a8d968',
-        description: 'Full charging (undercharge) - partial refund',
-    },
-    {
-        beckn_transaction_id: '1a89b42a-ea0c-4db7-9f40-e01338dffb2a',
-        description: 'Cancel - full refund',
-    },
-];
+// Parse args
+const args = process.argv.slice(2);
+const isLive = args.includes('--execute');
+const transactionIds = args.filter(a => !a.startsWith('--'));
 
-const isDryRun = process.argv.includes('--dry-run');
+if (transactionIds.length === 0) {
+    console.error('Usage: npx ts-node -P tsconfig.json scripts/refund-transactions.ts [--execute] <beckn_transaction_id> ...');
+    process.exit(1);
+}
 
-async function refundTransaction(becknTransactionId: string, description: string): Promise<void> {
+if (!process.env.DATABASE_URL) {
+    console.error('ERROR: DATABASE_URL environment variable is required.');
+    process.exit(1);
+}
+
+async function refundTransaction(becknTransactionId: string): Promise<void> {
     console.log(`\n${'='.repeat(80)}`);
-    console.log(`Processing: ${description}`);
     console.log(`Beckn Transaction ID: ${becknTransactionId}`);
     console.log('='.repeat(80));
 
@@ -56,6 +58,11 @@ async function refundTransaction(becknTransactionId: string, description: string
     console.log(`  Partner ID:           ${paymentTxn.partner_id}`);
 
     // 2. Validate current status
+    if (paymentTxn.status === GenericPaymentTxnStatus.Refunded || paymentTxn.status === GenericPaymentTxnStatus.PartiallyRefunded) {
+        console.log(`  SKIP: Already refunded (status: ${paymentTxn.status}).`);
+        return;
+    }
+
     const successStatuses = [GenericPaymentTxnStatus.Success, 'SUCCESS', 'COMPLETED'];
     if (!successStatuses.includes(paymentTxn.status)) {
         console.error(`  ERROR: Payment is not in successful status (current: ${paymentTxn.status}). Cannot refund.`);
@@ -68,8 +75,6 @@ async function refundTransaction(becknTransactionId: string, description: string
     }
 
     // 3. Calculate refund amount
-    // For cancel: full refund (charged = 0)
-    // For undercharge: refund = paid - charged (charged amount from session.final_amount)
     const paidAmount = Number(paymentTxn.amount);
     let chargedAmount = 0;
 
@@ -96,17 +101,17 @@ async function refundTransaction(becknTransactionId: string, description: string
         return;
     }
 
-    if (isDryRun) {
+    if (!isLive) {
         console.log(`  [DRY RUN] Would refund ₹${refundAmount.toFixed(2)} via Razorpay for payment ${paymentTxn.payment_gateway_payment_id}`);
         return;
     }
 
     // 4. Process refund via Razorpay
-    // NOTE: We call createRefund with the INTERNAL payment_txn_id (UUID), not the Razorpay payment ID.
-    // This is the correct usage - createRefund does getById() then uses payment_gateway_payment_id for the API call.
+    // We call createRefund with the INTERNAL payment_txn_id (UUID), not the Razorpay payment ID.
+    // createRefund does getById() then uses payment_gateway_payment_id for the API call.
     console.log(`  Processing Razorpay refund...`);
     const refundResult = await RazorpayPaymentGatewayService.createRefund(
-        paymentTxn.id,  // internal UUID - createRefund does getById() then uses payment_gateway_payment_id
+        paymentTxn.id,
         { amount: refundAmountInPaise },
     );
 
@@ -146,16 +151,16 @@ async function refundTransaction(becknTransactionId: string, description: string
 }
 
 async function main(): Promise<void> {
-    console.log(`Refund Script - ${isDryRun ? 'DRY RUN' : 'LIVE'}`);
+    console.log(`Refund Script - ${isLive ? 'LIVE' : 'DRY RUN (pass --execute for live)'}`);
     console.log(`Date: ${new Date().toISOString()}`);
+    console.log(`Transactions: ${transactionIds.length}`);
 
     try {
-        // Connect to DB
         await databaseService.connect();
         console.log('Database connected.');
 
-        for (const txn of TRANSACTIONS_TO_REFUND) {
-            await refundTransaction(txn.beckn_transaction_id, txn.description);
+        for (const txnId of transactionIds) {
+            await refundTransaction(txnId);
         }
     }
     catch (error) {
