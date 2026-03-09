@@ -1,5 +1,6 @@
 import { ChargingSessionStatus } from "../enums/ChargingSessionStatus";
 import { ObjectType } from "../enums/ObjectType";
+import { BuyerFinderFee } from "./BuyerFinderFee";
 
 // ChargingSessionAttributes (deliveryAttributes/OrderAttributes), applies to both
 export type BecknOrderAttributes = {
@@ -16,10 +17,7 @@ export type BecknOrderAttributes = {
     };
     gracePeriodMinutes?: number;
     // This block is sometimes part of attributes (see: orderAttributes)
-    buyerFinderFee?: {
-        feeType: string;
-        feeValue: number;
-    };
+    buyerFinderFee?: BuyerFinderFee;
     idleFeePolicy?: string;
     authorizationOtpHint?: string;
     trackingId?: string;

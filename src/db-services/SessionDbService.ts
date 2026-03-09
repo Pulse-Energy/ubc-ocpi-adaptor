@@ -134,6 +134,12 @@ export class SessionDbService {
             where: { authorization_reference: authorization_reference },
         });
     }
+
+    public static async getByCpoSessionId(session_id: string): Promise<Session | null> {
+        return databaseService.prisma.session.findFirst({
+            where: { cpo_session_id: session_id, deleted: false },
+        });
+    }
 }
 
 

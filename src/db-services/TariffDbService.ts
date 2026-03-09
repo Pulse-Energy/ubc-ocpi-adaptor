@@ -356,4 +356,12 @@ export class TariffDbService {
 
         return tariff;
     }
+
+    public static async getByOcpiTariffIds(ocpiTariffIds: string[]): Promise<TariffWithRelations[]> {
+        return databaseService.prisma.tariff.findMany({
+            where: {
+                ocpi_tariff_id: { in: ocpiTariffIds },
+            },
+        }) as Promise<TariffWithRelations[]>;
+    }
 }

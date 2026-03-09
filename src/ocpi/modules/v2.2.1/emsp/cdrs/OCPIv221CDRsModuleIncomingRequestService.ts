@@ -7,6 +7,11 @@ import { databaseService } from '../../../../../services/database.service';
 import { OCPIResponseStatusCode } from '../../../../schema/general/enum';
 import { OCPIRequestLogService } from '../../../../services/OCPIRequestLogService';
 import { OCPILogCommand } from '../../../../types';
+import ChargingService from '../../../../../ubc/actions/services/ChargingService';
+import { CDRService } from './CDRService';
+import { isEmpty } from 'lodash';
+import { logger } from '../../../../../services/logger.service';
+import { SessionDbService } from '../../../../../db-services/SessionDbService';
 // NOTE: Utils import removed – not used in this module.
 
 /**
@@ -29,86 +34,122 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
         res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPICDRsResponse>> {
-        // Log incoming request (non-blocking)
-        OCPIRequestLogService.logRequest({
-            req,
-            partnerId: partnerCredentials.partner_id,
-            command: OCPILogCommand.GetCdrReq,
-        });
+        const reqId = req.headers['x-correlation-id'] as string || req.headers['x-request-id'] as string || 'unknown';
+        const logData = { action: 'GET /cdrs', partnerId: partnerCredentials.partner_id };
 
-        const prisma = databaseService.prisma;
+        try {
+            logger.debug(`🟡 [${reqId}] Starting GET /cdrs in handleGetCDRs`, { data: logData });
 
-        const {
-            country_code,
-            party_id,
-            date_from,
-            date_to,
-            offset,
-            limit,
-        } = req.query as {
-            country_code?: string;
-            party_id?: string;
-            date_from?: string;
-            date_to?: string;
-            offset?: string;
-            limit?: string;
-        };
+            // Log incoming request (non-blocking)
+            OCPIRequestLogService.logIncomingRequest({
+                req,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.GetCdrReq,
+            });
 
-        const where: Prisma.CDRWhereInput = {
-            deleted: false,
-            partner_id: partnerCredentials.partner_id,
-        };
+            const prisma = databaseService.prisma;
 
-        if (country_code) {
-            where.country_code = country_code;
-        }
-        if (party_id) {
-            where.party_id = party_id;
-        }
-        if (date_from || date_to) {
-            where.last_updated = {};
-            if (date_from) {
-                where.last_updated.gte = new Date(date_from);
+            logger.debug(`🟡 [${reqId}] Parsing query parameters in handleGetCDRs`, { 
+                data: { ...logData, query: req.query } 
+            });
+            const {
+                country_code,
+                party_id,
+                date_from,
+                date_to,
+                offset,
+                limit,
+            } = req.query as {
+                country_code?: string;
+                party_id?: string;
+                date_from?: string;
+                date_to?: string;
+                offset?: string;
+                limit?: string;
+            };
+
+            logger.debug(`🟡 [${reqId}] Building query filters in handleGetCDRs`, { 
+                data: { ...logData, filters: { country_code, party_id, date_from, date_to } } 
+            });
+            const where: Prisma.CDRWhereInput = {
+                deleted: false,
+                partner_id: partnerCredentials.partner_id,
+            };
+
+            if (country_code) {
+                where.country_code = country_code;
             }
-            if (date_to) {
-                where.last_updated.lte = new Date(date_to);
+            if (party_id) {
+                where.party_id = party_id;
             }
+            if (date_from || date_to) {
+                where.last_updated = {};
+                if (date_from) {
+                    where.last_updated.gte = new Date(date_from);
+                }
+                if (date_to) {
+                    where.last_updated.lte = new Date(date_to);
+                }
+            }
+
+            const skip = offset ? Number(offset) : 0;
+            const take = limit ? Number(limit) : undefined;
+
+            logger.debug(`🟡 [${reqId}] Fetching CDRs from database in handleGetCDRs`, { 
+                data: { ...logData, skip, take } 
+            });
+            const cdrs = await prisma.cDR.findMany({
+                where,
+                orderBy: { last_updated: 'desc' },
+                skip,
+                take,
+            });
+
+            logger.debug(`🟢 [${reqId}] Fetched ${cdrs.length} CDRs from database in handleGetCDRs`, { 
+                data: { ...logData, cdrCount: cdrs.length } 
+            });
+
+            logger.debug(`🟡 [${reqId}] Mapping Prisma CDRs to OCPI format in handleGetCDRs`, { 
+                data: { ...logData, cdrs } 
+            });
+            const data: OCPICDR[] = cdrs.map(
+                OCPIv221CDRsModuleIncomingRequestService.mapPrismaCdrToOcpi,
+            );
+
+            const response = {
+                httpStatus: 200,
+                payload: {
+                    data,
+                    status_code: OCPIResponseStatusCode.status_1000,
+                    timestamp: new Date().toISOString(),
+                },
+            };
+
+            // Log outgoing response (non-blocking)
+            OCPIRequestLogService.logIncomingResponse({
+                req,
+                res,
+                responseBody: response.payload,
+                statusCode: response.httpStatus,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.GetCdrRes,
+            });
+
+            logger.debug(`🟢 [${reqId}] Returning GET /cdrs response in handleGetCDRs`, { 
+                data: { ...logData, cdrCount: data.length, response: response.payload } 
+            });
+
+            return response;
         }
-
-        const skip = offset ? Number(offset) : 0;
-        const take = limit ? Number(limit) : undefined;
-
-        const cdrs = await prisma.cDR.findMany({
-            where,
-            orderBy: { last_updated: 'desc' },
-            skip,
-            take,
-        });
-
-        const data: OCPICDR[] = cdrs.map(
-            OCPIv221CDRsModuleIncomingRequestService.mapPrismaCdrToOcpi,
-        );
-
-        const response = {
-            httpStatus: 200,
-            payload: {
-                data,
-                status_code: OCPIResponseStatusCode.status_1000,
-                timestamp: new Date().toISOString(),
-            },
-        };
-
-        // Log outgoing response (non-blocking)
-        OCPIRequestLogService.logResponse({
-            req,
-            res,
-            responseBody: response.payload,
-            statusCode: response.httpStatus,
-            partnerId: partnerCredentials.partner_id,
-            command: OCPILogCommand.GetCdrRes,
-        });
-
-        return response;
+        catch (e: any) {
+            logger.error(`🔴 [${reqId}] Error in handleGetCDRs: ${e?.toString()}`, e, {
+                data: {
+                    ...logData,
+                    error: e,
+                },
+            });
+            throw e;
+        }
     }
 
     /**
@@ -119,75 +160,108 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
         res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPICDRResponse>> {
-        // Log incoming request (non-blocking)
-        OCPIRequestLogService.logRequest({
-            req,
-            partnerId: partnerCredentials.partner_id,
-            command: OCPILogCommand.GetCdrReq,
-        });
+        const reqId = req.headers['x-correlation-id'] as string || req.headers['x-request-id'] as string || 'unknown';
+        const logData = { action: 'GET /cdrs/:cdr_id', partnerId: partnerCredentials.partner_id };
 
-        const prisma = databaseService.prisma;
-        const { country_code, party_id, cdr_id } = req.params as {
-            country_code: string;
-            party_id: string;
-            cdr_id: string;
-        };
+        try {
+            logger.debug(`🟡 [${reqId}] Starting GET /cdrs/:cdr_id in handleGetCDR`, { data: logData });
 
-        const cdr = await prisma.cDR.findFirst({
-            where: {
-                country_code,
-                party_id,
-                ocpi_cdr_id: cdr_id,
-                deleted: false,
-                partner_id: partnerCredentials.partner_id,
-            },
-        });
+            // Log incoming request (non-blocking)
+            OCPIRequestLogService.logIncomingRequest({
+                req,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.GetCdrReq,
+            });
 
-        if (!cdr) {
+            const prisma = databaseService.prisma;
+            const { country_code, party_id, cdr_id } = req.params as {
+                country_code: string;
+                party_id: string;
+                cdr_id: string;
+            };
+
+            logger.debug(`🟡 [${reqId}] Finding CDR by OCPI ID in handleGetCDR`, { 
+                data: { ...logData, country_code, party_id, cdr_id } 
+            });
+            const cdr = await prisma.cDR.findFirst({
+                where: {
+                    country_code,
+                    party_id,
+                    ocpi_cdr_id: cdr_id,
+                    deleted: false,
+                    partner_id: partnerCredentials.partner_id,
+                },
+            });
+
+            if (!cdr) {
+                logger.warn(`🟡 [${reqId}] CDR not found in handleGetCDR`, { 
+                    data: { ...logData, country_code, party_id, cdr_id } 
+                });
+                const response = {
+                    httpStatus: 404,
+                    payload: {
+                        status_code: OCPIResponseStatusCode.status_2001,
+                        status_message: 'CDR not found',
+                        timestamp: new Date().toISOString(),
+                    },
+                };
+
+                // Log outgoing response (non-blocking)
+                OCPIRequestLogService.logIncomingResponse({
+                    req,
+                    res,
+                    responseBody: response.payload,
+                    statusCode: response.httpStatus,
+                    partnerId: partnerCredentials.partner_id,
+                    command: OCPILogCommand.GetCdrsRes,
+                });
+
+                logger.debug(`🟢 [${reqId}] Returning 404 response in handleGetCDR`, { 
+                    data: { ...logData, response: response.payload } 
+                });
+
+                return response;
+            }
+
+            logger.debug(`🟡 [${reqId}] Mapping Prisma CDR to OCPI format in handleGetCDR`, { 
+                data: { ...logData, cdr } 
+            });
+            const data = OCPIv221CDRsModuleIncomingRequestService.mapPrismaCdrToOcpi(cdr);
+
             const response = {
-                httpStatus: 404,
+                httpStatus: 200,
                 payload: {
-                    status_code: OCPIResponseStatusCode.status_2001,
-                    status_message: 'CDR not found',
+                    data,
+                    status_code: OCPIResponseStatusCode.status_1000,
                     timestamp: new Date().toISOString(),
                 },
             };
 
             // Log outgoing response (non-blocking)
-            OCPIRequestLogService.logResponse({
+            OCPIRequestLogService.logIncomingResponse({
                 req,
                 res,
                 responseBody: response.payload,
                 statusCode: response.httpStatus,
                 partnerId: partnerCredentials.partner_id,
-                command: OCPILogCommand.GetCdrsRes,
+                command: OCPILogCommand.GetCdrRes,
+            });
+
+            logger.debug(`🟢 [${reqId}] Returning GET /cdrs/:cdr_id response in handleGetCDR`, { 
+                data: { ...logData, response: response.payload } 
             });
 
             return response;
         }
-
-        const data = OCPIv221CDRsModuleIncomingRequestService.mapPrismaCdrToOcpi(cdr);
-
-        const response = {
-            httpStatus: 200,
-            payload: {
-                data,
-                status_code: OCPIResponseStatusCode.status_1000,
-                timestamp: new Date().toISOString(),
-            },
-        };
-
-        // Log outgoing response (non-blocking)
-        OCPIRequestLogService.logResponse({
-            req,
-            res,
-            responseBody: response.payload,
-            statusCode: response.httpStatus,
-            partnerId: partnerCredentials.partner_id,
-            command: OCPILogCommand.GetCdrRes,
-        });
-
-        return response;
+        catch (e: any) {
+            logger.error(`🔴 [${reqId}] Error in handleGetCDR: ${e?.toString()}`, e, {
+                data: {
+                    ...logData,
+                    error: e,
+                },
+            });
+            throw e;
+        }
     }
 
     /**
@@ -200,88 +274,178 @@ export default class OCPIv221CDRsModuleIncomingRequestService {
         res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPICDRResponse>> {
-        // Log incoming request (non-blocking)
-        OCPIRequestLogService.logRequest({
-            req,
-            partnerId: partnerCredentials.partner_id,
-            command: OCPILogCommand.PostCdrReq,
-        });
+        const reqId = req.headers['x-correlation-id'] as string || req.headers['x-request-id'] as string || 'unknown';
+        const logData = { action: 'POST /cdrs', partnerId: partnerCredentials.partner_id };
 
-        const prisma = databaseService.prisma;
-        const payload = req.body as OCPICDR;
+        try {
+            logger.debug(`🟡 [${reqId}] Starting POST /cdrs in handlePostCDR`, { data: logData });
 
-        if (!payload) {
+            // Log incoming request (non-blocking)
+            OCPIRequestLogService.logIncomingRequest({
+                req,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.PostCdrReq,
+            });
+
+            const prisma = databaseService.prisma;
+            const payload = req.body as OCPICDR;
+
+            logger.debug(`🟡 [${reqId}] Parsing POST CDR payload in handlePostCDR`, { 
+                data: { ...logData, payload } 
+            });
+
+            if (!payload) {
+                logger.warn(`🟡 [${reqId}] CDR payload is missing in handlePostCDR`, { data: logData });
+                const response = {
+                    httpStatus: 400,
+                    payload: {
+                        status_code: OCPIResponseStatusCode.status_2000,
+                        status_message: 'CDR payload is required',
+                        timestamp: new Date().toISOString(),
+                    },
+                };
+
+                // Log outgoing response (non-blocking)
+                OCPIRequestLogService.logIncomingResponse({
+                    req,
+                    res,
+                    responseBody: response.payload,
+                    statusCode: response.httpStatus,
+                    partnerId: partnerCredentials.partner_id,
+                    command: OCPILogCommand.PostCdrRes,
+                });
+
+                logger.debug(`🟢 [${reqId}] Returning 400 response in handlePostCDR`, { 
+                    data: { ...logData, response: response.payload } 
+                });
+
+                return response;
+            }
+
+            const partnerId = partnerCredentials.partner_id;
+
+            logger.debug(`🟡 [${reqId}] Checking for existing CDR in handlePostCDR`, { 
+                data: { ...logData, cdrId: payload.id, country_code: payload.country_code, party_id: payload.party_id } 
+            });
+            // Upsert by (country_code, party_id, id)
+            const existing = await prisma.cDR.findFirst({
+                where: {
+                    country_code: payload.country_code,
+                    party_id: payload.party_id,
+                    ocpi_cdr_id: payload.id,
+                    deleted: false,
+                    partner_id: partnerId,
+                },
+            });
+
+            let stored: PrismaCDR;
+            if (!existing) {
+                logger.debug(`🟡 [${reqId}] Creating new CDR in handlePostCDR`, { data: logData });
+                // Create CDR if it doesn't exist - only include fields present in payload
+                const cdrCreateFields = CDRService.buildCdrCreateFields(payload, partnerId);
+                stored = await prisma.cDR.create({
+                    data: cdrCreateFields,
+                });
+                logger.debug(`🟢 [${reqId}] Created new CDR in handlePostCDR`, { 
+                    data: { ...logData, cdrId: stored.id } 
+                });
+            }
+            else {
+                logger.debug(`🟡 [${reqId}] Updating existing CDR in handlePostCDR`, { 
+                    data: { ...logData, existingCdrId: existing.id } 
+                });
+                // Update existing CDR - only include fields present in payload that have changed
+                const cdrUpdateFields = CDRService.buildCdrUpdateFields(payload, existing);
+                // Only update if there are changes
+                if (!isEmpty(cdrUpdateFields)) {
+                    stored = await prisma.cDR.update({
+                        where: { id: existing.id },
+                        data: cdrUpdateFields,
+                    });
+                    logger.debug(`🟢 [${reqId}] Updated existing CDR in handlePostCDR`, { 
+                        data: { ...logData, cdrId: stored.id } 
+                    });
+                }
+                else {
+                    stored = existing;
+                    logger.debug(`🟢 [${reqId}] No changes to CDR, using existing in handlePostCDR`, { 
+                        data: { ...logData, cdrId: stored.id } 
+                    });
+                }
+            }
+
+            logger.debug(`🟡 [${reqId}] Mapping Prisma CDR to OCPI format in handlePostCDR`, { 
+                data: { ...logData, cdr: stored } 
+            });
+            const data = OCPIv221CDRsModuleIncomingRequestService.mapPrismaCdrToOcpi(stored);
+
             const response = {
-                httpStatus: 400,
+                httpStatus: 200,
                 payload: {
-                    status_code: OCPIResponseStatusCode.status_2000,
-                    status_message: 'CDR payload is required',
+                    data,
+                    status_code: OCPIResponseStatusCode.status_1000,
                     timestamp: new Date().toISOString(),
                 },
             };
 
             // Log outgoing response (non-blocking)
-            OCPIRequestLogService.logResponse({
+            // Pass OCPI IDs (authorization_reference, cpo_session_id) - logging function will resolve them to internal DB IDs
+            OCPIRequestLogService.logIncomingResponse({
                 req,
                 res,
                 responseBody: response.payload,
                 statusCode: response.httpStatus,
                 partnerId: partnerCredentials.partner_id,
                 command: OCPILogCommand.PostCdrRes,
+                authorization_reference: stored.authorization_reference || undefined,
+                cpo_session_id: stored.session_id || undefined,
+            });
+
+            logger.debug(`🟡 [${reqId}] Calling ChargingService.handleActionOnChargingCompleted in handlePostCDR`, { 
+                data: { ...logData, session_id: stored?.session_id, cdrId: stored?.id } 
+            });
+            // Pass session_id (cpo_session_id) to handleActionOnChargingCompleted - it will fetch session and payment txn
+            // Don't await - this is async and shouldn't block CDR response
+            // Check session's additional_props.on_update_stop_charging_sent to determine if on_update should be sent
+            if (stored?.session_id && stored?.authorization_reference) {
+                const session = await SessionDbService.getByAuthorizationReference(stored.authorization_reference);
+                const additionalProps = (session?.additional_props as Record<string, unknown>) || {};
+                const onUpdateStopChargingSent = additionalProps.on_update_stop_charging_sent === true;
+
+                if (!onUpdateStopChargingSent) {
+                    ChargingService.handleActionOnChargingCompleted(stored.session_id)
+                        .catch((e: any) => {
+                            logger.error(`🔴 [${reqId}] Error in handleActionOnChargingCompleted: ${e?.toString()}`, e, {
+                                data: { ...logData, session_id: stored.session_id },
+                            });
+                        });
+                } else {
+                    logger.debug(`🟡 [${reqId}] on_update_stop_charging already sent, skipping handleActionOnChargingCompleted`, {
+                        data: { ...logData, cdrId: stored?.id }
+                    });
+                }
+            }
+            else {
+                logger.warn(`🟡 [${reqId}] session_id or authorization_reference not found in CDR, skipping handleActionOnChargingCompleted`, {
+                    data: { ...logData, cdrId: stored?.id }
+                });
+            }
+
+            logger.debug(`🟢 [${reqId}] Returning POST /cdrs response in handlePostCDR`, { 
+                data: { ...logData, response: response.payload } 
             });
 
             return response;
         }
-
-        const partnerId = partnerCredentials.partner_id;
-
-        // Upsert by (country_code, party_id, id)
-        const existing = await prisma.cDR.findFirst({
-            where: {
-                country_code: payload.country_code,
-                party_id: payload.party_id,
-                ocpi_cdr_id: payload.id,
-            },
-        });
-
-        const dataForDb =
-            OCPIv221CDRsModuleIncomingRequestService.mapOcpiCdrToPrisma(payload, partnerId);
-
-        let stored: PrismaCDR;
-        if (existing) {
-            stored = await prisma.cDR.update({
-                where: { id: existing.id },
-                data: dataForDb,
+        catch (e: any) {
+            logger.error(`🔴 [${reqId}] Error in handlePostCDR: ${e?.toString()}`, e, {
+                data: {
+                    ...logData,
+                    error: e,
+                },
             });
+            throw e;
         }
-        else {
-            stored = await prisma.cDR.create({
-                data: dataForDb,
-            });
-        }
-
-        const data = OCPIv221CDRsModuleIncomingRequestService.mapPrismaCdrToOcpi(stored);
-
-        const response = {
-            httpStatus: 200,
-            payload: {
-                data,
-                status_code: OCPIResponseStatusCode.status_1000,
-                timestamp: new Date().toISOString(),
-            },
-        };
-
-        // Log outgoing response (non-blocking)
-        OCPIRequestLogService.logResponse({
-            req,
-            res,
-            responseBody: response.payload,
-            statusCode: response.httpStatus,
-            partnerId: partnerCredentials.partner_id,
-            command: OCPILogCommand.PostCdrRes,
-        });
-
-        return response;
     }
 
     private static mapPrismaCdrToOcpi(cdr: PrismaCDR): OCPICDR {

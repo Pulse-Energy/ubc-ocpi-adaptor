@@ -36,40 +36,65 @@ export default class OCPIv221CredentialsModuleIncomingRequestService {
         res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPIResponsePayload<OCPICredentials>>> {
-        // Log incoming request (non-blocking)
-        OCPIRequestLogService.logRequest({
-            req,
-            partnerId: partnerCredentials.partner_id,
-            command: OCPILogCommand.PostCredentialsReq,
-        });
+        const reqId = req.headers['x-correlation-id'] as string || req.headers['x-request-id'] as string || 'unknown';
+        const logData = { action: 'POST /credentials', partnerId: partnerCredentials.partner_id };
 
-        const incoming = req.body as OCPICredentials;
+        try {
+            logger.debug(`🟡 [${reqId}] Starting POST /credentials in handlePostCredentials`, { data: logData });
 
-        const emspCredentials = await OCPIv221CredentialsModuleIncomingRequestService.processIncomingCredentials(
-            incoming,
-            partnerCredentials,
-        );
+            // Log incoming request (non-blocking)
+            OCPIRequestLogService.logIncomingRequest({
+                req,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.PostCredentialsReq,
+            });
 
-        const response = {
-            httpStatus: 200,
-            payload: {
-                data: emspCredentials,
-                status_code: OCPIResponseStatusCode.status_1000,
-                timestamp: new Date().toISOString(),
-            },
-        };
+            logger.debug(`🟡 [${reqId}] Parsing incoming credentials payload in handlePostCredentials`, { 
+                data: { logData, hasBody: !!req.body } 
+            });
+            const incoming = req.body as OCPICredentials;
 
-        // Log outgoing response (non-blocking)
-        OCPIRequestLogService.logResponse({
-            req,
-            res,
-            responseBody: response.payload,
-            statusCode: response.httpStatus,
-            partnerId: partnerCredentials.partner_id,
-            command: OCPILogCommand.PostCredentialsRes,
-        });
+            logger.debug(`🟡 [${reqId}] Processing incoming credentials in handlePostCredentials`, { 
+                data: { logData, incoming: { token: incoming?.token ? '***' : undefined, url: incoming?.url, rolesCount: incoming?.roles?.length } } 
+            });
+            const emspCredentials = await OCPIv221CredentialsModuleIncomingRequestService.processIncomingCredentials(
+                incoming,
+                partnerCredentials,
+            );
 
-        return response;
+            logger.debug(`🟢 [${reqId}] Successfully processed credentials in handlePostCredentials`, { 
+                data: { logData, emspCredentials: { token: emspCredentials?.token ? '***' : undefined, url: emspCredentials?.url } } 
+            });
+
+            const response = {
+                httpStatus: 200,
+                payload: {
+                    data: emspCredentials,
+                    status_code: OCPIResponseStatusCode.status_1000,
+                    timestamp: new Date().toISOString(),
+                },
+            };
+
+            // Log outgoing response (non-blocking)
+            OCPIRequestLogService.logIncomingResponse({
+                req,
+                res,
+                responseBody: response.payload,
+                statusCode: response.httpStatus,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.PostCredentialsRes,
+            });
+
+            logger.debug(`🟢 [${reqId}] Returning POST /credentials response in handlePostCredentials`, { 
+                data: { logData, httpStatus: response.httpStatus } 
+            });
+
+            return response;
+        }
+        catch (e: any) {
+            logger.error(`🔴 [${reqId}] Error in handlePostCredentials: ${e?.toString()}`, e, { data: logData });
+            throw e;
+        }
     }
 
     /**
@@ -83,31 +108,87 @@ export default class OCPIv221CredentialsModuleIncomingRequestService {
         res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPIResponsePayload<OCPICredentials>>> {
-        // Log incoming request (non-blocking)
-        OCPIRequestLogService.logRequest({
-            req,
-            partnerId: partnerCredentials.partner_id,
-            command: OCPILogCommand.GetCredentialsReq,
-        });
+        const reqId = req.headers['x-correlation-id'] as string || req.headers['x-request-id'] as string || 'unknown';
+        const logData = { action: 'GET /credentials', partnerId: partnerCredentials.partner_id };
 
-        const prisma = databaseService.prisma;
+        try {
+            logger.debug(`🟡 [${reqId}] Starting GET /credentials in handleGetCredentials`, { data: logData });
 
-        const dbCreds = await prisma.oCPIPartnerCredentials.findUnique({
-            where: { partner_id: partnerCredentials.partner_id },
-        });
+            // Log incoming request (non-blocking)
+            OCPIRequestLogService.logIncomingRequest({
+                req,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.GetCredentialsReq,
+            });
 
-        if (!dbCreds) {
+            const prisma = databaseService.prisma;
+
+            logger.debug(`🟡 [${reqId}] Fetching partner credentials from DB in handleGetCredentials`, { data: logData });
+            const dbCreds = await prisma.oCPIPartnerCredentials.findUnique({
+                where: { partner_id: partnerCredentials.partner_id },
+            });
+
+            if (!dbCreds) {
+                logger.warn(`🟡 [${reqId}] Partner credentials not found in handleGetCredentials`, { data: logData });
+                const response = {
+                    httpStatus: 401,
+                    payload: {
+                        status_code: OCPIResponseStatusCode.status_2001,
+                        status_message: 'Unauthorized',
+                        timestamp: new Date().toISOString(),
+                    },
+                };
+
+                // Log outgoing response (non-blocking)
+                OCPIRequestLogService.logIncomingResponse({
+                    req,
+                    res,
+                    responseBody: response.payload,
+                    statusCode: response.httpStatus,
+                    partnerId: partnerCredentials.partner_id,
+                    command: OCPILogCommand.GetCredentialsRes,
+                });
+
+                return response;
+            }
+
+            logger.debug(`🟡 [${reqId}] Fetching EMSP partner from DB in handleGetCredentials`, { data: logData });
+            const emspPartner = await prisma.oCPIPartner.findFirst({
+                where: {
+                    role: 'EMSP',
+                    deleted: false,
+                },
+            });
+
+            logger.debug(`🟡 [${reqId}] Building EMSP credentials response in handleGetCredentials`, { 
+                data: { logData, emspPartnerFound: !!emspPartner } 
+            });
+            const emspCredentials: OCPICredentials = {
+                token: dbCreds.emsp_auth_token || '',
+                url: dbCreds.emsp_url || '',
+                roles: [
+                    {
+                        country_code: emspPartner?.country_code as CountryCode,
+                        party_id: emspPartner?.party_id as string,
+                        role: OCPIRole.EMSP,
+                        business_details: {
+                            name: emspPartner?.name || '',
+                        }
+                    },
+                ],
+            };
+
             const response = {
-                httpStatus: 401,
+                httpStatus: 200,
                 payload: {
-                    status_code: OCPIResponseStatusCode.status_2001,
-                    status_message: 'Unauthorized',
+                    data: emspCredentials,
+                    status_code: OCPIResponseStatusCode.status_1000,
                     timestamp: new Date().toISOString(),
                 },
             };
 
             // Log outgoing response (non-blocking)
-            OCPIRequestLogService.logResponse({
+            OCPIRequestLogService.logIncomingResponse({
                 req,
                 res,
                 responseBody: response.payload,
@@ -116,51 +197,16 @@ export default class OCPIv221CredentialsModuleIncomingRequestService {
                 command: OCPILogCommand.GetCredentialsRes,
             });
 
+            logger.debug(`🟢 [${reqId}] Returning GET /credentials response in handleGetCredentials`, { 
+                data: { logData, httpStatus: response.httpStatus } 
+            });
+
             return response;
         }
-
-        const emspPartner = await prisma.oCPIPartner.findFirst({
-            where: {
-                role: 'EMSP',
-                deleted: false,
-            },
-        });
-
-        const emspCredentials: OCPICredentials = {
-            token: dbCreds.emsp_auth_token || '',
-            url: dbCreds.emsp_url || '',
-            roles: [
-                {
-                    country_code: emspPartner?.country_code as CountryCode,
-                    party_id: emspPartner?.party_id as string,
-                    role: OCPIRole.EMSP,
-                    business_details: {
-                        name: emspPartner?.name || '',
-                    }
-                },
-            ],
-        };
-
-        const response = {
-            httpStatus: 200,
-            payload: {
-                data: emspCredentials,
-                status_code: OCPIResponseStatusCode.status_1000,
-                timestamp: new Date().toISOString(),
-            },
-        };
-
-        // Log outgoing response (non-blocking)
-        OCPIRequestLogService.logResponse({
-            req,
-            res,
-            responseBody: response.payload,
-            statusCode: response.httpStatus,
-            partnerId: partnerCredentials.partner_id,
-            command: OCPILogCommand.GetCredentialsRes,
-        });
-
-        return response;
+        catch (e: any) {
+            logger.error(`🔴 [${reqId}] Error in handleGetCredentials: ${e?.toString()}`, e, { data: logData });
+            throw e;
+        }
     }
 
     /**
@@ -174,40 +220,65 @@ export default class OCPIv221CredentialsModuleIncomingRequestService {
         res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPIResponsePayload<OCPICredentials>>> {
-        // Log incoming request (non-blocking)
-        OCPIRequestLogService.logRequest({
-            req,
-            partnerId: partnerCredentials.partner_id,
-            command: OCPILogCommand.PutCredentialsReq,
-        });
+        const reqId = req.headers['x-correlation-id'] as string || req.headers['x-request-id'] as string || 'unknown';
+        const logData = { action: 'PUT /credentials', partnerId: partnerCredentials.partner_id };
 
-        const incoming = req.body as OCPICredentials;
+        try {
+            logger.debug(`🟡 [${reqId}] Starting PUT /credentials in handlePutCredentials`, { data: logData });
 
-        const emspCredentials = await OCPIv221CredentialsModuleIncomingRequestService.processIncomingCredentials(
-            incoming,
-            partnerCredentials,
-        );
+            // Log incoming request (non-blocking)
+            OCPIRequestLogService.logIncomingRequest({
+                req,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.PutCredentialsReq,
+            });
 
-        const response = {
-            httpStatus: 200,
-            payload: {
-                data: emspCredentials,
-                status_code: OCPIResponseStatusCode.status_1000,
-                timestamp: new Date().toISOString(),
-            },
-        };
+            logger.debug(`🟡 [${reqId}] Parsing incoming credentials payload in handlePutCredentials`, { 
+                data: { logData, hasBody: !!req.body } 
+            });
+            const incoming = req.body as OCPICredentials;
 
-        // Log outgoing response (non-blocking)
-        OCPIRequestLogService.logResponse({
-            req,
-            res,
-            responseBody: response.payload,
-            statusCode: response.httpStatus,
-            partnerId: partnerCredentials.partner_id,
-            command: OCPILogCommand.PutCredentialsRes,
-        });
+            logger.debug(`🟡 [${reqId}] Processing incoming credentials in handlePutCredentials`, { 
+                data: { logData, incoming: { token: incoming?.token ? '***' : undefined, url: incoming?.url, rolesCount: incoming?.roles?.length } } 
+            });
+            const emspCredentials = await OCPIv221CredentialsModuleIncomingRequestService.processIncomingCredentials(
+                incoming,
+                partnerCredentials,
+            );
 
-        return response;
+            logger.debug(`🟢 [${reqId}] Successfully processed credentials in handlePutCredentials`, { 
+                data: { logData, emspCredentials: { token: emspCredentials?.token ? '***' : undefined, url: emspCredentials?.url } } 
+            });
+
+            const response = {
+                httpStatus: 200,
+                payload: {
+                    data: emspCredentials,
+                    status_code: OCPIResponseStatusCode.status_1000,
+                    timestamp: new Date().toISOString(),
+                },
+            };
+
+            // Log outgoing response (non-blocking)
+            OCPIRequestLogService.logIncomingResponse({
+                req,
+                res,
+                responseBody: response.payload,
+                statusCode: response.httpStatus,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.PutCredentialsRes,
+            });
+
+            logger.debug(`🟢 [${reqId}] Returning PUT /credentials response in handlePutCredentials`, { 
+                data: { logData, httpStatus: response.httpStatus } 
+            });
+
+            return response;
+        }
+        catch (e: any) {
+            logger.error(`🔴 [${reqId}] Error in handlePutCredentials: ${e?.toString()}`, e, { data: logData });
+            throw e;
+        }
     }
 
     /**
@@ -226,139 +297,158 @@ export default class OCPIv221CredentialsModuleIncomingRequestService {
         res: Response,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<HttpResponse<OCPIResponsePayload<OCPICredentials>>> {
-        // Log incoming request (non-blocking)
-        OCPIRequestLogService.logRequest({
-            req,
-            partnerId: partnerCredentials.partner_id,
-            command: OCPILogCommand.PatchCredentialsReq,
-        });
+        const reqId = req.headers['x-correlation-id'] as string || req.headers['x-request-id'] as string || 'unknown';
+        const logData = { action: 'PATCH /credentials', partnerId: partnerCredentials.partner_id };
 
-        const prisma = databaseService.prisma;
+        try {
+            logger.debug(`🟡 [${reqId}] Starting PATCH /credentials in handlePatchCredentials`, { data: logData });
 
-        const patch = req.body as OCPICredentialsPatchRequest;
-
-        if (!patch) {
-            const response = {
-                httpStatus: 400,
-                payload: {
-                    status_code: OCPIResponseStatusCode.status_2000,
-                    status_message: 'PATCH /credentials payload is required',
-                    timestamp: new Date().toISOString(),
-                },
-            };
-
-            // Log outgoing response
-            try {
-                const safePayload = JSON.parse(
-                    JSON.stringify(response.payload, (_key, value) => (typeof value === 'bigint' ? Number(value) : value)),
-                );
-                await OCPIRequestLogService.logResponse({
-                    req,
-                    res,
-                    responseBody: safePayload,
-                    statusCode: response.httpStatus,
-                    partnerId: partnerCredentials.partner_id,
-                    command: OCPILogCommand.PatchCredentialsRes,
-                });
-            }
-            catch (logError) {
-                logger.error('Failed to persist OCPI outgoing log', logError as Error);
-            }
-
-            return response;
-        }
-
-        const existingCreds = await prisma.oCPIPartnerCredentials.findUnique({
-            where: { partner_id: partnerCredentials.partner_id },
-        });
-
-        if (!existingCreds) {
-            const response = {
-                httpStatus: 401,
-                payload: {
-                    status_code: OCPIResponseStatusCode.status_2001,
-                    status_message: 'Unauthorized',
-                    timestamp: new Date().toISOString(),
-                },
-            };
-
-            // Log outgoing response
-            try {
-                const safePayload = JSON.parse(
-                    JSON.stringify(response.payload, (_key, value) => (typeof value === 'bigint' ? Number(value) : value)),
-                );
-                await OCPIRequestLogService.logResponse({
-                    req,
-                    res,
-                    responseBody: safePayload,
-                    statusCode: response.httpStatus,
-                    partnerId: partnerCredentials.partner_id,
-                    command: OCPILogCommand.PatchCredentialsRes,
-                });
-            }
-            catch (logError) {
-                logger.error('Failed to persist OCPI outgoing log', logError as Error);
-            }
-
-            return response;
-        }
-
-        const updatedCreds = await prisma.oCPIPartnerCredentials.update({
-            where: { partner_id: existingCreds.partner_id },
-            data: {
-                cpo_auth_token: patch?.token || existingCreds.cpo_auth_token,
-                cpo_url: patch?.url || existingCreds.cpo_url,
-            },
-        });
-
-        // update cpo partner name
-        const cpoRole = patch.roles?.find((role) => role.role === OCPIRole.CPO);
-
-        if (cpoRole) {
-            const partner = await prisma.oCPIPartner.findUnique({
-                where: { id: existingCreds.partner_id },
+            // Log incoming request (non-blocking)
+            OCPIRequestLogService.logIncomingRequest({
+                req,
+                partnerId: partnerCredentials.partner_id,
+                command: OCPILogCommand.PatchCredentialsReq,
             });
-            await prisma.oCPIPartner.update({
-                where: { id: existingCreds.partner_id },
+
+            const prisma = databaseService.prisma;
+
+            logger.debug(`🟡 [${reqId}] Parsing PATCH payload in handlePatchCredentials`, { 
+                data: { logData, hasBody: !!req.body } 
+            });
+            const patch = req.body as OCPICredentialsPatchRequest;
+
+            if (!patch) {
+                logger.warn(`🟡 [${reqId}] PATCH payload is missing in handlePatchCredentials`, { data: logData });
+                const response = {
+                    httpStatus: 400,
+                    payload: {
+                        status_code: OCPIResponseStatusCode.status_2000,
+                        status_message: 'PATCH /credentials payload is required',
+                        timestamp: new Date().toISOString(),
+                    },
+                };
+
+                // Log outgoing response
+                try {
+                    const safePayload = JSON.parse(
+                        JSON.stringify(response.payload, (_key, value) => (typeof value === 'bigint' ? Number(value) : value)),
+                    );
+                    await OCPIRequestLogService.logIncomingResponse({
+                        req,
+                        res,
+                        responseBody: safePayload,
+                        statusCode: response.httpStatus,
+                        partnerId: partnerCredentials.partner_id,
+                        command: OCPILogCommand.PatchCredentialsRes,
+                    });
+                }
+                catch (logError) {
+                    logger.error('Failed to persist OCPI outgoing log', logError as Error);
+                }
+
+                return response;
+            }
+
+            logger.debug(`🟡 [${reqId}] Fetching existing credentials from DB in handlePatchCredentials`, { data: logData });
+            const existingCreds = await prisma.oCPIPartnerCredentials.findUnique({
+                where: { partner_id: partnerCredentials.partner_id },
+            });
+
+            if (!existingCreds) {
+                logger.warn(`🟡 [${reqId}] Existing credentials not found in handlePatchCredentials`, { data: logData });
+                const response = {
+                    httpStatus: 401,
+                    payload: {
+                        status_code: OCPIResponseStatusCode.status_2001,
+                        status_message: 'Unauthorized',
+                        timestamp: new Date().toISOString(),
+                    },
+                };
+
+                // Log outgoing response
+                try {
+                    const safePayload = JSON.parse(
+                        JSON.stringify(response.payload, (_key, value) => (typeof value === 'bigint' ? Number(value) : value)),
+                    );
+                    await OCPIRequestLogService.logIncomingResponse({
+                        req,
+                        res,
+                        responseBody: safePayload,
+                        statusCode: response.httpStatus,
+                        partnerId: partnerCredentials.partner_id,
+                        command: OCPILogCommand.PatchCredentialsRes,
+                    });
+                }
+                catch (logError) {
+                    logger.error('Failed to persist OCPI outgoing log', logError as Error);
+                }
+
+                return response;
+            }
+
+            logger.debug(`🟡 [${reqId}] Updating partner credentials in DB in handlePatchCredentials`, { data: logData });
+            const updatedCreds = await prisma.oCPIPartnerCredentials.update({
+                where: { partner_id: existingCreds.partner_id },
                 data: {
-                    name: cpoRole.business_details?.name || '',
-                    country_code: cpoRole.country_code as CountryCode,
-                    party_id: cpoRole.party_id as string,
-                    versions_url: patch?.url || partner?.versions_url || '',
+                    cpo_auth_token: patch?.token || existingCreds.cpo_auth_token,
+                    cpo_url: patch?.url || existingCreds.cpo_url,
                 },
             });
-        }
 
-        const emspPartner = await prisma.oCPIPartner.findFirst({
-            where: {
-                role: 'EMSP',
-                deleted: false,
-            },
-        });
+            // update cpo partner name
+            logger.debug(`🟡 [${reqId}] Checking for CPO role in PATCH payload in handlePatchCredentials`, { data: logData });
+            const cpoRole = patch.roles?.find((role) => role.role === OCPIRole.CPO);
 
-        const emspCredentials: OCPICredentials = {
-            token: updatedCreds.emsp_auth_token || '',
-            url: updatedCreds.emsp_url || '',
-            roles: [
-                {
-                    country_code: emspPartner?.country_code as CountryCode,
-                    party_id: emspPartner?.party_id as string,
-                    role: OCPIRole.EMSP,
+            if (cpoRole) {
+                logger.debug(`🟡 [${reqId}] Updating CPO partner details in handlePatchCredentials`, { data: logData });
+                const partner = await prisma.oCPIPartner.findUnique({
+                    where: { id: existingCreds.partner_id },
+                });
+                await prisma.oCPIPartner.update({
+                    where: { id: existingCreds.partner_id },
+                    data: {
+                        name: cpoRole.business_details?.name || '',
+                        country_code: cpoRole.country_code as CountryCode,
+                        party_id: cpoRole.party_id as string,
+                        versions_url: patch?.url || partner?.versions_url || '',
+                    },
+                });
+            }
+
+            logger.debug(`🟡 [${reqId}] Fetching EMSP partner from DB in handlePatchCredentials`, { data: logData });
+            const emspPartner = await prisma.oCPIPartner.findFirst({
+                where: {
+                    role: 'EMSP',
+                    deleted: false,
                 },
-            ],
-        };
+            });
 
-        const response = {
-            httpStatus: 200,
-            payload: {
-                data: emspCredentials,
-                status_code: OCPIResponseStatusCode.status_1000,
-                timestamp: new Date().toISOString(),
-            },
-        };
+            logger.debug(`🟡 [${reqId}] Building EMSP credentials response in handlePatchCredentials`, { 
+                data: { logData, emspPartnerFound: !!emspPartner } 
+            });
+            const emspCredentials: OCPICredentials = {
+                token: updatedCreds.emsp_auth_token || '',
+                url: updatedCreds.emsp_url || '',
+                roles: [
+                    {
+                        country_code: emspPartner?.country_code as CountryCode,
+                        party_id: emspPartner?.party_id as string,
+                        role: OCPIRole.EMSP,
+                    },
+                ],
+            };
+
+            const response = {
+                httpStatus: 200,
+                payload: {
+                    data: emspCredentials,
+                    status_code: OCPIResponseStatusCode.status_1000,
+                    timestamp: new Date().toISOString(),
+                },
+            };
 
             // Log outgoing response (non-blocking)
-            OCPIRequestLogService.logResponse({
+            OCPIRequestLogService.logIncomingResponse({
                 req,
                 res,
                 responseBody: response.payload,
@@ -367,7 +457,16 @@ export default class OCPIv221CredentialsModuleIncomingRequestService {
                 command: OCPILogCommand.PatchCredentialsRes,
             });
 
-        return response;
+            logger.debug(`🟢 [${reqId}] Returning PATCH /credentials response in handlePatchCredentials`, { 
+                data: { logData, httpStatus: response.httpStatus } 
+            });
+
+            return response;
+        }
+        catch (e: any) {
+            logger.error(`🔴 [${reqId}] Error in handlePatchCredentials: ${e?.toString()}`, e, { data: logData });
+            throw e;
+        }
     }
 
     /**
@@ -379,55 +478,75 @@ export default class OCPIv221CredentialsModuleIncomingRequestService {
         incoming: OCPICredentials,
         partnerCredentials: OCPIPartnerCredentials,
     ): Promise<OCPICredentials> {
-        const prisma = databaseService.prisma;
+        const reqId = 'process-credentials';
+        const logData = { action: 'processIncomingCredentials', partnerId: partnerCredentials.partner_id };
 
-        const cpoRole = incoming.roles.find((role) => role.role === OCPIRole.CPO);
+        try {
+            logger.debug(`🟡 [${reqId}] Starting processIncomingCredentials`, { data: logData });
 
-        // Basic validation: OCPI requires at least one role.
-        if (!cpoRole) {
-            throw new Error('At least one role is required in credentials payload');
-        }
+            const prisma = databaseService.prisma;
 
-        // 3) Update CPO credentials row for this partner – store CPO token/URL.
-        const updatedCreds = await prisma.oCPIPartnerCredentials.update({
-            where: { partner_id: partnerCredentials.partner_id },
-            data: {
-                cpo_auth_token: incoming.token,
-                cpo_url: incoming.url,
-            },
-        });
+            logger.debug(`🟡 [${reqId}] Finding CPO role in incoming credentials`, { data: logData });
+            const cpoRole = incoming.roles.find((role) => role.role === OCPIRole.CPO);
 
-        // update cpo partner name
-        await prisma.oCPIPartner.update({
-            where: { id: partnerCredentials.partner_id },
-            data: {
-                name: cpoRole.business_details?.name || '',
-                country_code: cpoRole.country_code as CountryCode,
-                party_id: cpoRole.party_id as string,
-                versions_url: incoming.url,
-            },
-        });
+            // Basic validation: OCPI requires at least one role.
+            if (!cpoRole) {
+                logger.error(`🔴 [${reqId}] No CPO role found in credentials payload`, undefined, { data: logData });
+                throw new Error('At least one role is required in credentials payload');
+            }
 
-        const emspPartner = await prisma.oCPIPartner.findFirst({
-            where: {
-                role: 'EMSP',
-                deleted: false,
-            },
-        });
-
-        return {
-            token: updatedCreds.emsp_auth_token || '',
-            url: updatedCreds.emsp_url || '',
-            roles: [
-                {
-                    country_code: emspPartner?.country_code as CountryCode,
-                    party_id: emspPartner?.party_id as string,
-                    role: OCPIRole.EMSP,
-                    business_details: {
-                        name: emspPartner?.name || '',
-                    }
+            logger.debug(`🟡 [${reqId}] Updating CPO credentials in DB`, { data: logData });
+            // 3) Update CPO credentials row for this partner – store CPO token/URL.
+            const updatedCreds = await prisma.oCPIPartnerCredentials.update({
+                where: { partner_id: partnerCredentials.partner_id },
+                data: {
+                    cpo_auth_token: incoming.token,
+                    cpo_url: incoming.url,
                 },
-            ],
-        };
+            });
+
+            logger.debug(`🟡 [${reqId}] Updating CPO partner details in DB`, { data: logData });
+            // update cpo partner name
+            await prisma.oCPIPartner.update({
+                where: { id: partnerCredentials.partner_id },
+                data: {
+                    name: cpoRole.business_details?.name || '',
+                    country_code: cpoRole.country_code as CountryCode,
+                    party_id: cpoRole.party_id as string,
+                    versions_url: incoming.url,
+                },
+            });
+
+            logger.debug(`🟡 [${reqId}] Fetching EMSP partner from DB`, { data: logData });
+            const emspPartner = await prisma.oCPIPartner.findFirst({
+                where: {
+                    role: 'EMSP',
+                    deleted: false,
+                },
+            });
+
+            logger.debug(`🟢 [${reqId}] Successfully processed incoming credentials`, { 
+                data: { logData, emspPartnerFound: !!emspPartner } 
+            });
+
+            return {
+                token: updatedCreds.emsp_auth_token || '',
+                url: updatedCreds.emsp_url || '',
+                roles: [
+                    {
+                        country_code: emspPartner?.country_code as CountryCode,
+                        party_id: emspPartner?.party_id as string,
+                        role: OCPIRole.EMSP,
+                        business_details: {
+                            name: emspPartner?.name || '',
+                        }
+                    },
+                ],
+            };
+        }
+        catch (e: any) {
+            logger.error(`🔴 [${reqId}] Error in processIncomingCredentials: ${e?.toString()}`, e, { data: logData });
+            throw e;
+        }
     }
 }

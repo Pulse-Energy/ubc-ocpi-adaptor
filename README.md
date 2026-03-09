@@ -221,7 +221,11 @@ Having issues? Check out:
 
 - 📖 Read the [documentation](./docs/)
 - 🐛 Check [GitHub issues](https://github.com/your-repo/issues)
-- 💬 Contact the development team on [devs@pulseenergy.io](devs@pulseenergy.io)
+- 💬 Contact the development team
+
+## License
+
+ISC
 
 ---
 

@@ -7,5 +7,6 @@ export type UBCPublishRequestPayload = {
     message: {
         catalogs: BecknCatalog[];
     };
+    error?: Record<string, never>;
 };
 

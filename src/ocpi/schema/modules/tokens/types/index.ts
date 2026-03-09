@@ -61,6 +61,7 @@ export type OCPIAuthorizationInfo = {
     location?: OCPILocationReferences,
     authorization_references?: string,
     info?: OCPIDisplayText,
+    cache_until?: ISODateTime, // Optional: tells CPO how long to cache this authorization decision
 }
 
 // #OCPIv2.1.1

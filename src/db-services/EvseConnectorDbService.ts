@@ -1,7 +1,6 @@
 import { Tariff, Prisma, EVSEConnector, EVSE, Location } from '@prisma/client';
 import { databaseService } from '../services/database.service';
 
-export type TariffWithRelations = Tariff;
 
 export class EvseConnectorDbService {
     public static async getByFiltersWithoutCount(
@@ -66,6 +65,33 @@ export class EvseConnectorDbService {
             ...args,
         });
 
+        return evseConnector;
+    }
+
+    public static async getByBecknConnectorId(
+        becknConnectorId: string,
+        args: Prisma.EVSEConnectorFindFirstArgs = {}
+    ): Promise<(EVSEConnector & { evse?: EVSE & { location?: Location } }) | null> {
+        const evseConnector = await databaseService.prisma.eVSEConnector.findFirst({
+            where: { beckn_connector_id: becknConnectorId, deleted: false },
+            ...args,
+        });
+        return evseConnector;
+    }
+
+    public static async updateUBCCatalogId(evseConnectorId: string, ubcCatalogId: string): Promise<EVSEConnector> {
+        const evseConnector = await databaseService.prisma.eVSEConnector.update({
+            where: { id: evseConnectorId },
+            data: { ubc_catalog_id: ubcCatalogId },
+        }) as EVSEConnector;
+        return evseConnector;
+    }
+
+    public static async updateEVSEConnector(evseConnectorId: string, data: Prisma.EVSEConnectorUpdateInput): Promise<EVSEConnector> {
+        const evseConnector = await databaseService.prisma.eVSEConnector.update({
+            where: { id: evseConnectorId },
+            data,
+        }) as EVSEConnector;
         return evseConnector;
     }
 

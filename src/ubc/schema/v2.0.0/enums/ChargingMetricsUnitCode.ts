@@ -1,7 +1,11 @@
 export enum ChargingMetricsUnitCode {
-    percentage = 'PERCENTAGE',
-    kwh = 'KWH',
-    kw = 'KW',
-    vlt = 'VLT',
-    amp = 'AMP',
+    // Energy units
+    KWH = "KWH",           // Kilowatt Hour
+    // Time units
+    MIN = "MIN",           // Minutes
+    H = "H",               // Hour
+    MON = "MON",           // Month
+
+    INR = "INR",           // Indian Rupee
+    
 }

@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client';
+import { PaymentTxn, Prisma } from '@prisma/client';
 import { Request } from 'express';
 import { BecknDomain } from '../../schema/v2.0.0/enums/BecknDomain';
 import { BecknActionResponse } from '../../schema/v2.0.0/types/AckResponse';
@@ -9,7 +9,6 @@ import { BecknAction } from '../../schema/v2.0.0/enums/BecknAction';
 import { logger } from '../../../services/logger.service';
 import { UBCOnInitRequestPayload } from '../../schema/v2.0.0/actions/init/types/OnInitPayload';
 import BecknLogDbService from '../../../db-services/BecknLogDbService';
-import { ChargingSessionStatus } from '../../schema/v2.0.0/enums/ChargingSessionStatus';
 import {
     ExtractedInitRequestBody,
     GeneratePaymentLinkRequestPayload,
@@ -26,10 +25,22 @@ import { UBCChargingMethod } from '../../schema/v2.0.0/enums/UBCChargingMethod';
 import CPOBackendRequestService from '../../services/CPOBackendRequestService';
 import PaymentTxnDbService from '../../../db-services/PaymentTxnDbService';
 import { BecknPaymentStatus } from '../../schema/v2.0.0/enums/PaymentStatus';
-import { EvseConnectorDbService } from '../../../db-services/EvseConnectorDbService';
+import { LocationDbService } from '../../../db-services/LocationDbService';
 import OCPIPartnerDbService from '../../../db-services/OCPIPartnerDbService';
-import { OCPIPartnerAdditionalProps } from '../../../types/OCPIPartner';
+import { OCPIPartnerAdditionalProps, PaymentServiceProvider } from '../../../types/OCPIPartner';
+import PaymentGatewayService from '../../services/PaymentServices/PaymentGatewayService';
+import PublishActionService from '../services/PublishActionService';
+import { UBCSelectRequestPayload } from '../../schema/v2.0.0/actions/select/types/SelectPayload';
 import OnStatusActionHandler from './OnStatusActionHandler';
+import { CreateUPIPaymentWithRazorpayResponse } from '../../../types/Razorpay';
+import { ChargingMetricsUnitCode } from '../../schema/v2.0.0/enums/ChargingMetricsUnitCode';
+import { SessionDbService } from '../../../db-services/SessionDbService';
+import { OCPISessionStatus } from '../../../ocpi/schema/modules/sessions/enums';
+import { BuyerFinderFee } from '../../schema/v2.0.0/types/BuyerFinderFee';
+import { BuyerFinderFeeEnum } from '../../schema/v2.0.0/enums/BuyerFinderFeeEnum';
+import { BecknOrderValueComponents, GSTBreakup, PaymentBreakdown } from '../../schema/v2.0.0/types/OrderValue';
+import { OrderValueComponentsType } from '../../schema/v2.0.0/enums/OrderValueComponentsType';
+import { BuyerDetails } from '../../schema/v2.0.0/types/BuyerDetails';
 
 export default class InitActionHandler {
     public static async handleBppInitAction(
@@ -57,6 +68,35 @@ export default class InitActionHandler {
         const logData = { action: 'init', messageId: reqId };
 
         try {
+            // Determine beneficiary: if BAP sends BPP, use BPP; if BAP sends BAP, check partner config
+            const bapBeneficiary = reqPayload.message?.order?.['beckn:payment']?.['beckn:beneficiary'] as 'BPP' | 'BAP' | undefined;
+            let finalBeneficiary: 'BPP' | 'BAP' = 'BPP'; // Default to BPP
+            
+            // if (bapBeneficiary === 'BPP') {
+            //     finalBeneficiary = 'BPP';
+            // }
+            // else if (bapBeneficiary === 'BAP') {
+            //     // Get partner to check beneficiary configuration
+            //     const chargePointConnectorId = reqPayload.message?.order?.['beckn:orderItems']?.[0]?.['beckn:orderedItem'];
+            //     if (chargePointConnectorId) {
+            //         const evse = await LocationDbService.findEVSEByBecknConnectorId(chargePointConnectorId);
+            //         if (evse?.evse_connectors?.[0]?.partner_id) {
+            //             const partner = await OCPIPartnerDbService.getById(evse.evse_connectors[0].partner_id);
+            //             const additionalProps = partner?.additional_props as OCPIPartnerAdditionalProps | undefined;
+            //             const partnerBeneficiary = additionalProps?.beneficiary;
+                        
+            //             if (partnerBeneficiary === 'BAP' || partnerBeneficiary === 'BPP') {
+            //                 finalBeneficiary = partnerBeneficiary;
+            //             }
+            //         }
+            //     }
+            // }
+            
+            logger.debug(`🟡 [${reqId}] Determined beneficiary: ${finalBeneficiary}`, {
+                bapBeneficiary,
+                finalBeneficiary,
+            });
+
             // translate BAP schema to CPO's BE server
             logger.debug(
                 `🟡 [${reqId}] Translating UBC to Backend payload in handleEVChargingUBCBppInitAction`,
@@ -65,13 +105,28 @@ export default class InitActionHandler {
             const backendInitPayload: ExtractedInitRequestBody =
                 InitActionHandler.translateUBCToBackendPayload(reqPayload);
 
-            // make a request to CPO BE server
+            // Fetch select request to get buyerFinderFee
+            const selectRequest = await InitActionHandler.fetchExistingBppSelectRequest(reqPayload.context.transaction_id);
+            let buyerFinderFee: BuyerFinderFee | undefined;
+            if (selectRequest) {
+                const orderAttributes = selectRequest.message?.order?.['beckn:orderAttributes'];
+                const orderAttributesRecord = orderAttributes as Record<string, unknown>;
+                const buyerFinderFeeObj = orderAttributesRecord?.['buyerFinderFee'] as BuyerFinderFee | undefined;
+                if (buyerFinderFeeObj) {
+                    buyerFinderFee = {
+                        feeType: buyerFinderFeeObj.feeType as BuyerFinderFeeEnum,
+                        feeValue: buyerFinderFeeObj.feeValue,
+                    };
+                }
+            }
+
+            // Create payment txn for both BPP and BAP (BAP gets 0 rupees for consistency)
             logger.debug(
                 `🟡 [${reqId}] Sending init call to backend in handleEVChargingUBCBppInitAction`,
                 { data: { backendInitPayload } }
             );
             const backendOnInitResponsePayload: ExtractedOnInitResponseBody =
-                await InitActionHandler.createPaymentTxnDetails(backendInitPayload);
+                await InitActionHandler.createPaymentTxnDetails(backendInitPayload, finalBeneficiary, buyerFinderFee);
             logger.debug(
                 `🟢 [${reqId}] Received init response from backend in handleEVChargingUBCBppInitAction`,
                 { data: { backendOnInitResponsePayload } }
@@ -82,8 +137,18 @@ export default class InitActionHandler {
                 `🟡 [${reqId}] Translating Backend to UBC payload in handleEVChargingUBCBppInitAction`,
                 { data: { reqPayload, backendOnInitResponsePayload } }
             );
+            // Get partner for settlement account
+            let partner = null;
+            const chargePointConnectorId = reqPayload.message?.order?.['beckn:orderItems']?.[0]?.['beckn:orderedItem'];
+            if (chargePointConnectorId) {
+                const connectorData = await LocationDbService.getConnectorByBecknId(chargePointConnectorId);
+                if (connectorData?.connector?.partner_id) {
+                    partner = await OCPIPartnerDbService.getById(connectorData.connector.partner_id);
+                }
+            }
+
             const ubcOnInitPayload: UBCOnInitRequestPayload =
-                InitActionHandler.translateBackendToUBC(reqPayload, backendOnInitResponsePayload);
+                await InitActionHandler.translateBackendToUBC(reqPayload, backendOnInitResponsePayload, finalBeneficiary, partner);
 
             // Call BAP on_select
             logger.debug(
@@ -96,6 +161,66 @@ export default class InitActionHandler {
                 { data: { response } }
             );
 
+            // Publish catalog with 5 minute reservation after on_init (async, non-blocking)
+            Utils.executeAsync(async () => {
+                try {
+                    const chargePointConnectorId = reqPayload.message?.order?.['beckn:orderItems']?.[0]?.['beckn:orderedItem'];
+                    if (chargePointConnectorId) {
+                        // Fetch connector directly from DB using beckn_connector_id
+                        const connectorData = await LocationDbService.getConnectorByBecknId(chargePointConnectorId);
+                        if (connectorData) {
+                            // Reserve for 5 minutes (300 seconds) - publish only this connector
+                            await PublishActionService.publishWithReservation(
+                                connectorData.connector.connector_id, // OCPI connector_id
+                                300 // 5 minutes
+                            );
+                        }
+                    }
+
+                    // Check if callback_on_status_api is enabled and send on_status after configured delay
+                    // Only for BPP beneficiary (BAP handles payment in confirm)
+                    if (finalBeneficiary === 'BPP') {
+                        const authorizationReference = backendOnInitResponsePayload.payload.chargeTxnRef;
+                        if (authorizationReference) {
+                        // Get partner to check callback_on_status_api configuration
+                        const chargePointConnectorId = reqPayload.message?.order?.['beckn:orderItems']?.[0]?.['beckn:orderedItem'];
+                        if (chargePointConnectorId) {
+                            const connectorData = await LocationDbService.getConnectorByBecknId(chargePointConnectorId);
+                            if (connectorData?.connector?.partner_id) {
+                                const partner = await OCPIPartnerDbService.getById(connectorData.connector.partner_id);
+                                const additionalProps = partner?.additional_props as OCPIPartnerAdditionalProps | undefined;
+                                const callbackConfig = additionalProps?.callback_on_status_api;
+
+                                if (callbackConfig?.enabled && callbackConfig?.callback_time) {
+                                    const callbackTimeMs = callbackConfig.callback_time * 1000; // Convert seconds to milliseconds
+                                    logger.debug(`🟡 [${reqId}] Scheduling on_status callback after ${callbackConfig.callback_time} seconds`, {
+                                        authorization_reference: authorizationReference,
+                                        callback_time: callbackConfig.callback_time,
+                                    });
+
+                                    setTimeout(() => {
+                                        logger.debug(`🟡 [${reqId}] Sending on_status call with COMPLETED payment status`, {
+                                            authorization_reference: authorizationReference,
+                                        });
+                                        OnStatusActionHandler.sendOnStatusWithCompletedPayment(authorizationReference)
+                                            .then(() => {
+                                                logger.debug(`🟢 [${reqId}] Successfully sent on_status call with COMPLETED payment status`);
+                                            })
+                                            .catch((e: any) => {
+                                                logger.error(`🔴 [${reqId}] Error sending on_status call: ${e?.toString()}`, e);
+                                            });
+                                    }, callbackTimeMs);
+                                }
+                            }
+                        }
+                    }
+                }
+                }
+                catch (e: any) {
+                    logger.error(`🔴 [${reqId}] Error publishing with reservation after on_init: ${e?.toString()}`, e);
+                    // Don't throw - publish failures shouldn't block init
+                }
+            });
 
             return ubcOnInitPayload;
         } 
@@ -144,6 +269,25 @@ export default class InitActionHandler {
     public static translateUBCToBackendPayload(
         payload: UBCInitRequestPayload
     ): ExtractedInitRequestBody {
+        const buyer = payload.message.order['beckn:buyer'];
+        const orderItem = payload.message.order['beckn:orderItems'][0];
+
+        let unitQuantity = orderItem['beckn:quantity']?.['unitQuantity'] ?? 0;
+        const unitCode = orderItem['beckn:quantity']?.['unitCode'];
+
+        let chargingOptionUnit = unitQuantity?.toString();
+        let chargingOptionType = UBCChargingMethod.Units;
+        if(unitCode && unitCode === ChargingMetricsUnitCode.KWH) {
+            chargingOptionUnit = (unitQuantity * 1000).toString();
+            chargingOptionType = UBCChargingMethod.Units;
+
+        }
+
+        if(unitCode === ChargingMetricsUnitCode.INR) {
+            chargingOptionType = UBCChargingMethod.Amount;
+            chargingOptionUnit = unitQuantity.toString();
+        }
+        
         const backendInitPayload: ExtractedInitRequestBody = {
             metadata: {
                 domain: BecknDomain.EVChargingUBC,
@@ -156,40 +300,92 @@ export default class InitActionHandler {
             payload: {
                 amount: payload.message.order['beckn:orderValue']['value'],
                 orderValueComponents: payload.message.order['beckn:orderValue']['components'],
-                charge_point_connector_id:
-                    payload.message.order['beckn:orderItems'][0]['beckn:orderedItem'],
-                charging_option_type: UBCChargingMethod.Units,
-                charging_option_unit: (
-                    payload.message.order['beckn:orderItems'][0]['beckn:quantity']['unitQuantity'] *
-                    1000
-                ).toString(),
+                charge_point_connector_id: orderItem['beckn:orderedItem'],
+                charging_option_type: chargingOptionType,
+                charging_option_unit: chargingOptionUnit,
                 buyer_details: {
-                    id: payload.message.order['beckn:buyer']['beckn:id'],
-                    name: payload.message.order['beckn:buyer']['beckn:name'],
-                    address: payload.message.order['beckn:buyer']['beckn:address'],
-                    email: payload.message.order['beckn:buyer']['beckn:email'],
-                    phone: payload.message.order['beckn:buyer']['beckn:phone'],
-                    tax_id: payload.message.order['beckn:buyer']['beckn:taxId'],
+                    id: buyer['beckn:id'],
+                    name: buyer['beckn:displayName'], // v0.9: renamed from beckn:name
+                    address: buyer['beckn:address'],
+                    email: buyer['beckn:email'],
+                    phone: buyer['beckn:telephone'], // v0.9: renamed from beckn:phone
+                    tax_id: buyer['beckn:taxID'], // v0.9: renamed from beckn:taxId
                     organization_name:
-                        payload.message.order['beckn:buyer']['beckn:organization']?.['descriptor'][
-                            'name'
-                        ],
-                },
+                        buyer['beckn:organization']?.['descriptor']?.['name'],
+                } as BuyerDetails,
             },
         };
         return backendInitPayload;
     }
 
+    public static async fetchExistingBppSelectRequest(transactionId: string): Promise<UBCSelectRequestPayload | null> {
+        /**
+         * Fetch existing select request for this transaction id
+         */
+        const becknLogs = await BecknLogDbService.getByFilters({
+            where: {
+                transaction_id: transactionId,
+                action: `bpp.in.request.${BecknAction.select}`,
+                domain: BecknDomain.EVChargingUBC,
+            },
+            select: {
+                payload: true,
+            },
+            orderBy: {
+                created_on: Prisma.SortOrder.desc,
+            },
+            take: 1,
+        });
+
+        if (becknLogs?.records && becknLogs.records.length > 0) {
+            return becknLogs.records[0].payload as UBCSelectRequestPayload;
+        }
+
+        return null;
+    }
+
     public static async createPaymentTxnDetails(
-        payload: ExtractedInitRequestBody
+        payload: ExtractedInitRequestBody,
+        beneficiary: 'BPP' | 'BAP',
+        buyerFinderFee?: { feeType?: string; feeValue?: number },
     ): Promise<ExtractedOnInitResponseBody> {
         const finalAmount = payload.payload.amount;
-        const evseConnector = await EvseConnectorDbService.getById(
-            payload.payload.charge_point_connector_id
-        );
+        
+        // Fetch connector directly from DB using beckn_connector_id
+        const connectorData = await LocationDbService.getConnectorByBecknId(payload.payload.charge_point_connector_id);
+        
+        if (!connectorData) {
+            throw new Error(`Connector not found for ID: ${payload.payload.charge_point_connector_id}`);
+        }
+
+        const evseConnector = connectorData.connector;
+        
+        if (!evseConnector.partner_id) {
+            throw new Error(`Connector ${payload.payload.charge_point_connector_id} does not have a partner_id`);
+        }
+        
+        // Verify the partner exists
+        const partner = await OCPIPartnerDbService.getById(evseConnector.partner_id);
+        if (!partner) {
+            throw new Error(`Partner not found for partner_id: ${evseConnector.partner_id}`);
+        }
+        
         const authorizationReference = Utils.generateUUID();
         const paymentStatus = BecknPaymentStatus.PENDING;
         const orderValueComponents = payload.payload.orderValueComponents;
+        
+        // Extract buyer finder fee from select request and prepare service_charge
+        const serviceCharge: { buyer_finder_fee?: BuyerFinderFee; network_fee?: number } = {};
+        if (buyerFinderFee) {
+            serviceCharge.buyer_finder_fee = {
+                feeType: buyerFinderFee.feeType as BuyerFinderFeeEnum,
+                feeValue: buyerFinderFee.feeValue ?? 0,
+            };
+        }
+
+        const gstBreakup = InitActionHandler.buildGSTBreakup(orderValueComponents);
+        // network_fee defaults to 0.3, but we can set it here if needed in the future
+        
         const paymentTxnData: Prisma.PaymentTxnUncheckedCreateInput = {
             authorization_reference: authorizationReference,
             amount: finalAmount,
@@ -197,27 +393,38 @@ export default class InitActionHandler {
             payment_breakdown: {
                 total: finalAmount,
                 breakdown: orderValueComponents,
-            },
+                gst_breakup: gstBreakup,
+            } as PaymentBreakdown,
             status: paymentStatus,
             requested_energy_units: payload.payload.charging_option_unit,
-            partner_id: evseConnector?.partner_id ?? '',
+            partner_id: evseConnector.partner_id,
             beckn_transaction_id: payload.metadata.beckn_transaction_id,
+            beneficiary: beneficiary,
+            service_charge: serviceCharge,
         };
         const paymentTxn = await PaymentTxnDbService.create({
             data: paymentTxnData,
         });
-        const generatePaymentLinkResponse =
-            await InitActionHandler.sendGeneratePaymentLinkCallToBackend(
+
+        let paymentLink = '';
+        if (beneficiary === 'BPP') {
+            const generatePaymentLinkResponse =
+            await InitActionHandler.generatePaymentLink(
                 {
                     amount: finalAmount,
                     authorization_reference: authorizationReference,
                 },
-                paymentTxn.partner_id
+                paymentTxn,
+                payload?.payload?.buyer_details as BuyerDetails
             );
-        PaymentTxnDbService.update(paymentTxn.id, {
-            payment_link: generatePaymentLinkResponse.payment_link,
-            authorization_reference: generatePaymentLinkResponse.authorization_reference,
-        });
+
+            PaymentTxnDbService.update(paymentTxn.id, {
+                payment_link: generatePaymentLinkResponse.payment_link,
+                authorization_reference: generatePaymentLinkResponse.authorization_reference,
+            });
+
+            paymentLink = generatePaymentLinkResponse.payment_link;
+        }
 
         const extractedOnInitResponseBody: ExtractedOnInitResponseBody = {
             metadata: {
@@ -225,14 +432,58 @@ export default class InitActionHandler {
             },
             payload: {
                 becknPaymentId: paymentTxn.id,
-                paymentLink: generatePaymentLinkResponse.payment_link,
+                paymentLink: paymentLink,
                 chargeTxnRef: paymentTxn.authorization_reference,
+                beneficiary: 'BPP', // Payment txn is only created for BPP beneficiary
                 paymentStatus: paymentStatus,
                 becknOrderId: paymentTxn.authorization_reference,
                 amount: finalAmount,
             },
         };
+
+        const sessionData: Prisma.SessionUncheckedCreateInput = {
+            country_code: 'IN',
+            partner_id: evseConnector.partner_id ?? '',
+            location_id: connectorData.location.ocpi_location_id,
+            evse_uid: connectorData.evse.uid,
+            connector_id: connectorData.connector.connector_id,
+            authorization_reference: paymentTxn.authorization_reference,
+            requested_energy_units: paymentTxn.requested_energy_units,
+            status: OCPISessionStatus.PENDING,
+            buyer_info: payload?.payload?.buyer_details as BuyerDetails,
+        };
+        
+        SessionDbService.create({
+            data: sessionData,
+        });
+
         return extractedOnInitResponseBody;
+    }
+
+    public static async generatePaymentLink(
+        payload: GeneratePaymentLinkRequestPayload,
+        paymentTxn: PaymentTxn,
+        buyerDetails?: BuyerDetails
+    ): Promise<GeneratePaymentLinkResponsePayload> {
+        const ocpiPartner = await OCPIPartnerDbService.getById(paymentTxn.partner_id);
+        if (!ocpiPartner) {
+            throw new Error('OCPI partner not found');
+        }
+        const ocpiPartnerAdditionalProps =
+            ocpiPartner?.additional_props as OCPIPartnerAdditionalProps;
+        
+        if (ocpiPartnerAdditionalProps?.payment_service_provider === PaymentServiceProvider.CPO) {
+            return await this.sendGeneratePaymentLinkCallToBackend(payload, paymentTxn.partner_id);
+        }
+        else {
+            const paymentGatewayOrder = await PaymentGatewayService.createPaymentGatewayOrder(paymentTxn, ocpiPartner, buyerDetails) as  CreateUPIPaymentWithRazorpayResponse;
+
+            return {
+                payment_link: paymentGatewayOrder.payment?.link || '',
+                authorization_reference: paymentTxn.authorization_reference,
+            };
+        
+        }
     }
 
     public static async sendGeneratePaymentLinkCallToBackend(
@@ -265,44 +516,111 @@ export default class InitActionHandler {
         return response.data as GeneratePaymentLinkResponsePayload;
     }
 
-    public static translateBackendToUBC(
+    public static async translateBackendToUBC(
         backendInitPayload: UBCInitRequestPayload,
-        backendOnInitResponsePayload: ExtractedOnInitResponseBody
-    ): UBCOnInitRequestPayload {
+        backendOnInitResponsePayload: ExtractedOnInitResponseBody,
+        beneficiary?: 'BPP' | 'BAP',
+        partner?: { additional_props: unknown } | null
+    ): Promise<UBCOnInitRequestPayload> {
         const context = Utils.getBPPContext({
             ...backendInitPayload.context,
             action: BecknAction.on_init,
         });
 
+        const initOrder = backendInitPayload.message.order;
+        const finalBeneficiary = beneficiary ?? backendOnInitResponsePayload.payload.beneficiary ?? 'BPP';
+        const bppId = Utils.getBppId();
+
+        // Build settlementAccounts array - include BAP from init request and BPP from partner config
+        const initPaymentAttributes = initOrder['beckn:payment']?.['beckn:paymentAttributes'] as Record<string, unknown> | undefined;
+        const initSettlementAccounts = initPaymentAttributes?.['settlementAccounts'] as Array<Record<string, unknown>> | undefined || [];
+
+        // Add BPP settlement account from partner config
+        if (partner && bppId) {
+            const additionalProps = partner.additional_props as OCPIPartnerAdditionalProps | undefined;
+            const bppSettlementAccount = additionalProps?.settlement_account;
+            if (bppSettlementAccount) {
+                initSettlementAccounts.push({
+                    beneficiaryId: bppId,
+                    accountHolderName: bppSettlementAccount.accountHolderName,
+                    accountNumber: bppSettlementAccount.accountNumber,
+                    ifscCode: bppSettlementAccount.ifscCode,
+                    bankName: bppSettlementAccount.bankName,
+                    vpa: bppSettlementAccount.vpa,
+                });
+            }
+        }
+
+        const settlementAccounts = initSettlementAccounts;
+
+        // Build paymentAttributes
+        const paymentAttributes: Record<string, unknown> = {};
+        if (initPaymentAttributes) {
+            paymentAttributes['@context'] = initPaymentAttributes['@context'] || "https://raw.githubusercontent.com/bhim/ubc-tsd/main/beckn-schemas/UBCExtensions/v1/context.jsonld";
+            paymentAttributes['@type'] = initPaymentAttributes['@type'] || "UBCPaymentAttributes";
+            
+            // Include upiTransactionId if present
+            if (initPaymentAttributes['upiTransactionId']) {
+                paymentAttributes['upiTransactionId'] = initPaymentAttributes['upiTransactionId'];
+            }
+        }
+        else {
+            paymentAttributes['@context'] = "https://raw.githubusercontent.com/bhim/ubc-tsd/main/beckn-schemas/UBCExtensions/v1/context.jsonld";
+            paymentAttributes['@type'] = "UBCPaymentAttributes";
+        }
+
+        // Include settlementAccounts if any are present
+        if (settlementAccounts.length > 0) {
+            paymentAttributes['settlementAccounts'] = settlementAccounts;
+        }
+
+        // v0.9: OnInit response - removed orderNumber, orderAttributes, fulfillment
+        // v0.9: Added beckn:id (order id), full payment with paymentURL, txnRef, acceptedPaymentMethod
+        // Build payment object - conditionally include paymentURL, txnRef, acceptedPaymentMethod only for BPP
+        // Always use payment amount from init order to ensure consistency
+        const initPayment = initOrder['beckn:payment'] as Record<string, unknown> | undefined;
+        const initPaymentAmount = initPayment?.['beckn:amount'] as { currency?: string; value?: number } | undefined;
+        const paymentAmount = initPaymentAmount?.value ?? (initOrder['beckn:orderValue']?.['value'] as number | undefined);
+        
+        const paymentObject: any = {
+            '@context':
+                'https://raw.githubusercontent.com/beckn/protocol-specifications-v2/refs/heads/core-v2.0.0-rc/schema/core/v2/context.jsonld',
+            '@type': ObjectType.payment,
+            'beckn:id': backendOnInitResponsePayload.payload.becknPaymentId || Utils.generateUUID(),
+            'beckn:amount': {
+                currency: 'INR',
+                value: paymentAmount,
+            },
+            'beckn:beneficiary': finalBeneficiary,
+            'beckn:paymentStatus': backendOnInitResponsePayload.payload.paymentStatus,
+            // v0.9: paymentAttributes with settlementAccounts (BAP from init request, BPP from partner config)
+            'beckn:paymentAttributes': Object.keys(paymentAttributes).length > 0 ? paymentAttributes : undefined,
+        };
+
+        // Only include paymentURL, txnRef, acceptedPaymentMethod for BPP beneficiary
+        if (finalBeneficiary === 'BPP') {
+            paymentObject['beckn:paymentURL'] = backendOnInitResponsePayload.payload.paymentLink;
+            paymentObject['beckn:txnRef'] = backendOnInitResponsePayload.payload.chargeTxnRef;
+            paymentObject['beckn:acceptedPaymentMethod'] = [
+                AcceptedPaymentMethod.BANK_TRANSFER,
+                AcceptedPaymentMethod.UPI,
+                AcceptedPaymentMethod.WALLET,
+            ];
+        }
+
         const ubcOnInitPayload: UBCOnInitRequestPayload = {
             context: context,
             message: {
                 order: {
-                    ...backendInitPayload.message.order,
-                    'beckn:orderAttributes': {
-                        ...backendInitPayload.message.order['beckn:orderAttributes'],
-                        sessionStatus: ChargingSessionStatus.PENDING,
-                    },
-                    'beckn:orderNumber': backendOnInitResponsePayload.payload.becknOrderId,
-                    'beckn:payment': {
-                        '@context':
-                            'https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/draft/schema/core/v2/context.jsonld',
-                        '@type': ObjectType.payment,
-                        'beckn:id': backendOnInitResponsePayload.payload.becknPaymentId,
-                        'beckn:amount': {
-                            currency: 'INR',
-                            value: backendOnInitResponsePayload.payload.amount,
-                        },
-                        'beckn:paymentURL': backendOnInitResponsePayload.payload.paymentLink,
-                        'beckn:txnRef': backendOnInitResponsePayload.payload.chargeTxnRef,
-                        'beckn:beneficiary': backendOnInitResponsePayload.payload.beneficiary ?? '',
-                        'beckn:acceptedPaymentMethod': [
-                            AcceptedPaymentMethod.UPI,
-                            AcceptedPaymentMethod.CREDIT_CARD,
-                            AcceptedPaymentMethod.DEBIT_CARD,
-                        ],
-                        'beckn:paymentStatus': backendOnInitResponsePayload.payload.paymentStatus,
-                    },
+                    '@context': initOrder['@context'],
+                    '@type': initOrder['@type'],
+                    'beckn:id': backendOnInitResponsePayload.payload.becknOrderId, // v0.9: order id assigned by BPP
+                    'beckn:orderStatus': initOrder['beckn:orderStatus'],
+                    'beckn:seller': initOrder['beckn:seller'],
+                    'beckn:buyer': initOrder['beckn:buyer'],
+                    'beckn:orderItems': initOrder['beckn:orderItems'],
+                    'beckn:orderValue': initOrder['beckn:orderValue'],
+                    'beckn:payment': paymentObject,
                 },
             },
         };
@@ -365,5 +683,18 @@ export default class InitActionHandler {
 
         // Send the error response to BPP ONIX, which will forward it to BAP
         await this.sendOnInitCallToBecknONIX(errorOnInitPayload);
+    }
+
+    static buildGSTBreakup(orderValueComponents: BecknOrderValueComponents[]): GSTBreakup {
+        const gstBreakup: GSTBreakup = {};
+        const gstOnChargingSessionCost = (orderValueComponents.find(component => component.type === OrderValueComponentsType.UNIT && component.description === 'Charging session cost')?.value ?? 0);
+        const gstOnPgProcessingFee = orderValueComponents.find(component => component.type === OrderValueComponentsType.FEE && component.description === 'Payment processing fee')?.value || 0;
+        const gstOnBuyerFinderFee = orderValueComponents.find(component => component.type === OrderValueComponentsType.FEE && component.description === 'Buyer finder fee')?.value || 0;
+        const gstOnNetworkFinderFee = orderValueComponents.find(component => component.type === OrderValueComponentsType.FEE && component.description === 'Network finder fee')?.value || 0;
+        gstBreakup.charging_session_cost = Number(gstOnChargingSessionCost.toFixed(2));
+        gstBreakup.gst_on_pg_processing_fee = Number(gstOnPgProcessingFee.toFixed(2));
+        gstBreakup.gst_on_buyer_finder_fee = Number(gstOnBuyerFinderFee.toFixed(2));
+        gstBreakup.gst_on_network_finder_fee = Number(gstOnNetworkFinderFee.toFixed(2));
+        return gstBreakup;
     }
 }

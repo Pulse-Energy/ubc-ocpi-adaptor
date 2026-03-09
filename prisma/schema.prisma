@@ -13,7 +13,7 @@ datasource db {
 // OCPI 2.2.1 Location Model
 model Location {
   id                   String    @id @default(uuid())
-  ocpi_location_id     String
+  ocpi_location_id     String // OCPI ID sent by CPO
   name                 String?
   latitude             String // From coordinates
   longitude            String // From coordinates
@@ -43,6 +43,7 @@ model Location {
   deleted_at           DateTime?
   created_at           DateTime  @default(now())
   updated_at           DateTime  @updatedAt
+  external_object_id   String    @unique 
 
   // Relations
   evses      EVSE[]
@@ -62,7 +63,7 @@ model EVSE {
   id                      String    @id @default(uuid())
   location_id             String
   location                Location  @relation(fields: [location_id], references: [id], onDelete: Cascade)
-  uid                     String
+  uid                     String // OCPI ID sent by CPO
   evse_id                 String?
   status                  String // OCPIStatus enum
   status_schedule         Json? // OCPIStatusSchedule[]
@@ -82,6 +83,7 @@ model EVSE {
   created_at              DateTime  @default(now())
   updated_at              DateTime  @updatedAt
   partner_id              String
+  external_object_id      String    @unique 
 
   // Relations
   evse_connectors EVSEConnector[]
@@ -98,7 +100,7 @@ model EVSEConnector {
   id                   String      @id @default(uuid())
   evse_id              String
   evse                 EVSE        @relation(fields: [evse_id], references: [id], onDelete: Cascade)
-  connector_id         String // OCPI id field
+  connector_id         String // OCPI ID sent by CPO
   standard             String // OCPIConnectorType enum
   format               String // OCPIConnectorFormat enum
   qr_code              String?
@@ -117,12 +119,18 @@ model EVSEConnector {
   partner_id           String
   partner              OCPIPartner @relation(fields: [partner_id], references: [id], onDelete: Cascade)
   ocpilogs             OCPILog[]
+  beckn_connector_id   String      @unique // Beckn connector ID (format: IND*TPC*{ocpi_location_id}*{evse_uid}*{connector_id}). If provided, only this connector will be published.
+  ubc_catalog_id       String?     /// the catalog id used during published the cpc
+  ubc_publish_enabled  String?     @default("true")  /// Determines if a cpc should be published or not
+  ubc_publish_info     Json?       @default("{}") @db.Json /// Information about the publication of the cpc like last published_at, published, etc.
+
 
   @@unique([evse_id, connector_id])
   @@index([evse_id])
   // Optimizes getByConnectorId lookups
   @@index([connector_id])
   @@index([partner_id])
+  @@index([beckn_connector_id])
   @@map("evse_connector")
 }
 
@@ -131,7 +139,7 @@ model Tariff {
   id                  String         @id @default(uuid())
   country_code        String
   party_id            String
-  ocpi_tariff_id      String // OCPI id field
+  ocpi_tariff_id      String // OCPI ID sent by CPO
   currency            String
   type                String? // OCPITariffType enum
   tariff_alt_text     Json? // OCPIDisplayText[]
@@ -211,7 +219,7 @@ model Session {
   id                                String       @id @default(uuid())
   country_code                      String?
   party_id                          String?
-  cpo_session_id                    String? // OCPI id field
+  cpo_session_id                    String? // OCPI ID sent by CPO
   start_date_time                   DateTime?
   end_date_time                     DateTime?
   kwh                               Decimal?     @db.Decimal(10, 3)
@@ -233,6 +241,11 @@ model Session {
   updated_at                        DateTime     @updatedAt
   partner_id                        String?
   partner                           OCPIPartner? @relation(fields: [partner_id], references: [id], onDelete: Cascade)
+  requested_energy_units            Decimal?     @db.Decimal(10, 3)
+  buyer_info                        Json? // OCPIBusinessDetailsClass
+  final_amount                      Json       @default("{}") // Not an OCPI field - internal use only
+  additional_props                  Json?      @default("{}") @db.Json // Store if on_update is called for the cdr or not
+
   // Log relations (named to avoid ambiguity)
   ocpi_logs_session                 OCPILog[]    @relation("OCPILogSession")
   ocpi_logs_cpo_session             OCPILog[]    @relation("OCPILogCpoSession")
@@ -255,7 +268,7 @@ model CDR {
   id                              String      @id @default(uuid())
   country_code                    String
   party_id                        String
-  ocpi_cdr_id                     String // OCPI id field
+  ocpi_cdr_id                     String // OCPI ID sent by CPO
   start_date_time                 DateTime
   end_date_time                   DateTime
   session_id                      String?
@@ -290,6 +303,7 @@ model CDR {
   updated_at                      DateTime    @updatedAt
   partner_id                      String
   partner                         OCPIPartner @relation(fields: [partner_id], references: [id], onDelete: Cascade)
+  invoice_details                 Json?       @default("{}") @db.Json
 
   @@unique([country_code, party_id, ocpi_cdr_id])
   @@index([country_code, party_id])
@@ -305,7 +319,7 @@ model Token {
   id                   String      @id @default(uuid())
   country_code         String
   party_id             String
-  uid                  String
+  uid                  String // OCPI ID sent by CPO
   type                 String // OCPITokenType enum
   contract_id          String
   visual_number        String?
@@ -487,13 +501,19 @@ model PaymentTxn {
   partner_id                      String
   partner                         OCPIPartner @relation(fields: [partner_id], references: [id], onDelete: Cascade)
   beckn_transaction_id            String
+  payment_gateway_order_id        String?     // BillDesk/Razorpay order ID
+  payment_gateway_payment_id      String?     // BillDesk/Razorpay payment/transaction ID
+  details                         Json?       @default("{}") @db.Json // Full payment gateway response
   additional_props                Json?       @default("{}") @db.Json
+  beneficiary                     String?     // 'BAP' or 'BPP'
   created_at                      DateTime    @default(now())
   updated_at                      DateTime    @updatedAt
   deleted                         Boolean     @default(false)
   deleted_at                      DateTime?
+  service_charge                  Json       @default("{}") @db.Json // {"buyer_finder_fee": 0.9, "network_fee": 0.3} // in percentage
 
   @@index([authorization_reference])
   @@index([partner_id])
+  @@index([payment_gateway_order_id])
   @@map("payment_txn")
 }

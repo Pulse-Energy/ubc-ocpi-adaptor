@@ -18,9 +18,12 @@ import { ExtractedOnUpdateResponsePayload } from '../../schema/v2.0.0/actions/up
 import { ChargingAction } from '../../schema/v2.0.0/enums/ChargingAction';
 import AdminCommandsModule from '../../../admin/modules/AdminCommandsModule';
 import { SessionDbService } from '../../../db-services/SessionDbService';
-import { EvseConnectorDbService } from '../../../db-services/EvseConnectorDbService';
+import { LocationDbService } from '../../../db-services/LocationDbService';
 import { OCPICommandResponseResponse } from '../../../ocpi/schema/modules/commands/types/responses';
 import { OCPICommandResponseType } from '../../../ocpi/schema/modules/commands/enums';
+import PaymentTxnDbService from '../../../db-services/PaymentTxnDbService';
+import { BecknPaymentStatus } from '../../schema/v2.0.0/enums/PaymentStatus';
+import { mapGenericToBecknStatus } from '../../services/PaymentServices/Razorpay/RazorpayPaymentService';
 
 /**
  * Handler for update action
@@ -59,43 +62,51 @@ export default class UpdateActionHandler {
             const backendUpdatePayload: ExtractedUpdateRequestBody =
                 UpdateActionHandler.translateUBCToBackendPayload(reqPayload);
 
+            // Fetch on_init response to get beneficiary
+            const existingOnInitResponse = await UpdateActionHandler.fetchExistingBppOnInitResponse(reqPayload.context.transaction_id);
+            const beneficiary = existingOnInitResponse?.message?.order?.['beckn:payment']?.['beckn:beneficiary'] as 'BPP' | 'BAP' | undefined || 'BPP';
+
             // make a request to CPO BE server
             logger.debug(
                 `🟡 [${reqId}] Sending update call to backend in handleEVChargingUBCBppUpdateAction`,
-                { data: { backendUpdatePayload } }
+                { data: { backendUpdatePayload, beneficiary } }
             );
             const ExtractedOnUpdateResponseBody: ExtractedOnUpdateResponsePayload =
-                await UpdateActionHandler.sendUpdateCallToBackend(backendUpdatePayload);
+                await UpdateActionHandler.sendUpdateCallToBackend(backendUpdatePayload, beneficiary);
             logger.debug(
                 `🟢 [${reqId}] Received update response from backend in handleEVChargingUBCBppUpdateAction`,
                 { data: { ExtractedOnUpdateResponseBody } }
             );
 
+            // Fetch existing status response to reuse payment (same as status)
+            // const existingOnStatusResponse = await UpdateActionHandler.fetchExistingBppOnStatusResponse(reqPayload.context.transaction_id);
+
             // translate CPO's BE Server response to UBC Schema
-            logger.debug(
-                `🟡 [${reqId}] Translating Backend to UBC payload in handleEVChargingUBCBppUpdateAction`,
-                { data: { reqPayload, ExtractedOnUpdateResponseBody } }
-            );
-            const ubcOnUpdatePayload: UBCOnUpdateRequestPayload =
-                UpdateActionHandler.translateBackendToUBC(
-                    reqPayload,
-                    ExtractedOnUpdateResponseBody
-                );
+            // logger.debug(
+            //     `🟡 [${reqId}] Translating Backend to UBC payload in handleEVChargingUBCBppUpdateAction`,
+            //     { data: { reqPayload, ExtractedOnUpdateResponseBody } }
+            // );
+            // const ubcOnUpdatePayload: UBCOnUpdateRequestPayload =
+            //     UpdateActionHandler.translateBackendToUBC(
+            //         reqPayload,
+            //         ExtractedOnUpdateResponseBody,
+            //         existingOnStatusResponse
+            //     );
 
             // Call BAP on_select
-            logger.debug(
-                `🟡 [${reqId}] Sending on_update call to Beckn ONIX in handleEVChargingUBCBppUpdateAction`,
-                { data: { ubcOnUpdatePayload } }
-            );
-            const response =
-                await UpdateActionHandler.sendOnUpdateCallToBecknONIX(ubcOnUpdatePayload);
-            logger.debug(
-                `🟢 [${reqId}] Sent on_update call to Beckn ONIX in handleEVChargingUBCBppUpdateAction`,
-                { data: { response } }
-            );
+            // logger.debug(
+            //     `🟡 [${reqId}] Sending on_update call to Beckn ONIX in handleEVChargingUBCBppUpdateAction`,
+            //     { data: { ubcOnUpdatePayload } }
+            // );
+            // const response =
+            //     await UpdateActionHandler.sendOnUpdateCallToBecknONIX(ubcOnUpdatePayload);
+            // logger.debug(
+            //     `🟢 [${reqId}] Sent on_update call to Beckn ONIX in handleEVChargingUBCBppUpdateAction`,
+            //     { data: { response } }
+            // );
 
             // return the response
-            return ubcOnUpdatePayload;
+            return ExtractedOnUpdateResponseBody as any;
         } 
         catch (e: any) {
             logger.error(
@@ -132,7 +143,7 @@ export default class UpdateActionHandler {
         const becknLogs = await BecknLogDbService.getByFilters({
             where: {
                 transaction_id: transactionId,
-                action: `bpp.out.request.${BecknAction.on_update}`,
+                action: `bpp.in.request.${BecknAction.update}`,
                 domain: BecknDomain.EVChargingUBC,
             },
             select: {
@@ -151,72 +162,138 @@ export default class UpdateActionHandler {
         return null;
     }
 
+    public static async fetchExistingBppOnStatusResponse(transactionId: string): Promise<any | null> {
+        const becknLogs = await BecknLogDbService.getByFilters({
+            where: {
+                transaction_id: transactionId,
+                action: `bpp.out.request.${BecknAction.on_status}`,
+                domain: BecknDomain.EVChargingUBC,
+            },
+            select: {
+                payload: true,
+            },
+            orderBy: {
+                created_on: Prisma.SortOrder.desc,
+            },
+            take: 1,
+        });
+
+        if (becknLogs?.records && becknLogs.records.length > 0) {
+            return becknLogs.records[0].payload;
+        }
+
+        return null;
+    }
+
+    /**
+     * Determines the charging action based on session status
+     * Start charging: sessionStatus is "PENDING" (user wants to start the charging session)
+     * Stop charging: sessionStatus is "STOP" (user wants to stop during an active session)
+     */
+    public static determineChargingAction(sessionStatus: string | ChargingSessionStatus): ChargingAction {
+        if (sessionStatus === ChargingSessionStatus.PENDING) {
+            return ChargingAction.StartCharging;
+        }
+        else if (sessionStatus === 'STOP') {
+            return ChargingAction.StopCharging;
+        }
+        else {
+            throw new Error(`Invalid sessionStatus for update action: ${sessionStatus}. Expected "PENDING" for start charging or "STOP" for stop charging.`);
+        }
+    }
+
     public static translateUBCToBackendPayload(
         payload: UBCUpdateRequestPayload
     ): ExtractedUpdateRequestBody {
+        const deliveryAttributes = payload.message.order['beckn:fulfillment']['beckn:deliveryAttributes'] as Record<string, unknown>;
+        const sessionStatus = deliveryAttributes?.sessionStatus as ChargingSessionStatus;
+
         const backendUpdatePayload: ExtractedUpdateRequestBody = {
             metadata: {
                 domain: BecknDomain.EVChargingUBC,
                 bpp_id: payload.context.bpp_id,
                 bpp_uri: payload.context.bpp_uri,
                 beckn_transaction_id: payload.context.transaction_id,
-                bap_id: payload.context.bap_id,
-                bap_uri: payload.context.bap_uri,
+                bap_id: payload.context.bap_id || '',
+                bap_uri: payload.context.bap_uri || '',
             },
             payload: {
                 charge_point_connector_id:
                     payload.message.order['beckn:orderItems'][0]['beckn:orderedItem'],
-                beckn_order_id: payload.message.order['beckn:orderNumber'],
-                /**
-                 * If the session status is pending or active, then start charging.
-                 * If the session status is completed, then stop charging.
-                 */
-                charging_action:
-                    payload.message.order['beckn:fulfillment']['beckn:deliveryAttributes'][
-                        'sessionStatus'
-                    ] === ChargingSessionStatus.PENDING ||
-                    payload.message.order['beckn:fulfillment']['beckn:deliveryAttributes'][
-                        'sessionStatus'
-                    ] === ChargingSessionStatus.ACTIVE
-                        ? ChargingAction.StartCharging
-                        : ChargingAction.StopCharging,
+                beckn_order_id: payload.message.order['beckn:id'], // Use beckn:id instead of beckn:orderNumber
+                charging_action: this.determineChargingAction(sessionStatus),
             },
         };
         return backendUpdatePayload;
     }
 
-    public static async sendUpdateCallToBackend(
-        payload: ExtractedUpdateRequestBody
-    ): Promise<ExtractedOnUpdateResponsePayload> {
+    public static async fetchExistingBppOnInitResponse(transactionId: string): Promise<any | null> {
+        const becknLogs = await BecknLogDbService.getByFilters({
+            where: {
+                transaction_id: transactionId,
+                action: `bpp.out.request.${BecknAction.on_init}`,
+                domain: BecknDomain.EVChargingUBC,
+            },
+            select: {
+                payload: true,
+            },
+            orderBy: {
+                created_on: Prisma.SortOrder.desc,
+            },
+            take: 1,
+        });
 
+        if (becknLogs?.records && becknLogs.records.length > 0) {
+            return becknLogs.records[0].payload;
+        }
+
+        return null;
+    }
+
+    public static async sendUpdateCallToBackend(
+        payload: ExtractedUpdateRequestBody,
+        beneficiary: 'BPP' | 'BAP' = 'BPP'
+    ): Promise<ExtractedOnUpdateResponsePayload> {
         const { beckn_order_id, charging_action, charge_point_connector_id } = payload.payload;
+
+        let paymentTxn = null;
         
-        
-        if (charging_action === ChargingAction.StartCharging) {
-            const evseConnector = await EvseConnectorDbService.getById(charge_point_connector_id, {
-                include: {
-                    evse: {
-                        select: {
-                            partner_id: true,
-                            evse_id: true,
-                            location: {
-                                select: {
-                                    ocpi_location_id: true,
-                                },
-                            },
-                        },
-                    },
+        // Only check payment status if beneficiary is BPP
+        if (beneficiary === 'BPP') {
+            paymentTxn = await PaymentTxnDbService.getFirstByFilter({
+                where: {
+                    authorization_reference: beckn_order_id,
                 },
             });
-            if (!evseConnector) {
-                throw new Error('EVSE Connector not found');
+
+            if (!paymentTxn) {
+                throw new Error('Payment txn not found');
             }
+
+            const paymentStatus = mapGenericToBecknStatus(paymentTxn.status);
+            if (paymentStatus !== BecknPaymentStatus.COMPLETED) {
+                throw new Error('Payment txn is not completed');
+            }
+        }
+        
+        if (charging_action === ChargingAction.StartCharging) {
+            
+            // Fetch connector directly from DB using beckn_connector_id
+            const connectorData = await LocationDbService.getConnectorByBecknId(charge_point_connector_id);
+            
+            if (!connectorData) {
+                throw new Error(`Connector not found for: ${charge_point_connector_id}`);
+            }
+
+            const evseConnector = connectorData.connector;
+            const evse = connectorData.evse;
+            const location = connectorData.location;
     
             const req = {
                 body: {
-                    partner_id: evseConnector.partner_id,
-                    location_id: evseConnector.evse?.location?.ocpi_location_id ?? '',
-                    evse_uid: evseConnector.evse?.evse_id ?? '',
+                    partner_id: evse.partner_id ?? '',
+                    location_id: location.ocpi_location_id,
+                    evse_uid: evse.uid,
                     connector_id: evseConnector.connector_id,
                     transaction_id: beckn_order_id,
                 },
@@ -224,23 +301,38 @@ export default class UpdateActionHandler {
 
             // Check if session already exists (update action can be called multiple times)
             let session = await SessionDbService.getByAuthorizationReference(beckn_order_id);
+            if (session) {
+                if(session.status !== ChargingSessionStatus.PENDING) {
+                    throw new Error('Session is not in pending state');
+                }
+            }
             if (!session) {
                 // Only create if it doesn't exist
+                // For BAP beneficiary, requested_energy_units may not be available
+                const sessionData: any = {
+                    country_code: 'IN',
+                    partner_id: evse.partner_id ?? '',
+                    location_id: location.ocpi_location_id,
+                    evse_uid: evse.uid,
+                    connector_id: connectorData.connector.connector_id,
+                    authorization_reference: beckn_order_id,
+                    status: ChargingSessionStatus.PENDING,
+                };
+                
+                // Only add requested_energy_units if paymentTxn exists (BPP beneficiary)
+                if (paymentTxn?.requested_energy_units) {
+                    sessionData.requested_energy_units = paymentTxn.requested_energy_units;
+                }
+                
                 session = await SessionDbService.create({
-                    data: {
-                        country_code: 'IN',
-                        partner_id: evseConnector.partner_id,
-                        location_id: evseConnector.evse?.location?.ocpi_location_id ?? '',
-                        evse_uid: evseConnector.evse?.evse_id ?? '',
-                        connector_id: charge_point_connector_id,
-                        authorization_reference: beckn_order_id,
-                    },
+                    data: sessionData,
                 });
             }
             const response = await AdminCommandsModule.startCharging(req);
             const ocpiCommandResponse = response.payload.data as OCPICommandResponseResponse;
+            
             return {
-                session_status: ocpiCommandResponse.data?.result === OCPICommandResponseType.ACCEPTED ? ChargingSessionStatus.ACTIVE : ChargingSessionStatus.COMPLETED,
+                session_status: ocpiCommandResponse.data?.result === OCPICommandResponseType.ACCEPTED ? ChargingSessionStatus.ACTIVE : ChargingSessionStatus.INTERRUPTED,
             };
         } 
         else if (charging_action === ChargingAction.StopCharging) {
@@ -248,6 +340,39 @@ export default class UpdateActionHandler {
             if (!session) {
                 throw new Error('Session not found');
             }
+            // if (!session.cpo_session_id && session.partner_id) {
+            //     const partner = await OCPIPartnerDbService.getById(session.partner_id);
+            //     if (partner) {
+            //         const partnerAdditionalProps = partner.additional_props as OCPIPartnerAdditionalProps;
+            //         if (partnerAdditionalProps?.test_mode === true ) {
+            //             const stopChargingDelay = partnerAdditionalProps?.stop_charging_delay ?? 10;
+            //             // add a delay of 10 seconds
+            //             setTimeout(async () => {
+            //                 try {
+            //                     // send a stop charging command to the CPO
+            //                     const sessionNew = await SessionDbService.getByAuthorizationReference(beckn_order_id);
+            //                     if (!sessionNew) {
+            //                         throw new Error('Session not found');
+            //                     }
+            //                     const req = {
+            //                         body: {
+            //                             partner_id: sessionNew.partner_id,
+            //                             session_id: sessionNew.cpo_session_id,
+            //                         },
+            //                     } as Request;
+            //                     await AdminCommandsModule.stopCharging(req);
+            //                 }
+            //                 catch (e: any) {
+            //                     logger.error(`🔴 Error in UpdateActionHandler.handleEVChargingUBCBppUpdateAction: ${e?.toString()}`, e);
+            //                 }
+            //             }, 1000 * stopChargingDelay);
+
+            //             return {
+            //                 session_status: ChargingSessionStatus.COMPLETED,
+            //             };
+            //         }
+            //     }
+            // } 
             const req = {
                 body: {
                     partner_id: session.partner_id,
@@ -256,8 +381,9 @@ export default class UpdateActionHandler {
             } as Request;
             const response = await AdminCommandsModule.stopCharging(req);
             const ocpiCommandResponse = response.payload.data as OCPICommandResponseResponse;
+            
             return {
-                session_status: ocpiCommandResponse.data?.result === OCPICommandResponseType.ACCEPTED ? ChargingSessionStatus.COMPLETED : ChargingSessionStatus.INTERRUPTED,
+                session_status: ocpiCommandResponse.data?.result === OCPICommandResponseType.ACCEPTED ? ChargingSessionStatus.COMPLETED : ChargingSessionStatus.ACTIVE,
             };
         }
         else {
@@ -267,37 +393,77 @@ export default class UpdateActionHandler {
 
     public static translateBackendToUBC(
         backendUpdatePayload: UBCUpdateRequestPayload,
-        ExtractedOnUpdateResponseBody: ExtractedOnUpdateResponsePayload
+        ExtractedOnUpdateResponseBody: ExtractedOnUpdateResponsePayload,
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        existingOnStatusResponse: any | null // Not used currently, but kept for consistency with reference implementation
     ): UBCOnUpdateRequestPayload {
         const context = Utils.getBPPContext({
             ...backendUpdatePayload.context,
             action: BecknAction.on_update,
         });
 
+        const order = backendUpdatePayload.message.order;
+        const fulfillment = order['beckn:fulfillment'];
+        const deliveryAttributes = fulfillment?.['beckn:deliveryAttributes'] as Record<string, unknown>;
+        const sessionStatus = ExtractedOnUpdateResponseBody.session_status;
+
+        // Determine orderStatus based on session status
+        let orderStatus: OrderStatus;
+        if (sessionStatus === ChargingSessionStatus.ACTIVE) {
+            orderStatus = OrderStatus.INPROGRESS;
+        }
+        else if (sessionStatus === ChargingSessionStatus.COMPLETED) {
+            orderStatus = OrderStatus.COMPLETED;
+        }
+        else if (sessionStatus === ChargingSessionStatus.INTERRUPTED) {
+            orderStatus = OrderStatus.CANCELLED;
+        }
+        else {
+            orderStatus = order['beckn:orderStatus'] as OrderStatus;
+        }
+
+        // Per schema line 2338-2340: when sessionStatus is ACTIVE, deliveryAttributes must include connectorType and maxPowerKW
+        // Ensure these fields are preserved from update request or kept if already present
+        const updatedDeliveryAttributes = {
+            ...deliveryAttributes, // reuse everything from update request first (including connectorType and maxPowerKW if present)
+            "@context": (deliveryAttributes?.['@context'] as string) || "https://raw.githubusercontent.com/beckn/protocol-specifications-v2/refs/heads/core-v2.0.0-rc/schema/EvChargingSession/v1/context.jsonld",
+            "@type": "ChargingSession" as const,
+            'sessionStatus': sessionStatus, // only update sessionStatus
+        };
+
+
+        // Per schema (lines 2251-2360, 2556-2630): on_update should NOT include orderAttributes
+        // Build order object explicitly, excluding orderAttributes
         const ubcOnUpdatePayload: UBCOnUpdateRequestPayload = {
             context: context,
             message: {
                 order: {
-                    ...backendUpdatePayload.message.order,
-                    'beckn:orderStatus':
-                        ExtractedOnUpdateResponseBody.session_status ===
-                            ChargingSessionStatus.ACTIVE ||
-                        ExtractedOnUpdateResponseBody.session_status ===
-                            ChargingSessionStatus.COMPLETED
-                            ? OrderStatus.COMPLETED
-                            : backendUpdatePayload.message.order['beckn:orderStatus'],
+                    "@context": order['@context'],
+                    "@type": order['@type'],
+                    "beckn:id": order['beckn:id'],
+                    'beckn:orderStatus': orderStatus, // only update orderStatus
+                    "beckn:seller": order['beckn:seller'],
+                    "beckn:buyer": order['beckn:buyer'],
+                    "beckn:orderItems": order['beckn:orderItems'],
+                    "beckn:orderValue": order['beckn:orderValue'],
+                    "beckn:payment": order['beckn:payment'],
                     'beckn:fulfillment': {
-                        ...backendUpdatePayload.message.order['beckn:fulfillment'],
-                        'beckn:deliveryAttributes': {
-                            ...backendUpdatePayload.message.order['beckn:fulfillment'][
-                                'beckn:deliveryAttributes'
-                            ],
-                            sessionStatus: ExtractedOnUpdateResponseBody.session_status,
-                        },
+                        ...fulfillment, // reuse everything from update request first
+                        "@context": fulfillment?.['@context'] || "https://raw.githubusercontent.com/beckn/protocol-specifications-v2/refs/heads/core-v2.0.0-rc/schema/core/v2/context.jsonld",
+                        "@type": fulfillment?.['@type'] || "beckn:Fulfillment",
+                        "beckn:id": fulfillment?.['beckn:id'] || `fulfillment-${order['beckn:id']}`,
+                        "beckn:mode": fulfillment?.['beckn:mode'] || "RESERVATION",
+                        'beckn:deliveryAttributes': updatedDeliveryAttributes,
                     },
                 },
             },
         };
+
+        // Conditionally include order_value if present in backend response
+        if (ExtractedOnUpdateResponseBody?.order_value) {
+            ubcOnUpdatePayload.message.order['beckn:orderValue'] = ExtractedOnUpdateResponseBody.order_value;
+        }
+
         return ubcOnUpdatePayload;
     }
 

@@ -12,7 +12,7 @@ export type BecknCatalogOffer = {
     "beckn:id": string;
     "beckn:items": string[];
     "beckn:price": BecknOfferPrice;
-    "beckn:provider"?: string;
+    "beckn:provider"?: string; // String in publish catalog per TSD v0.9
     "beckn:validity": BecknTimePeriod;
     "beckn:descriptor": BecknDescriptor;
     "beckn:offerAttributes": BecknOfferAttributes;

@@ -7,6 +7,7 @@ import {
     OCPIVersionDetailResponse,
 } from '../../../../schema/modules/verisons/types/responses';
 import { OCPILogCommand } from '../../../../types';
+import { logger } from '../../../../../services/logger.service';
 
 type VersionDetailUnion = OCPIVersionDetailResponse | OCPIv211VersionDetailResponse;
 
@@ -27,34 +28,78 @@ export default class OCPIv221VersionsModuleOutgoingRequestService {
         versionsUrl: string,
         cpoAuthToken: string,
         partnerId?: string,
+        headers?: Record<string, string>,
     ): Promise<OCPIVersionClass[]> {
-        if (!cpoAuthToken) {
-            throw new Error('CPO auth token is required');
-        }
+        const reqId = headers?.['x-correlation-id'] || headers?.['X-Correlation-Id'] || headers?.['x-request-id'] || headers?.['X-Request-Id'] || `outgoing-${Date.now()}`;
+        const logData = { action: 'getVersions', partnerId, versionsUrl };
 
-        const response = await OCPIOutgoingRequestService.sendGetRequest({
-            url: versionsUrl,
-            headers: {
+        try {
+            logger.debug(`🟡 [${reqId}] Starting getVersions in OCPIv221VersionsModuleOutgoingRequestService`, { data: logData });
+
+            if (!cpoAuthToken) {
+                logger.error(`🔴 [${reqId}] CPO auth token is required in getVersions`, undefined, { data: logData });
+                throw new Error('CPO auth token is required');
+            }
+
+            logger.debug(`🟡 [${reqId}] Sending GET request to CPO /versions endpoint in getVersions`, { 
+                data: { ...logData, versionsUrl } 
+            });
+
+            const requestHeaders: Record<string, string> = {
                 Authorization: `Token ${cpoAuthToken}`,
-            },
-            partnerId,
-            command: OCPILogCommand.SendGetVersionReq,
-        });
+                ...(headers?.['X-Correlation-Id'] && { 'X-Correlation-Id': headers['X-Correlation-Id'] }),
+                ...(headers?.['x-correlation-id'] && { 'X-Correlation-Id': headers['x-correlation-id'] }),
+                ...(headers?.['X-Request-Id'] && { 'X-Request-Id': headers['X-Request-Id'] }),
+                ...(headers?.['x-request-id'] && { 'X-Request-Id': headers['x-request-id'] }),
+            };
 
-        const payload = response.data as {
-            data?: OCPIVersionClass[];
-            versions?: OCPIVersionClass[];
-            status_code?: number;
-        };
+            const response = await OCPIOutgoingRequestService.sendGetRequest({
+                url: versionsUrl,
+                headers: requestHeaders,
+                partnerId,
+                requestCommand: OCPILogCommand.SendGetVersionReq,
+                responseCommand: OCPILogCommand.SendGetVersionRes,
+            });
 
-        const versions: OCPIVersionClass[] | undefined =
-            payload.data ?? payload.versions;
+            logger.debug(`🟢 [${reqId}] Received response from CPO /versions endpoint in getVersions`, { 
+                data: { ...logData, responseData: response.data } 
+            });
 
-        if (!versions || !Array.isArray(versions)) {
-            throw new Error('Invalid response format from CPO /versions endpoint');
+            const payload = response.data as {
+                data?: OCPIVersionClass[];
+                versions?: OCPIVersionClass[];
+                status_code?: number;
+            };
+
+            logger.debug(`🟡 [${reqId}] Parsing response payload in getVersions`, { 
+                data: { ...logData, payload } 
+            });
+
+            const versions: OCPIVersionClass[] | undefined =
+                payload.data ?? payload.versions;
+
+            if (!versions || !Array.isArray(versions)) {
+                logger.error(`🔴 [${reqId}] Invalid response format from CPO /versions endpoint in getVersions`, undefined, { 
+                    data: { ...logData, payload, versions } 
+                });
+                throw new Error('Invalid response format from CPO /versions endpoint');
+            }
+
+            logger.debug(`🟢 [${reqId}] Successfully parsed ${versions.length} versions from CPO in getVersions`, { 
+                data: { ...logData, versionCount: versions.length, versions } 
+            });
+
+            return versions;
         }
-
-        return versions;
+        catch (e: any) {
+            logger.error(`🔴 [${reqId}] Error in getVersions: ${e?.toString()}`, e, {
+                data: {
+                    ...logData,
+                    error: e,
+                },
+            });
+            throw e;
+        }
     }
 
     /**
@@ -69,36 +114,83 @@ export default class OCPIv221VersionsModuleOutgoingRequestService {
         cpoAuthToken: string,
         fallbackVersionId?: string,
         partnerId?: string,
+        headers?: Record<string, string>,
     ): Promise<VersionDetailUnion> {
-        if (!cpoAuthToken) {
-            throw new Error('CPO auth token is required');
-        }
+        const reqId = headers?.['x-correlation-id'] || headers?.['X-Correlation-Id'] || headers?.['x-request-id'] || headers?.['X-Request-Id'] || `outgoing-${Date.now()}`;
+        const logData = { action: 'getVersionDetails', partnerId, versionUrl, fallbackVersionId };
 
-        const response = await OCPIOutgoingRequestService.sendGetRequest({
-            url: versionUrl,
-            headers: {
+        try {
+            logger.debug(`🟡 [${reqId}] Starting getVersionDetails in OCPIv221VersionsModuleOutgoingRequestService`, { data: logData });
+
+            if (!cpoAuthToken) {
+                logger.error(`🔴 [${reqId}] CPO auth token is required in getVersionDetails`, undefined, { data: logData });
+                throw new Error('CPO auth token is required');
+            }
+
+            logger.debug(`🟡 [${reqId}] Sending GET request to CPO version-details endpoint in getVersionDetails`, { 
+                data: { ...logData, versionUrl } 
+            });
+
+            const requestHeaders: Record<string, string> = {
                 Authorization: `Token ${cpoAuthToken}`,
-            },
-            partnerId,
-            command: OCPILogCommand.SendGetVersionDetailsReq,
-        });
+                ...(headers?.['X-Correlation-Id'] && { 'X-Correlation-Id': headers['X-Correlation-Id'] }),
+                ...(headers?.['x-correlation-id'] && { 'X-Correlation-Id': headers['x-correlation-id'] }),
+                ...(headers?.['X-Request-Id'] && { 'X-Request-Id': headers['X-Request-Id'] }),
+                ...(headers?.['x-request-id'] && { 'X-Request-Id': headers['x-request-id'] }),
+            };
 
-        const payload = response.data as {
-            data?: VersionDetailUnion;
-            endpoints?: VersionDetailUnion['endpoints'];
-        };
+            const response = await OCPIOutgoingRequestService.sendGetRequest({
+                url: versionUrl,
+                headers: requestHeaders,
+                partnerId,
+                requestCommand: OCPILogCommand.SendGetVersionDetailsReq,
+                responseCommand: OCPILogCommand.SendGetVersionDetailsRes,
+            });
 
-        if (payload.data) {
-            return payload.data;
+            logger.debug(`🟢 [${reqId}] Received response from CPO version-details endpoint in getVersionDetails`, { 
+                data: { ...logData, responseData: response.data } 
+            });
+
+            const payload = response.data as {
+                data?: VersionDetailUnion;
+                endpoints?: VersionDetailUnion['endpoints'];
+            };
+
+            logger.debug(`🟡 [${reqId}] Parsing response payload in getVersionDetails`, { 
+                data: { ...logData, payload } 
+            });
+
+            if (payload.data) {
+                logger.debug(`🟢 [${reqId}] Returning payload.data from CPO response in getVersionDetails`, { 
+                    data: { ...logData, versionDetails: payload.data } 
+                });
+                return payload.data;
+            }
+
+            const endpoints = payload.endpoints ?? [];
+            logger.debug(`🟡 [${reqId}] Building version details response with fallback version ID in getVersionDetails`, { 
+                data: { ...logData, endpointCount: endpoints.length, fallbackVersionId } 
+            });
+
+            const versionDetailResponse: VersionDetailUnion = {
+                version: (fallbackVersionId ?? '') as any,
+                endpoints,
+            };
+
+            logger.debug(`🟢 [${reqId}] Returning version details response in getVersionDetails`, { 
+                data: { ...logData, versionDetailResponse } 
+            });
+
+            return versionDetailResponse;
         }
-
-        const endpoints = payload.endpoints ?? [];
-
-        return {
-            version: (fallbackVersionId ?? '') as any,
-            endpoints,
-        };
+        catch (e: any) {
+            logger.error(`🔴 [${reqId}] Error in getVersionDetails: ${e?.toString()}`, e, {
+                data: {
+                    ...logData,
+                    error: e,
+                },
+            });
+            throw e;
+        }
     }
 }
-
-

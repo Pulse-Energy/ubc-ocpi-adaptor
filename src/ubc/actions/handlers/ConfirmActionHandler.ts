@@ -15,6 +15,11 @@ import { OrderStatus } from '../../schema/v2.0.0/enums/OrderStatus';
 import PaymentTxnDbService from '../../../db-services/PaymentTxnDbService';
 import { BecknPaymentStatus } from '../../schema/v2.0.0/enums/PaymentStatus';
 import { PaymentTxnAdditionalProps } from '../../../types/PaymentTxn';
+import { EvseDbService } from '../../../db-services/EvseDbService';
+import { SessionDbService } from '../../../db-services/SessionDbService';
+import { LocationDbService } from '../../../db-services/LocationDbService';
+import { ChargingSessionStatus } from '../../schema/v2.0.0/enums/ChargingSessionStatus';
+import { convertOcpiStandardToConnectorType } from '../services/PublishActionService';
 
 /**
  * Handler for confirm action
@@ -71,7 +76,7 @@ export default class ConfirmActionHandler {
                 { data: { reqPayload, ExtractedOnConfirmResponseBody } }
             );
             const ubcOnConfirmPayload: UBCOnConfirmRequestPayload =
-                ConfirmActionHandler.translateBackendToUBC(
+                await ConfirmActionHandler.translateBackendToUBC(
                     reqPayload,
                     ExtractedOnConfirmResponseBody
                 );
@@ -129,7 +134,8 @@ export default class ConfirmActionHandler {
                 bap_uri: payload.context.bap_uri,
             },
             payload: {
-                beckn_order_id: payload.message.order['beckn:orderNumber'],
+                // v0.9: Use beckn:id instead of beckn:orderNumber
+                beckn_order_id: payload.message.order['beckn:id'],
             },
         };
         return backendConfirmPayload;
@@ -138,10 +144,7 @@ export default class ConfirmActionHandler {
     public static async sendConfirmCallToBackend(
         payload: ExtractedConfirmRequestBody
     ): Promise<ExtractedOnConfirmResponsePayload> {
-        /**
-         * @todo @gaganpulse: Need to change
-         */
-        
+
         const becknOrderId = payload.payload.beckn_order_id;
         const paymentTxn = await PaymentTxnDbService.getFirstByFilter({
             where: {
@@ -149,34 +152,104 @@ export default class ConfirmActionHandler {
                 status: BecknPaymentStatus.COMPLETED,
             },
         });
-        // if (!paymentTxn) {
-        //     throw new Error('No completed payment txn found');
-        // }
+        if (!paymentTxn) {
+            return {
+                order_status: OrderStatus.CONFIRMED,
+                payment_received_at: new Date().toISOString(),
+            };
+        }
 
         const paymentAdditionalProps = paymentTxn?.additional_props as PaymentTxnAdditionalProps;
         const paymentReceivedAt = paymentAdditionalProps?.payment_received_at;
+
+        const session = await SessionDbService.getByAuthorizationReference(becknOrderId);
+
+        const evse = await EvseDbService.getByEvseUId(session?.evse_uid ?? '');
+
+        const evseStatus = evse?.status;
+
+        let orderStatus = evseStatus === 'AVAILABLE' ? OrderStatus.CONFIRMED : OrderStatus.FAILED;
         
         return {
-            order_status: OrderStatus.CONFIRMED,
+            order_status: orderStatus,
             payment_received_at: paymentReceivedAt ?? new Date().toISOString(),
         };
     }
 
-    public static translateBackendToUBC(
+    public static async translateBackendToUBC(
         backendConfirmPayload: UBCConfirmRequestPayload,
         ExtractedOnConfirmResponseBody: ExtractedOnConfirmResponsePayload
-    ): UBCOnConfirmRequestPayload {
+    ): Promise<UBCOnConfirmRequestPayload> {
+        const confirmOrder = backendConfirmPayload.message.order;
+        
+        // Get connector details from orderedItem
+        const orderItems = confirmOrder['beckn:orderItems'] as Array<Record<string, unknown>>;
+        const orderedItem = orderItems?.[0]?.['beckn:orderedItem'] as string | undefined;
+        
+        let connectorType: string | undefined;
+        let maxPowerKW: number | undefined;
+        
+        if (orderedItem) {
+            try {
+                // Fetch connector directly from DB using beckn_connector_id
+                const connectorData = await LocationDbService.getConnectorByBecknId(orderedItem);
+                
+                if (connectorData) {
+                    const evseConnector = connectorData.connector;
+                    connectorType = convertOcpiStandardToConnectorType(evseConnector.standard);
+
+                    if (!connectorType) {
+                        logger.warn(`🟡 No connector type found for connector ${connectorData?.connector?.id}`);
+                    }
+                    // Convert max_electric_power from W to kW
+                    if (evseConnector.max_electric_power) {
+                        maxPowerKW = Number(evseConnector.max_electric_power) / 1000;
+                    }
+                }
+            }
+            catch (error) {
+                logger.debug(`🟡 Could not fetch connector details for on_confirm`, {
+                    data: { orderedItem, error: error instanceof Error ? error.message : String(error) }
+                });
+                // Continue without connector details if fetch fails
+            }
+        }
+        
+        // v0.9: OnConfirm response - added fulfillment with deliveryAttributes (sessionStatus, connectorType, maxPowerKW)
+        // v0.9: Removed orderNumber, orderAttributes
+        const deliveryAttributes = {
+            '@context': 'https://raw.githubusercontent.com/beckn/protocol-specifications-v2/refs/heads/core-v2.0.0-rc/schema/EvChargingSession/v1/context.jsonld',
+            '@type': 'ChargingSession' as const,
+            sessionStatus: ChargingSessionStatus.PENDING, // Initial status, will change to ACTIVE when charging starts
+            ...(connectorType && { connectorType }),
+            ...(maxPowerKW !== undefined && { maxPowerKW }),
+        };
+        
         const ubcOnConfirmPayload: UBCOnConfirmRequestPayload = {
-            context: {
+            context: Utils.getBPPContext({
                 ...backendConfirmPayload.context,
                 action: BecknAction.on_confirm,
-            },
+            }),
             message: {
                 order: {
-                    ...backendConfirmPayload.message.order,
+                    '@context': confirmOrder['@context'],
+                    '@type': confirmOrder['@type'],
+                    'beckn:id': confirmOrder['beckn:id'],
                     'beckn:orderStatus': ExtractedOnConfirmResponseBody.order_status,
+                    'beckn:seller': confirmOrder['beckn:seller'],
+                    'beckn:buyer': confirmOrder['beckn:buyer'],
+                    'beckn:orderItems': confirmOrder['beckn:orderItems'],
+                    'beckn:orderValue': confirmOrder['beckn:orderValue'],
+                    // v0.9: Added fulfillment with deliveryAttributes (sessionStatus, connectorType, maxPowerKW)
+                    'beckn:fulfillment': {
+                        '@context': 'https://raw.githubusercontent.com/beckn/protocol-specifications-v2/refs/heads/core-v2.0.0-rc/schema/core/v2/context.jsonld',
+                        '@type': 'beckn:Fulfillment' as any,
+                        'beckn:id': 'fulfillment-001',
+                        'beckn:mode': 'RESERVATION',
+                        'beckn:deliveryAttributes': deliveryAttributes,
+                    },
                     'beckn:payment': {
-                        ...backendConfirmPayload.message.order['beckn:payment'],
+                        ...confirmOrder['beckn:payment'],
                         'beckn:paidAt': ExtractedOnConfirmResponseBody.payment_received_at,
                     },
                 },

@@ -16,7 +16,10 @@ export default class OnixBppController {
         try {
             logger.debug(`🟡 Received request in requestWrapper for action ${action}`, { data: reqDetails });
 
-            if (Utils.isUBCDomain(reqDetails)) {
+            // Skip domain check for publish actions (publish/on_publish) as they don't include domain in request payload
+            const isPublishAction = action === BecknAction.publish || action === BecknAction.on_publish;
+            
+            if (isPublishAction || Utils.isUBCDomain(reqDetails)) {
                 // Return ACK first, then execute the function asynchronously after response is sent
                 const ackResponse = UBCResponseService.ack();
                 // Use setImmediate to ensure response is sent first, then execute async function

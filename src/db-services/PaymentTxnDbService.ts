@@ -78,4 +78,31 @@ export default class PaymentTxnDbService {
         const paymentTxn = await databaseService.prisma.paymentTxn.findFirst(queryArgs);
         return paymentTxn;
     }
+
+    public static async getByOrderId(orderId: string): Promise<PaymentTxn | null> {
+        // Note: Run `npx prisma generate` after schema update to get proper types
+        // payment_gateway_order_id field is in schema but types may not be generated yet
+        const paymentTxn = await databaseService.prisma.paymentTxn.findFirst({
+            where: {
+                payment_gateway_order_id: orderId,
+            },
+        });
+        return paymentTxn;
+    }
+
+    public static async getById(id: string): Promise<PaymentTxn | null> {
+        const paymentTxn = await databaseService.prisma.paymentTxn.findUnique({
+            where: { id },
+        });
+        return paymentTxn;
+    }
+
+    public static async getByAuthorizationReference(authorization_reference: string): Promise<PaymentTxn | null> {
+        return databaseService.prisma.paymentTxn.findFirst({
+            where: { authorization_reference: authorization_reference },
+            orderBy: {
+                created_at: 'desc',
+            },
+        });
+    }
 }

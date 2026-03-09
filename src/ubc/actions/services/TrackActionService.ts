@@ -13,6 +13,7 @@ import {
 import Utils from "../../../utils/Utils";
 import BppOnixRequestService from "../../services/BppOnixRequestService";
 import { OrderStatus } from "../../schema/v2.0.0/enums/OrderStatus";
+import { ChargingSessionStatus } from "../../schema/v2.0.0/enums/ChargingSessionStatus";
 
 /**
  * Service encapsulating UBC EV-charging track flow:
@@ -75,11 +76,14 @@ export default class TrackActionService {
         // Map OCPI session status string → Beckn OrderStatus (very rough mapping)
         const rawStatus = (session.status || "").toUpperCase();
         let orderStatus: OrderStatus = OrderStatus.INPROGRESS;
+        let sessionStatus: ChargingSessionStatus = ChargingSessionStatus.ACTIVE;
         if (rawStatus === "COMPLETED" || rawStatus === "FINISHED") {
             orderStatus = OrderStatus.COMPLETED;
+            sessionStatus = ChargingSessionStatus.COMPLETED;
         }
         else if (rawStatus === "INVALID" || rawStatus === "CANCELLED") {
             orderStatus = OrderStatus.CANCELLED;
+            sessionStatus = ChargingSessionStatus.INTERRUPTED;
         }
 
         const kwh = session.kwh ? Number(session.kwh as unknown as Prisma.Decimal) : 0;
@@ -148,8 +152,9 @@ export default class TrackActionService {
         return {
             order_id,
             order_status: orderStatus,
-            charge_point_connector_id: session.connector_id || "",
+            charge_point_connector_id: "", // Will be set from request in translateBackendToUBC
             telemetry_data: telemetry,
+            session_status: sessionStatus,
         };
     }
 
@@ -163,47 +168,65 @@ export default class TrackActionService {
             action: BecknAction.on_track,
         });
 
+        const trackOrder = backendTrackPayload.message.order;
+        
+        // Get connector ID from request's orderItems
+        const orderedItem = trackOrder["beckn:orderItems"]?.[0]?.["beckn:orderedItem"] || "";
+
+        // v0.9: OnTrack response includes seller, buyer (minimal), orderItems, and fulfillment
+        // v0.9: Fulfillment has trackingAction and deliveryAttributes with sessionStatus and chargingTelemetry
+        const sessionStatus = backendOnTrackResponsePayload.session_status || 
+            (backendOnTrackResponsePayload.order_status === OrderStatus.INPROGRESS 
+                ? ChargingSessionStatus.ACTIVE 
+                : ChargingSessionStatus.PENDING);
+
         return {
             context,
             message: {
                 order: {
                     "@context":
-                        "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/draft/schema/core/v2/context.jsonld",
-                    "@type": backendTrackPayload.message.order["@type"],
+                        "https://raw.githubusercontent.com/beckn/protocol-specifications-v2/refs/heads/core-v2.0.0-rc/schema/core/v2/context.jsonld",
+                    "@type": trackOrder["@type"],
                     "beckn:id": backendOnTrackResponsePayload.order_id,
                     "beckn:orderStatus": backendOnTrackResponsePayload.order_status,
+                    // v0.9: Include seller and buyer from request
+                    "beckn:seller": trackOrder["beckn:seller"],
+                    "beckn:buyer": trackOrder["beckn:buyer"],
                     "beckn:orderItems": [
                         {
-                            "beckn:lineId": "line-001",
-                            "beckn:orderedItem":
-                                backendOnTrackResponsePayload.charge_point_connector_id,
+                            "beckn:orderedItem": orderedItem,
                         },
                     ],
                     "beckn:fulfillment": {
                         "@context":
-                            "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/draft/schema/core/v2/context.jsonld",
-                        "@type": "beckn:fulfillment",
-                        "beckn:id": "fulfillment-charging-001",
+                            "https://raw.githubusercontent.com/beckn/protocol-specifications-v2/refs/heads/core-v2.0.0-rc/schema/core/v2/context.jsonld",
+                        "@type": "beckn:Fulfillment",
+                        "beckn:id": "fulfillment-001",
                         "beckn:mode": "RESERVATION",
+                        // v0.9: trackingAction at top level
                         trackingAction: {
-                            "@type": "schema:TrackAction",
+                            "@type": "beckn:TrackAction",
                             target: {
                                 "@type": "schema:EntryPoint",
                                 url: backendOnTrackResponsePayload.track_url || "",
                             },
-                            deliveryMethod: "",
-                            reservationId: "",
                         },
-                        deliveryAttributes: {
+                        // v0.9: deliveryAttributes with sessionStatus and chargingTelemetry
+                        "beckn:deliveryAttributes": {
                             "@context":
-                                "https://raw.githubusercontent.com/beckn/protocol-specifications-new/refs/heads/draft/schema/EvChargingService/v1/context.jsonld",
-                            "@type": "beckn:chargingSession",
+                                "https://raw.githubusercontent.com/beckn/protocol-specifications-v2/refs/heads/core-v2.0.0-rc/schema/EvChargingSession/v1/context.jsonld",
+                            "@type": "ChargingSession",
+                            sessionStatus: sessionStatus,
                             chargingTelemetry: [
                                 {
                                     eventTime:
                                         backendOnTrackResponsePayload.telemetry_data.event_time,
                                     metrics:
-                                        backendOnTrackResponsePayload.telemetry_data.metrics,
+                                        backendOnTrackResponsePayload.telemetry_data.metrics.map(m => ({
+                                            name: m.name,
+                                            value: m.value,
+                                            unitCode: m.unit || "",
+                                        })),
                                 },
                             ],
                         },

@@ -9,11 +9,14 @@ import SelectActionHandler from './actions/handlers/SelectActionHandler';
 import ConfirmActionHandler from './actions/handlers/ConfirmActionHandler';
 import UpdateActionHandler from './actions/handlers/UpdateActionHandler';
 import OnStatusActionHandler from './actions/handlers/OnStatusActionHandler';
+import StatusActionHandler from './actions/handlers/StatusActionHandler';
 import TrackActionHandler from './actions/handlers/TrackActionHandler';
 import CancelActionHandler from './actions/handlers/CancelActionHandler';
 import RatingActionHandler from './actions/handlers/RatingActionHandler';
 import SupportActionHandler from './actions/handlers/SupportActionHandler';
 import InitActionHandler from './actions/handlers/InitActionHandler';
+import PublishActionHandler from './actions/handlers/PublishActionHandler';
+import OnPublishActionHandler from './actions/handlers/OnPublishActionHandler';
 import OnixBppPreReqLogger from '../utils/OnixBppPreReqLogger';
 
 const router = Router();
@@ -88,6 +91,10 @@ router.post(`/${BecknAction.update}`, ubcAuth, async (req: Request, res: Respons
     handleRequest(req, res, next, UpdateActionHandler.handleBppUpdateAction)
 );
 
+router.post(`/${BecknAction.status}`, ubcAuth, async (req: Request, res: Response, next: NextFunction) =>
+    handleRequest(req, res, next, StatusActionHandler.handleBppStatusAction)
+);
+
 router.post(`/${BecknAction.on_status}`, ubcAuth, async (req: Request, res: Response, next: NextFunction) =>
     handleRequest(req, res, next, OnStatusActionHandler.handleBppOnStatusRequest)
 );
@@ -97,15 +104,31 @@ router.post(`/${BecknAction.track}`, ubcAuth, async (req: Request, res: Response
 );
 
 router.post(`/${BecknAction.cancel}`, ubcAuth, async (req: Request, res: Response, next: NextFunction) =>
-    handleRequest(req, res, next, CancelActionHandler.handleCancel)
+    handleRequest(req, res, next, CancelActionHandler.handleBppCancelAction)
 );
 
 router.post(`/${BecknAction.rating}`, ubcAuth, async (req: Request, res: Response, next: NextFunction) =>
-    handleRequest(req, res, next, RatingActionHandler.handleRating)
+    handleRequest(req, res, next, RatingActionHandler.handleBppRatingAction)
 );
 
 router.post(`/${BecknAction.support}`, ubcAuth, async (req: Request, res: Response, next: NextFunction) =>
-    handleRequest(req, res, next, SupportActionHandler.handleSupport)
+    handleRequest(req, res, next, SupportActionHandler.handleBppSupportRequest)
+);
+
+router.post(`/${BecknAction.support}/add`, ubcAuth, async (req: Request, res: Response, next: NextFunction) =>
+    handleRequest(req, res, next, SupportActionHandler.addSupportInformationToPartner)
+);
+
+router.post(`/${BecknAction.publish}`, ubcAuth, async (req: Request, res: Response, next: NextFunction) =>
+    handleRequest(req, res, next, PublishActionHandler.handleBppPublishRequest)
+);
+
+router.post(`/${BecknAction.on_publish}`, ubcAuth, async (req: Request, res: Response, next: NextFunction) =>
+    handleRequest(req, res, next, OnPublishActionHandler.handleBppOnPublishRequest)
+);
+
+router.post(`/${BecknAction.publish}/beckn`, ubcAuth, async (req: Request, res: Response, next: NextFunction) =>
+    handleRequest(req, res, next, PublishActionHandler.handleEVChargingUBCBppPublishActionForBecknPayload)
 );
 
 

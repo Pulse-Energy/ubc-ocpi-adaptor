@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { randomUUID } from "crypto";
+import { randomUUID, randomBytes } from "crypto";
 import { BecknDomain } from "../ubc/schema/v2.0.0/enums/BecknDomain";
 import GLOBAL_VARS from "../constants/global-vars";
 import { BecknAction } from "../ubc/schema/v2.0.0/enums/BecknAction";
@@ -12,6 +12,30 @@ import { OCPIPartner, OCPIPartnerCredentials } from "@prisma/client";
 export default class Utils {
     public static upperCaseFirstLetter(str: string): string {
         return str.charAt(0).toUpperCase() + str.slice(1);
+    }
+
+    /**
+     * Convert a label with numeric suffix to alphabetic.
+     * Example: Charger_2 -> Charger B, Charger_1 -> Charger A
+     * Numbers 1-26 map to A-Z; 27+ use Excel-style (AA, AB, ...)
+     */
+    public static convertNumericSuffixToLetter(str: string): string {
+        const match = str.match(/^(.+)_(\d+)$/);
+        if (!match) return str;
+
+        const [, prefix, numStr] = match;
+        const num = parseInt(numStr, 10);
+        if (num < 1) return str;
+
+        let letter = '';
+        let n = num;
+        while (n > 0) {
+            n -= 1;
+            letter = String.fromCharCode(65 + (n % 26)) + letter;
+            n = Math.floor(n / 26);
+        }
+
+        return `${prefix} ${letter}`;
     }
 
     /**
@@ -91,8 +115,25 @@ export default class Utils {
         return randomUUID();
     }
 
-
-
+    /**
+     * Generate a nano ID (similar to PostgreSQL nanoid function)
+     * @param size - Length of the ID (default: 9)
+     * @returns Random nano ID string
+     */
+    public static generateNanoId(size: number = 9): string {
+        // URL-safe alphabet with exactly 64 characters (required for byte & 63)
+        const urlAlphabet = 'ModuleSymbhasOwnPr0123456789ABCDEFGHNRVfgctiUvzKqYTJkLxpZXIjQWms';
+        const bytes = randomBytes(size);
+        let id = '';
+        
+        for (let i = 0; i < size; i++) {
+            const byte = bytes[i];
+            const pos = byte & 63; // Same as byte % 64 (0-63)
+            id += urlAlphabet[pos];
+        }
+        
+        return id;
+    }
 
     // BPP */
 
@@ -109,8 +150,16 @@ export default class Utils {
         return GLOBAL_VARS.EV_CHARGING_UBC_BPP_ID;
     }
 
+    public static getBppId(): string {
+        return GLOBAL_VARS.EV_CHARGING_UBC_BPP_ID;
+    }
+
     public static getUniqueId(domain?: BecknDomain): string {
         return GLOBAL_VARS.EV_CHARGING_UBC_UNIQUE_ID;
+    }
+
+    public static getBppUri(): string {
+        return `${GLOBAL_VARS.EV_CHARGING_UBC_BPP_CLIENT_HOST}/bpp/receiver`;
     }
 
 
@@ -120,8 +169,8 @@ export default class Utils {
         domain: BecknDomain,
         bap_id?: string,
         bap_uri?: string,
-        bpp_id: string,
-        bpp_uri: string,
+        bpp_id?: string,
+        bpp_uri?: string,
         transaction_id: string,
         message_id: string,
         timestamp?: string,
@@ -132,11 +181,12 @@ export default class Utils {
             domain: domain,
             action: action,
             version: version,
-            bpp_id: bpp_id,
-            bpp_uri: bpp_uri,
+            bpp_id: this.getBppId(),
+            bpp_uri: this.getBppUri(),
             transaction_id: transaction_id,
             message_id: message_id,
             timestamp: timestamp ?? new Date().toISOString(),
+            ttl: "PT30S",
         };
 
         // Only include bap_id and bap_uri if they are provided
@@ -189,6 +239,10 @@ export default class Utils {
                 deleted: false,
             },
         });
+    }
+
+    public static async sleep(ms: number): Promise<void> {
+        return new Promise((resolve) => setTimeout(resolve, ms));
     }
 
     
