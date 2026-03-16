@@ -188,7 +188,7 @@ export default class PaymentGatewayService {
             // Process refund with Razorpay
             if (paymentSdk === PaymentSDK.Razorpay) {
                 // For Razorpay, transactionId is the payment_id
-                const paymentId = transactionId;
+                const paymentId = payment_txn_id;
                 // Convert refund amount to paise
                 const refundAmountInPaisa = Math.round(refund_amount * 100);
 
