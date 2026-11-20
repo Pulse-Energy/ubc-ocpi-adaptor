@@ -1,3 +1,0 @@
-creation_rules:
-- encrypted_regex: "^(data|stringData)$"
-  gcp_kms: "projects/pulse-energy/locations/global/keyRings/sops/cryptoKeys/sops-key"
